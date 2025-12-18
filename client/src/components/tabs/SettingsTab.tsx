@@ -180,7 +180,7 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled }: Settings
           </button>
           {!showAdvanced && (
             <CardDescription className="text-slate-500">
-              Tap to view your crypto identity details
+              View your identity and security details
             </CardDescription>
           )}
         </CardHeader>
@@ -202,7 +202,7 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled }: Settings
               </Button>
             </div>
             <div>
-              <Label className="text-slate-400 text-sm">Call Address</Label>
+              <Label className="text-slate-400 text-sm">Call ID</Label>
               <div className="mt-1 p-3 bg-slate-900/50 rounded-lg font-mono text-xs text-emerald-400 break-all" data-testid="text-call-address">
                 {identity.address}
               </div>
@@ -215,7 +215,7 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled }: Settings
                   data-testid="button-copy-address"
                 >
                   <Copy className="w-4 h-4 mr-2" />
-                  Copy Address
+                  Copy Call ID
                 </Button>
                 <Button
                   onClick={onRotateAddress}
@@ -231,6 +231,19 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled }: Settings
             </div>
           </CardContent>
         )}
+      </Card>
+      <Card className="bg-slate-800/50 border-slate-700">
+        <CardHeader>
+          <CardTitle className="text-white">About</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-slate-400 text-sm italic">
+            "Calls only happen with your permission."
+          </p>
+          <p className="text-slate-500 text-xs mt-2">
+            Crypto Call uses end-to-end encryption for secure peer-to-peer calling.
+          </p>
+        </CardContent>
       </Card>
     </div>
   );

@@ -1,0 +1,87 @@
+UPGRADE MY EXISTING “CRYPTO CALL” APP TO PHASE 1: PERFECT CALLING (AUDIO+VIDEO) + PHONE-NATIVE UX + PWA + OPTIONAL BIOMETRIC APP LOCK + TURN RELIABILITY — WITHOUT BREAKING ANY EXISTING FEATURES.
+
+NON-NEGOTIABLE RULES
+- Do NOT remove, rename, or break any existing call/video logic, websocket message types, signing, replay protection, rate limiting, crypto identity generation, or contact/call flows that already work.
+- Keep existing architecture and files; only add/extend. If refactoring UI, wire into the same existing functions.
+- No mock data. Must remain live and testable.
+- No “Replit agent” branding.
+
+STEP 1 — CALL RELIABILITY HARDENING (DO FIRST)
+1) TURN support (optional, env-based):
+   - Read TURN_URL, TURN_USER, TURN_PASS from environment.
+   - If present, include TURN entry in RTCPeerConnection iceServers alongside STUN.
+   - If absent, continue STUN-only.
+2) ICE restart + reconnect:
+   - Add a “Reconnect” flow when connectionState becomes failed/disconnected.
+   - Implement pc.restartIce() where supported; otherwise re-create peer connection safely.
+   - Show UI state “Reconnecting…” while retrying.
+3) Network change handling:
+   - Listen for online/offline events and attempt ICE restart on reconnect.
+4) Quality UI:
+   - Show call status: idle / ringing / connecting / connected / reconnecting / ended.
+
+STEP 2 — FINAL PHONE UX POLISH (NO BACKEND CHANGES)
+1) Improve empty states:
+   - Calls tab: show “No recent calls” + primary button “Start a call” that navigates to Contacts or Add.
+   - Contacts tab: show “No contacts yet” + buttons “Add contact” and “Share my QR”.
+2) Contacts-first onboarding:
+   - On first run (no contacts), open Contacts tab by default.
+3) Auto-generated avatars:
+   - For each contact, generate an identicon or initials avatar deterministically from their address/public key.
+4) Rename “Anonymous” to “Private Mode” in the header/profile.
+5) Add Floating Action Button (FAB) on Calls + Contacts:
+   - Opens quick actions: Add contact, Start call, Share my QR, Create one-time call pass.
+6) Keep crypto details hidden by default:
+   - Identity keys/addresses only in Settings -> Advanced.
+
+STEP 3 — PWA PACKAGING (APP FEEL NOW)
+1) Add manifest.json:
+   - name: Crypto Call
+   - short_name: CryptoCall
+   - display: standalone
+   - theme_color/background_color consistent with UI
+   - icons (generate simple icons if needed)
+2) Add service worker:
+   - Cache app shell assets for offline opening.
+   - Do not attempt to cache websocket/call traffic.
+3) Ensure iOS “Add to Home Screen” works:
+   - Proper meta tags (apple-mobile-web-app-capable, status bar style, icons).
+
+STEP 4 — OPTIONAL BIOMETRIC APP LOCK (FACE ID / TOUCH ID) — ON/OFF
+Implement local-only app lock using WebAuthn platform authenticator.
+1) Settings toggle: “App Lock (Face ID / Touch ID)” default OFF.
+2) Enable flow:
+   - navigator.credentials.create with authenticatorAttachment:"platform" and userVerification:"required"
+   - Store only: enabled flag + credentialId locally (no server).
+3) On app load when enabled:
+   - Show full-screen lock screen blocking the UI.
+   - “Unlock” triggers navigator.credentials.get with a fresh challenge.
+4) Disable flow:
+   - After successful unlock, allow disabling and clear local stored credential reference.
+5) If WebAuthn unsupported:
+   - Show friendly message “App Lock not available on this device/browser.”
+
+STEP 5 — MASS-MARKET POSITIONING (COPY + LABELS)
+- Replace crypto-jargon in main UI with simple language:
+  - “Call Address” -> “Call ID” (still shows the value)
+  - Add a short tagline in Settings/About:
+    “Calls only happen with your permission.”
+- Keep “Advanced” section for power users:
+  - Public key, raw call address, rotate/revoke.
+
+DELIVERABLES
+- Update existing UI components/screens accordingly (keep it mobile-first).
+- Add the PWA files + wiring.
+- Add TURN env reading + ICE server injection into WebRTC setup.
+- Add reconnect logic that does not break existing call flow.
+- Provide a short TEST checklist in the project README or top of main file:
+
+TEST CHECKLIST (MUST PASS)
+1) Two tabs/devices: add contact, start VIDEO call, accept, video/audio works.
+2) Start AUDIO-only call, works.
+3) Toggle App Lock ON -> reload -> lock screen appears -> unlock works.
+4) Toggle App Lock OFF -> reload -> no lock.
+5) With TURN env set, app uses TURN; without TURN env, app still works.
+6) Simulate offline/online -> reconnect attempts occur and UI shows reconnecting.
+
+NOW IMPLEMENT THESE UPGRADES.

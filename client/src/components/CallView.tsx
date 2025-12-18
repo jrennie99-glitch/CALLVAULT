@@ -21,7 +21,7 @@ import * as crypto from '@/lib/crypto';
 import { addCallRecord, getContactByAddress } from '@/lib/storage';
 import type { CryptoIdentity, WSMessage } from '@shared/types';
 
-type CallState = 'idle' | 'calling' | 'ringing' | 'connected';
+type CallState = 'idle' | 'calling' | 'ringing' | 'connecting' | 'connected' | 'reconnecting' | 'ended';
 
 interface CallViewProps {
   identity: CryptoIdentity;
@@ -58,6 +58,8 @@ export function CallView({
   const remoteAddressRef = useRef<string>(destinationAddress);
   const callTimerRef = useRef<NodeJS.Timeout | null>(null);
   const callStartTimeRef = useRef<number>(0);
+  const reconnectAttemptsRef = useRef<number>(0);
+  const maxReconnectAttempts = 3;
 
   useEffect(() => {
     remoteAddressRef.current = destinationAddress;
@@ -225,18 +227,39 @@ export function CallView({
       pc.onconnectionstatechange = () => {
         switch (pc.connectionState) {
           case 'connecting':
+            setCallState('connecting');
             setConnectionStatus('Connecting...');
             break;
           case 'connected':
+            setCallState('connected');
             setConnectionStatus('Connected');
+            reconnectAttemptsRef.current = 0;
             break;
           case 'disconnected':
+            setCallState('reconnecting');
             setConnectionStatus('Reconnecting...');
+            attemptReconnect();
             break;
           case 'failed':
-            setConnectionStatus('Connection failed');
-            toast.error('Connection failed');
+            if (reconnectAttemptsRef.current < maxReconnectAttempts) {
+              setCallState('reconnecting');
+              setConnectionStatus('Reconnecting...');
+              attemptReconnect();
+            } else {
+              setCallState('ended');
+              setConnectionStatus('Connection failed');
+              toast.error('Connection failed after multiple attempts');
+              recordCall(isInitiator ? 'outgoing' : 'incoming', stopCallTimer());
+              handleEndCall();
+            }
             break;
+        }
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        if (pc.iceConnectionState === 'disconnected') {
+          setCallState('reconnecting');
+          setConnectionStatus('Network interrupted...');
         }
       };
 
@@ -288,6 +311,74 @@ export function CallView({
       await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
     }
   };
+
+  const attemptReconnect = async () => {
+    reconnectAttemptsRef.current += 1;
+    const pc = peerConnectionRef.current;
+    
+    if (!pc) {
+      await initiatePeerConnection(isInitiator);
+      return;
+    }
+
+    try {
+      if ('restartIce' in pc && typeof pc.restartIce === 'function') {
+        pc.restartIce();
+        
+        if (isInitiator) {
+          const offer = await pc.createOffer({ iceRestart: true });
+          await pc.setLocalDescription(offer);
+          if (ws && remoteAddressRef.current) {
+            ws.send(JSON.stringify({
+              type: 'webrtc:offer',
+              to_address: remoteAddressRef.current,
+              offer: offer
+            }));
+          }
+        }
+      } else {
+        cleanupPeerConnection();
+        await initiatePeerConnection(isInitiator);
+      }
+    } catch (error) {
+      console.error('Reconnect failed:', error);
+      if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
+        toast.error('Unable to reconnect');
+        handleEndCall();
+      }
+    }
+  };
+
+  const cleanupPeerConnection = () => {
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.close();
+      peerConnectionRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    const handleOnline = () => {
+      if (callState === 'reconnecting' || peerConnectionRef.current?.connectionState === 'disconnected') {
+        toast('Network restored, reconnecting...');
+        attemptReconnect();
+      }
+    };
+
+    const handleOffline = () => {
+      if (callState === 'connected') {
+        setCallState('reconnecting');
+        setConnectionStatus('Network lost...');
+      }
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [callState]);
 
   const handleEndCall = () => {
     if (ws && remoteAddressRef.current) {

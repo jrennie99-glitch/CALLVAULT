@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Search, User, Video, Phone, Trash2, ChevronLeft } from 'lucide-react';
+import { Search, User, Video, Phone, Trash2, ChevronLeft, UserPlus, QrCode } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { getContacts, deleteContact, type Contact } from '@/lib/storage';
+import { Avatar } from '@/components/Avatar';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,9 +17,11 @@ import {
 
 interface ContactsTabProps {
   onStartCall: (address: string, video: boolean) => void;
+  onNavigateToAdd?: () => void;
+  onShareQR?: () => void;
 }
 
-export function ContactsTab({ onStartCall }: ContactsTabProps) {
+export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR }: ContactsTabProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<Contact | null>(null);
@@ -51,11 +54,11 @@ export function ContactsTab({ onStartCall }: ContactsTabProps) {
         </button>
 
         <div className="text-center mb-8">
-          <div className="w-24 h-24 mx-auto rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center mb-4">
+          <div className="mx-auto mb-4 flex justify-center">
             {selectedContact.avatar ? (
-              <img src={selectedContact.avatar} alt="" className="w-full h-full rounded-full object-cover" />
+              <img src={selectedContact.avatar} alt="" className="w-24 h-24 rounded-full object-cover" />
             ) : (
-              <User className="w-12 h-12 text-white" />
+              <Avatar name={selectedContact.name} address={selectedContact.address} size="lg" />
             )}
           </div>
           <h2 className="text-2xl font-bold text-white mb-2">{selectedContact.name}</h2>
@@ -135,11 +138,32 @@ export function ContactsTab({ onStartCall }: ContactsTabProps) {
           <h3 className="text-lg font-medium text-slate-300 mb-2">
             {contacts.length === 0 ? 'No Contacts Yet' : 'No Results'}
           </h3>
-          <p className="text-slate-500 text-sm">
+          <p className="text-slate-500 text-sm mb-6">
             {contacts.length === 0
-              ? 'Add contacts using the Add tab'
+              ? 'Add your first contact to get started'
               : 'Try a different search term'}
           </p>
+          {contacts.length === 0 && (
+            <div className="flex gap-3">
+              <Button
+                onClick={onNavigateToAdd}
+                className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700"
+                data-testid="button-add-contact-empty-contacts"
+              >
+                <UserPlus className="w-4 h-4 mr-2" />
+                Add Contact
+              </Button>
+              <Button
+                onClick={onShareQR}
+                variant="outline"
+                className="border-slate-600 text-slate-300 hover:bg-slate-800"
+                data-testid="button-share-qr-empty"
+              >
+                <QrCode className="w-4 h-4 mr-2" />
+                Share My QR
+              </Button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="divide-y divide-slate-800">
@@ -150,13 +174,11 @@ export function ContactsTab({ onStartCall }: ContactsTabProps) {
               className="w-full flex items-center gap-4 p-4 hover:bg-slate-800/50 transition-colors text-left"
               data-testid={`contact-${contact.id}`}
             >
-              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center flex-shrink-0">
-                {contact.avatar ? (
-                  <img src={contact.avatar} alt="" className="w-full h-full rounded-full object-cover" />
-                ) : (
-                  <User className="w-5 h-5 text-white" />
-                )}
-              </div>
+              {contact.avatar ? (
+                <img src={contact.avatar} alt="" className="w-12 h-12 rounded-full object-cover flex-shrink-0" />
+              ) : (
+                <Avatar name={contact.name} address={contact.address} size="md" />
+              )}
               <div className="flex-1 min-w-0">
                 <div className="font-medium text-white truncate">{contact.name}</div>
                 <div className="text-sm text-slate-500 truncate font-mono">

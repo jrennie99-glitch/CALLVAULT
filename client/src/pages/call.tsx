@@ -5,12 +5,13 @@ import { TopBar } from '@/components/TopBar';
 import { LockScreen } from '@/components/LockScreen';
 import { CallView } from '@/components/CallView';
 import { IncomingCallModal } from '@/components/IncomingCallModal';
+import { FAB } from '@/components/FAB';
 import { CallsTab } from '@/components/tabs/CallsTab';
 import { ContactsTab } from '@/components/tabs/ContactsTab';
 import { AddTab } from '@/components/tabs/AddTab';
 import { SettingsTab } from '@/components/tabs/SettingsTab';
 import * as cryptoLib from '@/lib/crypto';
-import { getAppSettings, addCallRecord, getContactByAddress } from '@/lib/storage';
+import { getAppSettings, addCallRecord, getContactByAddress, getContacts } from '@/lib/storage';
 import type { CryptoIdentity, WSMessage } from '@shared/types';
 
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
@@ -21,7 +22,11 @@ const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
 export default function CallPage() {
   const [identity, setIdentity] = useState<CryptoIdentity | null>(null);
   const [ws, setWs] = useState<WebSocket | null>(null);
-  const [activeTab, setActiveTab] = useState<TabType>('calls');
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    const contacts = getContacts();
+    return contacts.length === 0 ? 'contacts' : 'calls';
+  });
+  const [showQRModal, setShowQRModal] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [inCall, setInCall] = useState(false);
   const [callDestination, setCallDestination] = useState('');
@@ -236,10 +241,18 @@ export default function CallPage() {
 
       <main className="flex-1 pb-20 overflow-y-auto">
         {activeTab === 'calls' && (
-          <CallsTab onStartCall={handleStartCall} />
+          <CallsTab 
+            onStartCall={handleStartCall}
+            onNavigateToAdd={() => setActiveTab('add')}
+            onNavigateToContacts={() => setActiveTab('contacts')}
+          />
         )}
         {activeTab === 'contacts' && (
-          <ContactsTab onStartCall={handleStartCall} />
+          <ContactsTab 
+            onStartCall={handleStartCall}
+            onNavigateToAdd={() => setActiveTab('add')}
+            onShareQR={() => setActiveTab('add')}
+          />
         )}
         {activeTab === 'add' && (
           <AddTab
@@ -255,6 +268,17 @@ export default function CallPage() {
           />
         )}
       </main>
+
+      {(activeTab === 'calls' || activeTab === 'contacts') && (
+        <FAB 
+          onNavigate={setActiveTab}
+          onAction={(action) => {
+            if (action === 'share-qr') {
+              setActiveTab('add');
+            }
+          }}
+        />
+      )}
 
       <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
 
