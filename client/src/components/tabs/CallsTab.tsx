@@ -133,7 +133,7 @@ export function CallsTab({ onStartCall, onNavigateToAdd, onNavigateToContacts, o
                       </div>
                     </div>
                     
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 mb-2">
                       <Button
                         onClick={() => onAcceptRequest?.(request)}
                         size="sm"
@@ -153,14 +153,27 @@ export function CallsTab({ onStartCall, onNavigateToAdd, onNavigateToContacts, o
                         <MessageCircle className="w-4 h-4 mr-1" />
                         Message
                       </Button>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={() => onDeclineRequest?.(request)}
+                        size="sm"
+                        variant="ghost"
+                        className="flex-1 text-slate-400 hover:text-slate-300 hover:bg-slate-700"
+                        data-testid={`decline-request-${request.id}`}
+                      >
+                        <X className="w-4 h-4 mr-1" />
+                        Ignore
+                      </Button>
                       <Button
                         onClick={() => onBlockRequester?.(request.from_address)}
                         size="sm"
                         variant="ghost"
-                        className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                        className="flex-1 text-red-400 hover:text-red-300 hover:bg-red-500/10"
                         data-testid={`block-request-${request.id}`}
                       >
-                        <Ban className="w-4 h-4" />
+                        <Ban className="w-4 h-4 mr-1" />
+                        Block
                       </Button>
                     </div>
                   </div>
