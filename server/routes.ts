@@ -85,6 +85,22 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  app.get('/api/turn-config', (_req, res) => {
+    const turnUrl = process.env.TURN_URL;
+    const turnUser = process.env.TURN_USER;
+    const turnPass = process.env.TURN_PASS;
+
+    if (turnUrl && turnUser && turnPass) {
+      res.json({
+        turnUrl,
+        turnUser,
+        turnPass
+      });
+    } else {
+      res.json({});
+    }
+  });
+
   const wss = new WebSocketServer({ 
     server: httpServer,
     path: '/ws'

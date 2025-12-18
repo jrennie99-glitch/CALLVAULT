@@ -1,0 +1,125 @@
+UPGRADE MY EXISTING “CRYPTO CALL” REPLIT APP TO A PHONE-NATIVE WHATSAPP-LIKE UI + OPTIONAL BIOMETRIC LOCK (FaceID/TouchID) + PWA + TURN CONFIG — WITHOUT BREAKING ANY EXISTING FEATURES.
+
+HARD RULES (MUST FOLLOW)
+- Do NOT remove, rename, or break any existing calling, crypto identity, signing, replay protection, or WebRTC signaling features.
+- Keep ALL existing backend endpoints / websocket message types / call flows intact.
+- This is primarily a UI/UX + packaging + settings upgrade. Only add minimal backend changes if absolutely required for TURN env passthrough.
+- No mock data. Everything stays live and functional.
+- Do NOT add “Replit agent” branding anywhere.
+
+GOAL
+Make it feel like a real phone app (WhatsApp/Signal-level UX) while keeping the crypto-address calling primitive.
+
+FEATURE SET TO IMPLEMENT (ALL OF THESE)
+
+A) PHONE-FIRST UI (WHATSAPP-LIKE)
+1) Convert the app to a MOBILE-FIRST layout:
+   - Single column layout
+   - Big touch targets
+   - No desktop “two-card” layout on mobile
+2) Add a BOTTOM TAB BAR with 4 tabs:
+   - Calls
+   - Contacts
+   - Add
+   - Settings
+3) Calls Tab:
+   - Show recent calls list (stored locally)
+   - Each row shows: name/address, time, incoming/outgoing/missed, audio/video icon
+   - Tap entry -> start call
+4) Contacts Tab:
+   - Show contacts list stored locally (name + address + optional avatar)
+   - Tap contact -> Contact detail screen with buttons: Video Call / Audio Call
+   - Search contacts
+5) Add Tab:
+   - Add contact by pasting crypto call address
+   - Generate a QR code for MY call address (so people can scan to add me)
+   - Scan QR code to add a contact (if camera/qr scan library available; if not, implement “paste QR payload” fallback)
+   - Support “Invite link” that encodes my call address
+6) Settings Tab:
+   - Profile section (display name + optional avatar)
+   - Privacy section:
+     - Toggle: “Hide my public key / address behind Advanced”
+     - Toggle: “Require FaceID/TouchID to open app” (biometric lock)  ✅ (see section D)
+   - Network section:
+     - Show current ICE mode: STUN-only or TURN enabled
+     - Input fields (optional) for TURN URL/user/pass if you choose client-side entry; otherwise pull from env.
+7) Advanced Identity (Hidden by default):
+   - Public key + call address
+   - Copy address button
+   - Rotate address button (keep existing rotate behavior)
+   - Important: these advanced fields must be viewable ONLY when user taps “Advanced”
+
+B) KEEP YOUR EXISTING CRYPTO CALLING LOGIC
+- Keep the current identity generation, call address format, signature verification, replay protection, rate limiting and WebRTC signaling messages exactly as currently implemented.
+- Rewire UI to call the same existing functions.
+- Existing “paste address and call” capability can remain as a secondary option, but primary flow must be Contacts-first.
+
+C) PWA PACKAGING (PHONE APP FEEL)
+- Add PWA support:
+  - manifest.json (name, icons, theme colors)
+  - service worker for offline shell (no need to cache signaling/calls)
+  - “Add to Home Screen” friendly behavior
+  - Fullscreen display mode
+- Ensure it runs cleanly as a PWA on iPhone/iPad and Android.
+
+D) OPTIONAL BIOMETRIC LOCK (FACEID/TOUCHID) — ON/OFF
+Implement an app lock that is fully optional and privacy-preserving.
+
+1) Add Settings toggle:
+   - “Require FaceID/TouchID to open app” default OFF
+2) When ON:
+   - On app load, show full-screen LOCK SCREEN that blocks the entire UI until unlocked
+   - Unlock uses WebAuthn platform authenticator:
+     - iOS uses FaceID/TouchID
+     - Android uses biometrics
+3) When OFF:
+   - App opens normally
+4) Must be LOCAL ONLY:
+   - Do NOT send biometric data to server
+   - Server is not involved
+5) Storage:
+   - Store only: enabled flag + credentialId (localStorage or IndexedDB)
+6) Implementation details:
+   - Use navigator.credentials.create({publicKey: ...}) to enroll
+     - authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required" }
+     - challenge: random
+   - Use navigator.credentials.get({publicKey: ...}) to unlock each launch
+     - new challenge each time
+   - If WebAuthn unsupported: show “Biometric lock not available on this device/browser.”
+7) UX:
+   - Lock screen has big “Unlock” button
+   - Also has “Disable biometric lock” option (requires successful unlock first)
+
+E) TURN SERVER SUPPORT HOOKS (RELIABILITY)
+- Keep STUN by default (works now).
+- Add TURN support via environment variables:
+  - TURN_URL, TURN_USER, TURN_PASS
+- If TURN env vars exist, include them in RTCPeerConnection iceServers along with STUN.
+- Show in Settings whether TURN is active.
+- Do NOT require TURN to run.
+
+F) QUALITY + POLISH (MUST)
+- Make it look like a premium mobile app:
+  - Sticky top bar with app name + profile avatar
+  - Bottom nav always visible
+  - Smooth transitions between screens
+  - Do not show raw crypto fields unless in Advanced
+- Maintain dark mode styling and improve spacing for iPhone.
+- Add haptic-friendly button sizing (large).
+
+DELIVERABLE OUTPUT
+- Update the codebase accordingly (React/Tailwind if already in use; otherwise keep your existing framework and implement screens cleanly).
+- Do not break call functionality.
+- Provide a brief “How to test” checklist at the top of the main readme or main file.
+
+TEST CHECKLIST YOU MUST PASS
+1) Open app on two devices/tabs
+2) Add each other as contacts (paste or QR)
+3) Start video call from contact detail -> incoming screen -> accept -> video works
+4) Start audio call -> works
+5) Toggle biometric lock ON -> reload -> lock screen appears -> unlock works
+6) Toggle biometric lock OFF -> reload -> no lock screen
+7) Advanced identity hidden by default, viewable when requested
+8) TURN env vars if set -> used in ICE configuration; app still works without TURN
+
+NOW IMPLEMENT ALL OF THIS.
