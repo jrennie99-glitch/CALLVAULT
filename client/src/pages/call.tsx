@@ -64,6 +64,7 @@ export default function CallPage() {
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteAddressRef = useRef<string | null>(null);
+  const pendingCallRef = useRef<{ address: string; video: boolean } | null>(null);
 
   useEffect(() => {
     const settings = getAppSettings();
@@ -166,6 +167,9 @@ export default function CallPage() {
     
     if (message.type === 'call:blocked') {
       toast.error(message.reason);
+      pendingCallRef.current = null;
+      setInCall(false);
+      setCallDestination('');
     }
     
     if (message.type === 'call:request') {
@@ -215,6 +219,7 @@ export default function CallPage() {
     setCallIsVideo(video);
     setCallIsInitiator(true);
     setInCall(true);
+    pendingCallRef.current = { address, video };
   };
 
   const handleAcceptCall = async () => {
