@@ -75,13 +75,103 @@ export interface SignedGroupInvite {
   from_pubkey: string;
 }
 
+// Phase 3: Call Access Policy Types
+export type AllowCallsFrom = 'contacts' | 'anyone' | 'invite_only';
+export type UnknownCallerBehavior = 'block' | 'request' | 'ring_unknown';
+export type ContactCallPermission = 'always' | 'scheduled' | 'one_time' | 'blocked';
+
+export interface CallPolicy {
+  owner_address: string;
+  allow_calls_from: AllowCallsFrom;
+  unknown_caller_behavior: UnknownCallerBehavior;
+  max_rings_per_sender: number;
+  ring_window_minutes: number;
+  auto_block_after_rejections: number;
+  updated_at: number;
+}
+
+export interface ContactOverride {
+  owner_address: string;
+  contact_address: string;
+  permission: ContactCallPermission;
+  scheduled_hours?: { start: number; end: number };
+  one_time_used?: boolean;
+  updated_at: number;
+}
+
+// Phase 3: Call Pass Types
+export type PassType = 'one_time' | 'expiring' | 'limited';
+
+export interface CallPass {
+  id: string;
+  recipient_address: string;
+  created_by: string;
+  pass_type: PassType;
+  uses_remaining?: number;
+  max_uses?: number;
+  expires_at?: number;
+  created_at: number;
+  burned: boolean;
+  revoked: boolean;
+}
+
+// Phase 3: Blocklist
+export interface BlockedUser {
+  owner_address: string;
+  blocked_address: string;
+  reason?: string;
+  reported_spam?: boolean;
+  blocked_at: number;
+}
+
+// Phase 3: Smart Routing Rules
+export type RoutingTrigger = 'unknown_caller' | 'missed_call' | 'after_hours' | 'busy';
+
+export interface RoutingRule {
+  id: string;
+  owner_address: string;
+  trigger: RoutingTrigger;
+  enabled: boolean;
+  auto_message?: string;
+  business_hours?: { start: number; end: number };
+}
+
+// Phase 3: Wallet Verification
+export interface WalletVerification {
+  call_address: string;
+  wallet_address: string;
+  wallet_type: 'ethereum' | 'solana';
+  signature: string;
+  verified_at: number;
+}
+
+// Phase 3: AI Guardian Settings
+export interface AIGuardianSettings {
+  enabled: boolean;
+  transcription_enabled: boolean;
+  custom_api_key?: string;
+}
+
+// Phase 3: Call Request (instead of ringing)
+export interface CallRequest {
+  id: string;
+  from_address: string;
+  to_address: string;
+  is_video: boolean;
+  timestamp: number;
+  status: 'pending' | 'accepted' | 'declined' | 'expired';
+}
+
 export type WSMessage =
   | { type: 'register'; address: string }
-  | { type: 'call:init'; data: SignedCallIntent }
-  | { type: 'call:incoming'; from_address: string; from_pubkey: string; media: { audio: boolean; video: boolean } }
+  | { type: 'call:init'; data: SignedCallIntent; pass_id?: string }
+  | { type: 'call:incoming'; from_address: string; from_pubkey: string; media: { audio: boolean; video: boolean }; is_unknown?: boolean }
   | { type: 'call:accept'; to_address: string }
   | { type: 'call:reject'; to_address: string }
   | { type: 'call:end'; to_address: string }
+  | { type: 'call:blocked'; reason: string }
+  | { type: 'call:request'; request: CallRequest }
+  | { type: 'call:request_response'; request_id: string; accepted: boolean }
   | { type: 'webrtc:offer'; to_address: string; offer: RTCSessionDescriptionInit }
   | { type: 'webrtc:answer'; to_address: string; answer: RTCSessionDescriptionInit }
   | { type: 'webrtc:ice'; to_address: string; candidate: RTCIceCandidateInit }
@@ -102,5 +192,35 @@ export type WSMessage =
   | { type: 'group:leave'; group_id: string; from_address: string }
   | { type: 'group:member_left'; group_id: string; member_address: string }
   | { type: 'group:remove_member'; group_id: string; member_address: string; from_address: string }
+  // Phase 3: Policies
+  | { type: 'policy:update'; policy: CallPolicy; signature: string; from_pubkey: string; nonce: string; timestamp: number }
+  | { type: 'policy:updated'; policy: CallPolicy }
+  | { type: 'policy:get'; address: string }
+  | { type: 'policy:response'; policy: CallPolicy | null }
+  // Phase 3: Contact Overrides
+  | { type: 'override:update'; override: ContactOverride; signature: string; from_pubkey: string; nonce: string; timestamp: number }
+  | { type: 'override:updated'; override: ContactOverride }
+  // Phase 3: Call Passes
+  | { type: 'pass:create'; pass: Omit<CallPass, 'id' | 'created_at' | 'burned' | 'revoked'>; signature: string; from_pubkey: string; nonce: string; timestamp: number }
+  | { type: 'pass:created'; pass: CallPass }
+  | { type: 'pass:revoke'; pass_id: string; signature: string; from_pubkey: string; from_address: string; nonce: string; timestamp: number }
+  | { type: 'pass:revoked'; pass_id: string }
+  | { type: 'pass:list'; address: string }
+  | { type: 'pass:list_response'; passes: CallPass[] }
+  // Phase 3: Blocklist
+  | { type: 'block:add'; blocked: BlockedUser; signature: string; from_pubkey: string; nonce: string; timestamp: number }
+  | { type: 'block:added'; blocked: BlockedUser }
+  | { type: 'block:remove'; blocked_address: string; signature: string; from_pubkey: string; from_address: string; nonce: string; timestamp: number }
+  | { type: 'block:removed'; blocked_address: string }
+  | { type: 'block:list'; address: string }
+  | { type: 'block:list_response'; blocked: BlockedUser[] }
+  // Phase 3: Routing Rules
+  | { type: 'routing:update'; rules: RoutingRule[]; signature: string; from_pubkey: string; from_address: string; nonce: string; timestamp: number }
+  | { type: 'routing:updated'; rules: RoutingRule[] }
+  // Phase 3: Wallet Verification
+  | { type: 'wallet:verify'; verification: WalletVerification; signature: string; from_pubkey: string; nonce: string; timestamp: number }
+  | { type: 'wallet:verified'; verification: WalletVerification }
+  | { type: 'wallet:get'; address: string }
+  | { type: 'wallet:response'; verification: WalletVerification | null }
   | { type: 'error'; message: string }
   | { type: 'success'; message: string };
