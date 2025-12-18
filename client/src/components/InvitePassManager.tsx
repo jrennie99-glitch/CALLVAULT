@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Ticket, Plus, Clock, Hash, Trash2, Copy, Share2, ChevronLeft } from 'lucide-react';
+import { Ticket, Plus, Clock, Hash, Trash2, Copy, Share2, ChevronLeft, Bell } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -59,7 +59,7 @@ export function InvitePassManager({ identity, ws, onBack }: InvitePassManagerPro
           saveLocalPass(msg.pass);
           loadPasses();
           setShowCreate(false);
-          toast.success('Invite pass created!');
+          toast.success('Call invite created!');
           ws.removeEventListener('message', handleResponse);
         } else if (msg.type === 'error') {
           toast.error(msg.message);
@@ -159,10 +159,10 @@ export function InvitePassManager({ identity, ws, onBack }: InvitePassManagerPro
             <div>
               <CardTitle className="text-white flex items-center gap-2">
                 <Ticket className="w-5 h-5" />
-                Invite Passes
+                Call Invites
               </CardTitle>
               <CardDescription className="text-slate-400">
-                Let specific people reach you without being in your contacts
+                Let specific people reach you without adding them to contacts
               </CardDescription>
             </div>
             <Button
@@ -226,7 +226,7 @@ export function InvitePassManager({ identity, ws, onBack }: InvitePassManagerPro
               )}
 
               <Button onClick={createPass} className="w-full bg-emerald-500 hover:bg-emerald-600" data-testid="button-confirm-create-pass">
-                Create Invite Pass
+                Create Call Invite
               </Button>
             </div>
           </CardContent>

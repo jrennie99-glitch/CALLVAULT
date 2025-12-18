@@ -60,6 +60,7 @@ export default function CallPage() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [settingsScreen, setSettingsScreen] = useState<SettingsScreen>('main');
   const [callRequest, setCallRequest] = useState<CallRequest | null>(null);
+  const [callRequests, setCallRequests] = useState<CallRequest[]>([]);
 
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -174,6 +175,7 @@ export default function CallPage() {
     
     if (message.type === 'call:request') {
       setCallRequest(message.request);
+      setCallRequests(prev => [...prev.filter(r => r.id !== message.request.id), message.request]);
       toast.info('Someone wants to call you');
     }
     
@@ -410,6 +412,31 @@ export default function CallPage() {
             onStartCall={handleStartCall}
             onNavigateToAdd={() => setActiveTab('add')}
             onNavigateToContacts={() => setActiveTab('contacts')}
+            callRequests={callRequests}
+            onAcceptRequest={(request) => {
+              if (ws) {
+                ws.send(JSON.stringify({
+                  type: 'call:request_response',
+                  request_id: request.id,
+                  accepted: true
+                }));
+                setCallRequests(prev => prev.filter(r => r.id !== request.id));
+                toast.success('Call request accepted');
+              }
+            }}
+            onDeclineRequest={(request) => {
+              setCallRequests(prev => prev.filter(r => r.id !== request.id));
+            }}
+            onBlockRequester={(address) => {
+              addToLocalBlocklist({
+                owner_address: identity.address,
+                blocked_address: address,
+                reason: 'Blocked from call request',
+                blocked_at: Date.now()
+              });
+              setCallRequests(prev => prev.filter(r => r.from_address !== address));
+              toast.success('User blocked');
+            }}
           />
         )}
         {activeTab === 'contacts' && (
