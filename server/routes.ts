@@ -14,7 +14,7 @@ const connections = new Map<string, ClientConnection>();
 const recentNonces = new Map<string, number>();
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 
-const NONCE_EXPIRY = 2 * 60 * 1000;
+const NONCE_EXPIRY = 5 * 60 * 1000;
 const TIMESTAMP_FRESHNESS = 60 * 1000;
 const RATE_LIMIT_WINDOW = 60 * 1000;
 const RATE_LIMIT_MAX_CALLS = 10;
@@ -50,13 +50,16 @@ function checkRateLimit(fromAddress: string): boolean {
 function verifySignature(signedIntent: SignedCallIntent): boolean {
   try {
     const { intent, signature } = signedIntent;
+    const now = Date.now();
     
-    const timestampValid = Date.now() - intent.timestamp < TIMESTAMP_FRESHNESS;
-    if (!timestampValid) {
+    const timeDiff = now - intent.timestamp;
+    if (timeDiff < 0 || timeDiff > TIMESTAMP_FRESHNESS) {
+      console.log('Timestamp validation failed: timeDiff =', timeDiff);
       return false;
     }
     
     if (recentNonces.has(intent.nonce)) {
+      console.log('Nonce already used:', intent.nonce);
       return false;
     }
     
@@ -68,7 +71,7 @@ function verifySignature(signedIntent: SignedCallIntent): boolean {
     const valid = nacl.sign.detached.verify(message, signatureBytes, publicKeyBytes);
     
     if (valid) {
-      recentNonces.set(intent.nonce, Date.now());
+      recentNonces.set(intent.nonce, intent.timestamp);
     }
     
     return valid;

@@ -4,10 +4,24 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Video, VideoOff, Mic, MicOff, PhoneOff, Copy, RefreshCw, Phone } from "lucide-react";
+import { 
+  Video, 
+  VideoOff, 
+  Mic, 
+  MicOff, 
+  PhoneOff, 
+  Copy, 
+  RefreshCw, 
+  Phone,
+  Volume2,
+  VolumeX,
+  SwitchCamera,
+  PhoneCall,
+  PhoneIncoming,
+  User
+} from "lucide-react";
 import * as crypto from "@/lib/crypto";
 import type { CryptoIdentity, WSMessage } from "@shared/types";
 
@@ -27,12 +41,17 @@ export default function CallPage() {
   const [isVideoCall, setIsVideoCall] = useState(true);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
+  const [isSpeakerOn, setIsSpeakerOn] = useState(true);
+  const [callDuration, setCallDuration] = useState(0);
+  const [connectionStatus, setConnectionStatus] = useState('');
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteAddressRef = useRef<string | null>(null);
+  const callTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     let storedIdentity = crypto.loadIdentity();
@@ -78,8 +97,32 @@ export default function CallPage() {
       if (peerConnectionRef.current) {
         peerConnectionRef.current.close();
       }
+      if (callTimerRef.current) {
+        clearInterval(callTimerRef.current);
+      }
     };
   }, []);
+
+  const startCallTimer = () => {
+    setCallDuration(0);
+    callTimerRef.current = setInterval(() => {
+      setCallDuration(prev => prev + 1);
+    }, 1000);
+  };
+
+  const stopCallTimer = () => {
+    if (callTimerRef.current) {
+      clearInterval(callTimerRef.current);
+      callTimerRef.current = null;
+    }
+    setCallDuration(0);
+  };
+
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
 
   const handleWebSocketMessage = useCallback(async (message: WSMessage) => {
     switch (message.type) {
@@ -89,22 +132,26 @@ export default function CallPage() {
           from_pubkey: message.from_pubkey,
           media: message.media
         });
+        setIsVideoCall(message.media.video);
         break;
 
       case 'call:accept':
         setCallState('connected');
+        setConnectionStatus('Connecting...');
         await initiatePeerConnection(true);
         break;
 
       case 'call:reject':
         toast.error('Call rejected');
         setCallState('idle');
+        setConnectionStatus('');
         cleanupCall();
         break;
 
       case 'call:end':
         toast('Call ended');
         setCallState('idle');
+        setConnectionStatus('');
         cleanupCall();
         break;
 
@@ -123,6 +170,7 @@ export default function CallPage() {
       case 'error':
         toast.error(message.message);
         setCallState('idle');
+        setConnectionStatus('');
         break;
 
       case 'success':
@@ -132,49 +180,75 @@ export default function CallPage() {
   }, []);
 
   const initiatePeerConnection = async (isInitiator: boolean) => {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: isVideoCall,
-      audio: true
-    });
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: isVideoCall ? { facingMode } : false,
+        audio: true
+      });
 
-    localStreamRef.current = stream;
-    if (localVideoRef.current) {
-      localVideoRef.current.srcObject = stream;
-    }
-
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-    peerConnectionRef.current = pc;
-
-    stream.getTracks().forEach(track => {
-      pc.addTrack(track, stream);
-    });
-
-    pc.ontrack = (event) => {
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = event.streams[0];
+      localStreamRef.current = stream;
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
       }
-    };
 
-    pc.onicecandidate = (event) => {
-      if (event.candidate && ws && remoteAddressRef.current) {
-        ws.send(JSON.stringify({
-          type: 'webrtc:ice',
-          to_address: remoteAddressRef.current,
-          candidate: event.candidate.toJSON()
-        }));
-      }
-    };
+      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+      peerConnectionRef.current = pc;
 
-    if (isInitiator) {
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      if (ws && remoteAddressRef.current) {
-        ws.send(JSON.stringify({
-          type: 'webrtc:offer',
-          to_address: remoteAddressRef.current,
-          offer: offer
-        }));
+      stream.getTracks().forEach(track => {
+        pc.addTrack(track, stream);
+      });
+
+      pc.ontrack = (event) => {
+        if (remoteVideoRef.current) {
+          remoteVideoRef.current.srcObject = event.streams[0];
+        }
+        setConnectionStatus('Connected');
+        startCallTimer();
+      };
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate && ws && remoteAddressRef.current) {
+          ws.send(JSON.stringify({
+            type: 'webrtc:ice',
+            to_address: remoteAddressRef.current,
+            candidate: event.candidate.toJSON()
+          }));
+        }
+      };
+
+      pc.onconnectionstatechange = () => {
+        switch (pc.connectionState) {
+          case 'connecting':
+            setConnectionStatus('Connecting...');
+            break;
+          case 'connected':
+            setConnectionStatus('Connected');
+            break;
+          case 'disconnected':
+            setConnectionStatus('Reconnecting...');
+            break;
+          case 'failed':
+            setConnectionStatus('Connection failed');
+            toast.error('Connection failed');
+            break;
+        }
+      };
+
+      if (isInitiator) {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        if (ws && remoteAddressRef.current) {
+          ws.send(JSON.stringify({
+            type: 'webrtc:offer',
+            to_address: remoteAddressRef.current,
+            offer: offer
+          }));
+        }
       }
+    } catch (error) {
+      console.error('Failed to get media devices:', error);
+      toast.error('Failed to access camera/microphone');
+      setCallState('idle');
     }
   };
 
@@ -209,11 +283,14 @@ export default function CallPage() {
     }
   };
 
-  const makeCall = () => {
+  const makeCall = (withVideo: boolean) => {
     if (!identity || !ws || !destinationAddress) {
-      toast.error('Missing required information');
+      toast.error('Please enter a destination address');
       return;
     }
+
+    setIsVideoCall(withVideo);
+    setIsVideoEnabled(withVideo);
 
     const intent = {
       from_pubkey: identity.publicKeyBase58,
@@ -223,7 +300,7 @@ export default function CallPage() {
       nonce: crypto.generateNonce(),
       media: {
         audio: true,
-        video: isVideoCall
+        video: withVideo
       }
     };
 
@@ -236,7 +313,7 @@ export default function CallPage() {
     }));
 
     setCallState('calling');
-    toast('Calling...');
+    setConnectionStatus('Ringing...');
   };
 
   const acceptCall = async () => {
@@ -244,6 +321,7 @@ export default function CallPage() {
 
     remoteAddressRef.current = incomingCall.from_address;
     setCallState('connected');
+    setConnectionStatus('Connecting...');
     setIncomingCall(null);
 
     ws.send(JSON.stringify({
@@ -274,9 +352,11 @@ export default function CallPage() {
     }
     cleanupCall();
     setCallState('idle');
+    setConnectionStatus('');
   };
 
   const cleanupCall = () => {
+    stopCallTimer();
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => track.stop());
       localStreamRef.current = null;
@@ -312,6 +392,84 @@ export default function CallPage() {
     }
   };
 
+  const toggleSpeaker = async () => {
+    const mediaElement = remoteVideoRef.current;
+    if (!mediaElement) return;
+
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
+      
+      if (audioOutputs.length === 0) {
+        toast('No audio output devices found');
+        return;
+      }
+
+      const element = mediaElement as HTMLMediaElement & { setSinkId?: (id: string) => Promise<void> };
+      
+      if (!element.setSinkId) {
+        toast('Speaker switch not supported in this browser');
+        return;
+      }
+
+      const defaultDevice = audioOutputs.find(d => d.deviceId === 'default') || audioOutputs[0];
+      const speakerDevice = audioOutputs.find(d => 
+        d.label.toLowerCase().includes('speaker') && d.deviceId !== 'default'
+      );
+
+      if (isSpeakerOn && speakerDevice) {
+        await element.setSinkId(defaultDevice.deviceId);
+        setIsSpeakerOn(false);
+        toast('Switched to earpiece');
+      } else {
+        const targetDevice = speakerDevice || defaultDevice;
+        await element.setSinkId(targetDevice.deviceId);
+        setIsSpeakerOn(true);
+        toast('Switched to speaker');
+      }
+    } catch (error) {
+      console.error('Failed to switch audio output:', error);
+      toast.error('Failed to switch audio output');
+    }
+  };
+
+  const switchCamera = async () => {
+    if (!localStreamRef.current || !peerConnectionRef.current) return;
+
+    const newFacingMode = facingMode === 'user' ? 'environment' : 'user';
+    setFacingMode(newFacingMode);
+
+    try {
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: newFacingMode },
+        audio: false
+      });
+
+      const newVideoTrack = newStream.getVideoTracks()[0];
+      const sender = peerConnectionRef.current.getSenders().find(s => s.track?.kind === 'video');
+      
+      if (sender) {
+        await sender.replaceTrack(newVideoTrack);
+      }
+
+      const oldVideoTrack = localStreamRef.current.getVideoTracks()[0];
+      if (oldVideoTrack) {
+        localStreamRef.current.removeTrack(oldVideoTrack);
+        oldVideoTrack.stop();
+      }
+      localStreamRef.current.addTrack(newVideoTrack);
+
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = localStreamRef.current;
+      }
+
+      toast('Camera switched');
+    } catch (error) {
+      console.error('Failed to switch camera:', error);
+      toast.error('Failed to switch camera');
+    }
+  };
+
   const copyAddress = () => {
     if (identity) {
       navigator.clipboard.writeText(identity.address);
@@ -332,95 +490,103 @@ export default function CallPage() {
 
   if (!identity) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 via-gray-800 to-black">
-        <div className="text-white">Initializing...</div>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+        <div className="text-white text-xl">Initializing...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black text-white p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
-        <div className="text-center space-y-2">
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
-            Crypto Call
-          </h1>
-          <p className="text-gray-400">Secure peer-to-peer video calls with crypto addresses</p>
-        </div>
-
-        {callState === 'idle' && (
-          <div className="grid md:grid-cols-2 gap-6">
-            <Card className="bg-gray-800/50 border-gray-700 backdrop-blur">
-              <CardHeader>
-                <CardTitle className="text-white">Your Identity</CardTitle>
-                <CardDescription className="text-gray-400">Your unique call address</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <Label className="text-gray-300">Public Key</Label>
-                  <div className="mt-1 p-3 bg-gray-900/50 rounded-md font-mono text-sm text-gray-300 break-all">
-                    {identity.publicKeyBase58}
-                  </div>
-                </div>
-                <div>
-                  <Label className="text-gray-300">Call Address</Label>
-                  <div className="mt-1 p-3 bg-gray-900/50 rounded-md font-mono text-sm text-blue-400 break-all" data-testid="text-address">
-                    {identity.address}
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <Button onClick={copyAddress} variant="outline" className="flex-1" data-testid="button-copy-address">
-                    <Copy className="mr-2 h-4 w-4" />
-                    Copy Address
-                  </Button>
-                  <Button onClick={rotateAddress} variant="outline" data-testid="button-rotate-address">
-                    <RefreshCw className="h-4 w-4" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-gray-800/50 border-gray-700 backdrop-blur">
-              <CardHeader>
-                <CardTitle className="text-white">Make a Call</CardTitle>
-                <CardDescription className="text-gray-400">Paste a call address to connect</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <Label htmlFor="destination" className="text-gray-300">Destination Address</Label>
-                  <Input
-                    id="destination"
-                    placeholder="call:..."
-                    value={destinationAddress}
-                    onChange={(e) => setDestinationAddress(e.target.value)}
-                    className="mt-1 bg-gray-900/50 border-gray-600 text-white"
-                    data-testid="input-destination"
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <Label className="text-gray-300">Call Type:</Label>
-                  <Badge variant={isVideoCall ? "default" : "secondary"} onClick={() => setIsVideoCall(!isVideoCall)} className="cursor-pointer" data-testid="badge-call-type">
-                    {isVideoCall ? 'Video Call' : 'Audio Only'}
-                  </Badge>
-                </div>
-                <Button 
-                  onClick={makeCall} 
-                  className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700"
-                  disabled={!destinationAddress}
-                  data-testid="button-call"
-                >
-                  <Phone className="mr-2 h-4 w-4" />
-                  Call
-                </Button>
-              </CardContent>
-            </Card>
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white">
+      {callState === 'idle' && (
+        <div className="p-6 max-w-2xl mx-auto space-y-6">
+          <div className="text-center space-y-2 pt-8">
+            <div className="w-20 h-20 mx-auto rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center mb-4">
+              <Phone className="w-10 h-10 text-white" />
+            </div>
+            <h1 className="text-3xl font-bold">Crypto Call</h1>
+            <p className="text-slate-400">Secure peer-to-peer calls</p>
           </div>
-        )}
 
-        {(callState === 'calling' || callState === 'connected') && (
-          <Card className="bg-gray-800/50 border-gray-700 backdrop-blur">
-            <CardContent className="p-0">
-              <div className="relative aspect-video bg-gray-900 rounded-lg overflow-hidden">
+          <Card className="bg-slate-800/50 border-slate-700 backdrop-blur-sm">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-white text-lg flex items-center gap-2">
+                <User className="w-5 h-5" />
+                Your Call Address
+              </CardTitle>
+              <CardDescription className="text-slate-400">Share this with friends to receive calls</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="p-4 bg-slate-900/50 rounded-xl font-mono text-sm text-emerald-400 break-all border border-slate-700" data-testid="text-address">
+                {identity.address}
+              </div>
+              <div className="flex gap-2">
+                <Button onClick={copyAddress} className="flex-1 bg-emerald-600 hover:bg-emerald-700" data-testid="button-copy-address">
+                  <Copy className="mr-2 h-4 w-4" />
+                  Copy Address
+                </Button>
+                <Button onClick={rotateAddress} variant="outline" className="border-slate-600 hover:bg-slate-700" data-testid="button-rotate-address">
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-800/50 border-slate-700 backdrop-blur-sm">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-white text-lg flex items-center gap-2">
+                <PhoneCall className="w-5 h-5" />
+                Make a Call
+              </CardTitle>
+              <CardDescription className="text-slate-400">Enter a call address to connect</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label htmlFor="destination" className="text-slate-300">Destination Address</Label>
+                <Input
+                  id="destination"
+                  placeholder="call:..."
+                  value={destinationAddress}
+                  onChange={(e) => setDestinationAddress(e.target.value)}
+                  className="mt-2 bg-slate-900/50 border-slate-600 text-white placeholder:text-slate-500 focus:border-emerald-500"
+                  data-testid="input-destination"
+                />
+              </div>
+              
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <Button 
+                  onClick={() => makeCall(true)} 
+                  className="h-16 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 flex flex-col items-center justify-center gap-1"
+                  disabled={!destinationAddress}
+                  data-testid="button-video-call"
+                >
+                  <Video className="h-6 w-6" />
+                  <span className="text-sm font-medium">Video Call</span>
+                </Button>
+                <Button 
+                  onClick={() => makeCall(false)} 
+                  className="h-16 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 flex flex-col items-center justify-center gap-1"
+                  disabled={!destinationAddress}
+                  data-testid="button-voice-call"
+                >
+                  <Phone className="h-6 w-6" />
+                  <span className="text-sm font-medium">Voice Call</span>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="text-center text-slate-500 text-sm">
+            <p>Your private key never leaves your device</p>
+          </div>
+        </div>
+      )}
+
+      {(callState === 'calling' || callState === 'connected') && (
+        <div className="h-screen flex flex-col">
+          <div className="flex-1 relative bg-slate-900">
+            {isVideoCall ? (
+              <>
                 <video
                   ref={remoteVideoRef}
                   autoPlay
@@ -433,70 +599,138 @@ export default function CallPage() {
                   autoPlay
                   playsInline
                   muted
-                  className="absolute bottom-4 right-4 w-48 h-36 object-cover rounded-lg border-2 border-gray-600 shadow-lg"
+                  className="absolute top-4 right-4 w-32 h-24 sm:w-48 sm:h-36 object-cover rounded-xl border-2 border-slate-600 shadow-2xl"
                   data-testid="video-local"
                 />
-                {callState === 'calling' && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-                    <div className="text-center">
-                      <div className="text-2xl font-semibold mb-2">Calling...</div>
-                      <div className="text-gray-400">Waiting for answer</div>
+              </>
+            ) : (
+              <>
+                <audio ref={remoteVideoRef} autoPlay data-testid="audio-remote" />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="text-center">
+                    <div className="w-32 h-32 mx-auto rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center mb-6">
+                      <User className="w-16 h-16 text-white" />
                     </div>
+                    <p className="text-slate-400 text-lg">Voice Call</p>
                   </div>
-                )}
+                </div>
+              </>
+            )}
+
+            <div className="absolute top-4 left-4 right-20 sm:right-52">
+              <div className="bg-slate-900/80 backdrop-blur-sm rounded-xl px-4 py-2 inline-block">
+                <div className="flex items-center gap-3">
+                  {callState === 'connected' && callDuration > 0 && (
+                    <Badge variant="outline" className="bg-emerald-500/20 text-emerald-400 border-emerald-500/50">
+                      {formatDuration(callDuration)}
+                    </Badge>
+                  )}
+                  <span className="text-sm text-slate-300">{connectionStatus}</span>
+                </div>
               </div>
-              <div className="p-6 flex justify-center gap-4">
-                <Button
-                  onClick={toggleMute}
-                  variant={isMuted ? "destructive" : "outline"}
-                  size="lg"
-                  className="rounded-full"
-                  data-testid="button-mute"
-                >
-                  {isMuted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
-                </Button>
-                {isVideoCall && (
+            </div>
+
+            {callState === 'calling' && (
+              <div className="absolute inset-0 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm">
+                <div className="text-center">
+                  <div className="w-24 h-24 mx-auto rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center mb-6 animate-pulse">
+                    <PhoneCall className="w-12 h-12 text-white" />
+                  </div>
+                  <p className="text-2xl font-semibold mb-2">Calling...</p>
+                  <p className="text-slate-400">Waiting for answer</p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="bg-slate-900/95 backdrop-blur-sm border-t border-slate-800 p-6 safe-area-inset-bottom">
+            <div className="flex justify-center items-center gap-4 max-w-md mx-auto">
+              <Button
+                onClick={toggleMute}
+                variant="ghost"
+                size="lg"
+                className={`w-14 h-14 rounded-full ${isMuted ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30' : 'bg-slate-700 text-white hover:bg-slate-600'}`}
+                data-testid="button-mute"
+              >
+                {isMuted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
+              </Button>
+
+              {isVideoCall && (
+                <>
                   <Button
                     onClick={toggleVideo}
-                    variant={!isVideoEnabled ? "destructive" : "outline"}
+                    variant="ghost"
                     size="lg"
-                    className="rounded-full"
+                    className={`w-14 h-14 rounded-full ${!isVideoEnabled ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30' : 'bg-slate-700 text-white hover:bg-slate-600'}`}
                     data-testid="button-video"
                   >
-                    {isVideoEnabled ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
+                    {isVideoEnabled ? <Video className="h-6 w-6" /> : <VideoOff className="h-6 w-6" />}
                   </Button>
-                )}
-                <Button
-                  onClick={endCall}
-                  variant="destructive"
-                  size="lg"
-                  className="rounded-full"
-                  data-testid="button-hangup"
-                >
-                  <PhoneOff className="h-5 w-5" />
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-      </div>
+
+                  <Button
+                    onClick={switchCamera}
+                    variant="ghost"
+                    size="lg"
+                    className="w-14 h-14 rounded-full bg-slate-700 text-white hover:bg-slate-600"
+                    data-testid="button-flip-camera"
+                  >
+                    <SwitchCamera className="h-6 w-6" />
+                  </Button>
+                </>
+              )}
+
+              <Button
+                onClick={toggleSpeaker}
+                variant="ghost"
+                size="lg"
+                className={`w-14 h-14 rounded-full ${!isSpeakerOn ? 'bg-slate-700 text-slate-400 hover:bg-slate-600' : 'bg-slate-700 text-white hover:bg-slate-600'}`}
+                data-testid="button-speaker"
+              >
+                {isSpeakerOn ? <Volume2 className="h-6 w-6" /> : <VolumeX className="h-6 w-6" />}
+              </Button>
+
+              <Button
+                onClick={endCall}
+                size="lg"
+                className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 text-white"
+                data-testid="button-hangup"
+              >
+                <PhoneOff className="h-7 w-7" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Dialog open={!!incomingCall} onOpenChange={(open) => !open && rejectCall()}>
-        <DialogContent className="bg-gray-800 border-gray-700 text-white">
-          <DialogHeader>
-            <DialogTitle>Incoming Call</DialogTitle>
-            <DialogDescription className="text-gray-400">
-              {incomingCall?.media.video ? 'Video call' : 'Audio call'} from:
+        <DialogContent className="bg-slate-800 border-slate-700 text-white max-w-sm">
+          <DialogHeader className="text-center">
+            <div className="w-20 h-20 mx-auto rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center mb-4 animate-pulse">
+              <PhoneIncoming className="w-10 h-10 text-white" />
+            </div>
+            <DialogTitle className="text-xl">Incoming Call</DialogTitle>
+            <DialogDescription className="text-slate-400">
+              {incomingCall?.media.video ? 'Video call' : 'Voice call'}
             </DialogDescription>
           </DialogHeader>
-          <div className="p-3 bg-gray-900/50 rounded-md font-mono text-sm text-blue-400 break-all" data-testid="text-incoming-address">
+          <div className="p-3 bg-slate-900/50 rounded-xl font-mono text-xs text-emerald-400 break-all text-center" data-testid="text-incoming-address">
             {incomingCall?.from_address}
           </div>
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button onClick={rejectCall} variant="outline" data-testid="button-reject">
-              Reject
+          <DialogFooter className="grid grid-cols-2 gap-3 mt-4">
+            <Button 
+              onClick={rejectCall} 
+              className="h-14 bg-red-500 hover:bg-red-600 rounded-full"
+              data-testid="button-reject"
+            >
+              <PhoneOff className="mr-2 h-5 w-5" />
+              Decline
             </Button>
-            <Button onClick={acceptCall} className="bg-gradient-to-r from-green-500 to-emerald-600" data-testid="button-accept">
+            <Button 
+              onClick={acceptCall} 
+              className="h-14 bg-emerald-500 hover:bg-emerald-600 rounded-full"
+              data-testid="button-accept"
+            >
+              <Phone className="mr-2 h-5 w-5" />
               Accept
             </Button>
           </DialogFooter>
