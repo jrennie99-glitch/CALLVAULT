@@ -1,0 +1,71 @@
+Build me a production-ready MVP for crypto-address calling with AUDIO + VIDEO using WebRTC (internet-based, not PSTN).
+
+CRITICAL RULES
+- Do NOT remove or break any existing features once created.
+- Do NOT use mock data. Calls must work live between two browser tabs/devices.
+- Do NOT add “Replit agent” branding anywhere.
+- Private key must stay in the browser (never sent to server).
+
+DELIVERABLE
+Create a Node.js Replit project with these files:
+- package.json
+- server.js
+- /public/index.html
+- /public/app.js
+
+TECH
+- Server: Node + Express + ws (WebSocket) for signaling only
+- Client: Vanilla JS (no build tools) so it runs immediately on Replit
+- Crypto: tweetnacl (Ed25519) + bs58 for base58 addresses
+- WebRTC: RTCPeerConnection with STUN by default; TURN optional via env vars:
+  TURN_URL, TURN_USER, TURN_PASS (if not set, still work with STUN)
+
+FEATURES REQUIRED
+1) Crypto Identity + Call Address
+- On first page load generate Ed25519 keypair with tweetnacl.
+- Store keys locally in browser (localStorage or IndexedDB).
+- Display public key (base58).
+- Generate and display a shareable call address derived from the public key:
+  address format: call:<base58(pubkey)>:<base58(random8bytes)>
+- Buttons: Copy Address, Generate New Address (rotates address).
+
+2) Permissioned Incoming Calls
+- Caller can ONLY ring callee using a valid call address.
+- Caller must send a signed call-intent payload:
+  intent = { from_pubkey, from_address, to_address, timestamp, nonce, media:{audio:true, video:true} }
+- Signature = Ed25519 detached signature over a stable-stringified version of intent (keys sorted).
+- Server verifies signature BEFORE delivering incoming call.
+- Server enforces:
+  - timestamp freshness (reject if older than 60 seconds)
+  - replay protection: reject reused nonces for 2 minutes
+  - basic rate limiting per from_address
+
+3) Make + Receive Video Calls (WebRTC)
+- Dial input to paste a destination call address.
+- Call type selector: Video call / Audio-only.
+- Outgoing flow: Call -> Ringing -> Accepted -> Connect.
+- Incoming flow: Incoming call modal -> Accept / Reject.
+- In-call UI:
+  - local preview video (muted)
+  - remote video
+  - buttons: Mute, Camera On/Off, Switch Camera (mobile), Hang Up
+- WebRTC signaling messages relayed via WebSocket:
+  register, call:init, call:incoming, call:accept, call:reject, call:end,
+  webrtc:offer, webrtc:answer, webrtc:ice
+
+4) Server Behavior
+- Maintain active WebSocket connections keyed by address string.
+- Clients must “register” their current address.
+- Prevent address spoofing: the socket must be registered to intent.from_address.
+- Server never handles audio/video media—ONLY SDP + ICE.
+
+5) Run
+- Make Replit “Run” start the server.
+- Serve the client from /public so it opens at the Replit web URL.
+
+TEST INSTRUCTIONS (include in README comment at top of server.js)
+- Open the app in two tabs/devices.
+- Copy address from Tab A, paste into Tab B, call.
+- Accept on Tab A, verify audio/video.
+
+Now generate all files with complete working code.
