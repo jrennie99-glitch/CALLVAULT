@@ -5,8 +5,9 @@ import * as nacl from "tweetnacl";
 import bs58 from "bs58";
 import * as fs from "fs";
 import * as path from "path";
-import type { WSMessage, SignedCallIntent, CallIntent, SignedMessage, Message, Conversation } from "@shared/types";
+import type { WSMessage, SignedCallIntent, CallIntent, SignedMessage, Message, Conversation, CallPolicy, ContactOverride, CallPass, BlockedUser, RoutingRule, WalletVerification, CallRequest } from "@shared/types";
 import * as messageStore from "./messageStore";
+import * as policyStore from "./policyStore";
 
 interface ClientConnection {
   ws: WebSocket;
@@ -114,6 +115,39 @@ function verifyMessageSignature(signedMessage: SignedMessage): boolean {
     return valid;
   } catch (error) {
     console.error('Message signature verification error:', error);
+    return false;
+  }
+}
+
+function verifyGenericSignature(payload: any, signature: string, from_pubkey: string, nonce: string, timestamp: number): boolean {
+  try {
+    const now = Date.now();
+    
+    const timeDiff = now - timestamp;
+    if (timeDiff < 0 || timeDiff > TIMESTAMP_FRESHNESS) {
+      console.log('Generic signature timestamp validation failed: timeDiff =', timeDiff);
+      return false;
+    }
+    
+    if (recentNonces.has(nonce)) {
+      console.log('Nonce already used:', nonce);
+      return false;
+    }
+    
+    const sortedPayload = JSON.stringify(payload, Object.keys(payload).sort());
+    const messageBytes = new TextEncoder().encode(sortedPayload);
+    const signatureBytes = bs58.decode(signature);
+    const publicKeyBytes = bs58.decode(from_pubkey);
+    
+    const valid = nacl.sign.detached.verify(messageBytes, signatureBytes, publicKeyBytes);
+    
+    if (valid) {
+      recentNonces.set(nonce, timestamp);
+    }
+    
+    return valid;
+  } catch (error) {
+    console.error('Generic signature verification error:', error);
     return false;
   }
 }
@@ -233,7 +267,7 @@ export async function registerRoutes(
           }
 
           case 'call:init': {
-            const { data: signedIntent } = message;
+            const { data: signedIntent, pass_id } = message;
             
             if (!checkRateLimit(signedIntent.intent.from_address)) {
               ws.send(JSON.stringify({ type: 'error', message: 'Rate limit exceeded' } as WSMessage));
@@ -257,14 +291,133 @@ export async function registerRoutes(
               return;
             }
             
-            targetConnection.ws.send(JSON.stringify({
-              type: 'call:incoming',
-              from_address: signedIntent.intent.from_address,
-              from_pubkey: signedIntent.intent.from_pubkey,
-              media: signedIntent.intent.media
-            } as WSMessage));
+            const recipientAddress = signedIntent.intent.to_address;
+            const callerAddress = signedIntent.intent.from_address;
             
-            console.log(`Call initiated from ${signedIntent.intent.from_address} to ${signedIntent.intent.to_address}`);
+            const recipientContacts = policyStore.getBlocklist(recipientAddress);
+            const isContact = false;
+            
+            policyStore.recordCallAttempt(recipientAddress, callerAddress);
+            
+            const decision = policyStore.evaluateCallPolicy(
+              recipientAddress,
+              callerAddress,
+              isContact,
+              pass_id
+            );
+            
+            switch (decision.action) {
+              case 'block':
+                ws.send(JSON.stringify({
+                  type: 'call:blocked',
+                  reason: decision.reason
+                } as WSMessage));
+                console.log(`Call blocked from ${callerAddress} to ${recipientAddress}: ${decision.reason}`);
+                break;
+                
+              case 'request': {
+                const request: CallRequest = {
+                  id: `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                  from_address: callerAddress,
+                  to_address: recipientAddress,
+                  is_video: signedIntent.intent.media.video,
+                  timestamp: Date.now(),
+                  status: 'pending'
+                };
+                policyStore.createCallRequest(request);
+                
+                targetConnection.ws.send(JSON.stringify({
+                  type: 'call:request',
+                  request
+                } as WSMessage));
+                
+                ws.send(JSON.stringify({
+                  type: 'success',
+                  message: 'Call request sent. Waiting for recipient approval.'
+                } as WSMessage));
+                console.log(`Call request sent from ${callerAddress} to ${recipientAddress}`);
+                break;
+              }
+              
+              case 'auto_reply': {
+                const dmConvo = messageStore.getOrCreateDirectConversation(recipientAddress, callerAddress);
+                const autoMsg: Message = {
+                  id: `auto_${Date.now()}`,
+                  convo_id: dmConvo.id,
+                  from_address: recipientAddress,
+                  to_address: callerAddress,
+                  timestamp: Date.now(),
+                  type: 'text',
+                  content: `[Automated] ${decision.message}`,
+                  nonce: Math.random().toString(36).slice(2),
+                  status: 'sent'
+                };
+                messageStore.addMessage(autoMsg);
+                
+                ws.send(JSON.stringify({
+                  type: 'msg:incoming',
+                  message: autoMsg,
+                  from_pubkey: ''
+                } as WSMessage));
+                
+                ws.send(JSON.stringify({
+                  type: 'call:blocked',
+                  reason: 'Auto-reply sent: ' + decision.message
+                } as WSMessage));
+                console.log(`Auto-reply sent from ${recipientAddress} to ${callerAddress}`);
+                break;
+              }
+              
+              case 'ring':
+                if (pass_id) {
+                  policyStore.consumePass(pass_id);
+                }
+                
+                targetConnection.ws.send(JSON.stringify({
+                  type: 'call:incoming',
+                  from_address: callerAddress,
+                  from_pubkey: signedIntent.intent.from_pubkey,
+                  media: signedIntent.intent.media,
+                  is_unknown: decision.is_unknown
+                } as WSMessage));
+                
+                console.log(`Call initiated from ${callerAddress} to ${recipientAddress}`);
+                break;
+            }
+            break;
+          }
+          
+          case 'call:request_response': {
+            const { request_id, accepted } = message;
+            const request = policyStore.getCallRequest(request_id);
+            
+            if (!request) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Request not found' } as WSMessage));
+              return;
+            }
+            
+            if (request.to_address !== clientAddress) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Not authorized' } as WSMessage));
+              return;
+            }
+            
+            policyStore.updateCallRequest(request_id, accepted ? 'accepted' : 'declined');
+            
+            const callerConnection = connections.get(request.from_address);
+            if (callerConnection) {
+              if (accepted) {
+                callerConnection.ws.send(JSON.stringify({
+                  type: 'success',
+                  message: 'Call request accepted. You can now call.'
+                } as WSMessage));
+              } else {
+                policyStore.recordRejection(request.to_address, request.from_address);
+                callerConnection.ws.send(JSON.stringify({
+                  type: 'call:blocked',
+                  reason: 'Call request declined'
+                } as WSMessage));
+              }
+            }
             break;
           }
 
@@ -523,6 +676,188 @@ export async function registerRoutes(
             break;
           }
 
+          case 'policy:get': {
+            const { address } = message;
+            const policy = policyStore.getPolicy(address);
+            ws.send(JSON.stringify({
+              type: 'policy:response',
+              policy
+            } as WSMessage));
+            break;
+          }
+          
+          case 'policy:update': {
+            const { policy, signature, from_pubkey, nonce, timestamp } = message;
+            
+            if (!verifyGenericSignature({ policy, nonce, timestamp }, signature, from_pubkey, nonce, timestamp)) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Invalid signature' } as WSMessage));
+              return;
+            }
+            
+            policyStore.savePolicy(policy);
+            ws.send(JSON.stringify({
+              type: 'policy:updated',
+              policy
+            } as WSMessage));
+            console.log(`Policy updated for ${policy.owner_address}`);
+            break;
+          }
+          
+          case 'override:update': {
+            const { override, signature, from_pubkey, nonce, timestamp } = message;
+            
+            if (!verifyGenericSignature({ override, nonce, timestamp }, signature, from_pubkey, nonce, timestamp)) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Invalid signature' } as WSMessage));
+              return;
+            }
+            
+            policyStore.saveOverride(override);
+            ws.send(JSON.stringify({
+              type: 'override:updated',
+              override
+            } as WSMessage));
+            console.log(`Override updated for ${override.owner_address} -> ${override.contact_address}`);
+            break;
+          }
+          
+          case 'pass:create': {
+            const { pass, signature, from_pubkey, nonce, timestamp } = message;
+            
+            if (!verifyGenericSignature({ pass, nonce, timestamp }, signature, from_pubkey, nonce, timestamp)) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Invalid signature' } as WSMessage));
+              return;
+            }
+            
+            const createdPass = policyStore.createPass(pass);
+            ws.send(JSON.stringify({
+              type: 'pass:created',
+              pass: createdPass
+            } as WSMessage));
+            console.log(`Pass created: ${createdPass.id} by ${pass.created_by}`);
+            break;
+          }
+          
+          case 'pass:revoke': {
+            const { pass_id, signature, from_pubkey, from_address, nonce, timestamp } = message;
+            
+            if (!verifyGenericSignature({ pass_id, from_address, nonce, timestamp }, signature, from_pubkey, nonce, timestamp)) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Invalid signature' } as WSMessage));
+              return;
+            }
+            
+            const pass = policyStore.getPass(pass_id);
+            if (!pass || pass.created_by !== from_address) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Pass not found or not authorized' } as WSMessage));
+              return;
+            }
+            
+            policyStore.revokePass(pass_id);
+            ws.send(JSON.stringify({
+              type: 'pass:revoked',
+              pass_id
+            } as WSMessage));
+            console.log(`Pass revoked: ${pass_id}`);
+            break;
+          }
+          
+          case 'pass:list': {
+            const { address } = message;
+            const passes = policyStore.getPassesCreatedBy(address);
+            ws.send(JSON.stringify({
+              type: 'pass:list_response',
+              passes
+            } as WSMessage));
+            break;
+          }
+          
+          case 'block:add': {
+            const { blocked, signature, from_pubkey, nonce, timestamp } = message;
+            
+            if (!verifyGenericSignature({ blocked, nonce, timestamp }, signature, from_pubkey, nonce, timestamp)) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Invalid signature' } as WSMessage));
+              return;
+            }
+            
+            policyStore.addToBlocklist(blocked);
+            ws.send(JSON.stringify({
+              type: 'block:added',
+              blocked
+            } as WSMessage));
+            console.log(`Blocked: ${blocked.blocked_address} by ${blocked.owner_address}`);
+            break;
+          }
+          
+          case 'block:remove': {
+            const { blocked_address, signature, from_pubkey, from_address, nonce, timestamp } = message;
+            
+            if (!verifyGenericSignature({ blocked_address, from_address, nonce, timestamp }, signature, from_pubkey, nonce, timestamp)) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Invalid signature' } as WSMessage));
+              return;
+            }
+            
+            policyStore.removeFromBlocklist(from_address, blocked_address);
+            ws.send(JSON.stringify({
+              type: 'block:removed',
+              blocked_address
+            } as WSMessage));
+            console.log(`Unblocked: ${blocked_address} by ${from_address}`);
+            break;
+          }
+          
+          case 'block:list': {
+            const { address } = message;
+            const blocked = policyStore.getBlocklist(address);
+            ws.send(JSON.stringify({
+              type: 'block:list_response',
+              blocked
+            } as WSMessage));
+            break;
+          }
+          
+          case 'routing:update': {
+            const { rules, signature, from_pubkey, from_address, nonce, timestamp } = message;
+            
+            if (!verifyGenericSignature({ rules, from_address, nonce, timestamp }, signature, from_pubkey, nonce, timestamp)) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Invalid signature' } as WSMessage));
+              return;
+            }
+            
+            policyStore.saveRoutingRules(from_address, rules);
+            ws.send(JSON.stringify({
+              type: 'routing:updated',
+              rules
+            } as WSMessage));
+            console.log(`Routing rules updated for ${from_address}`);
+            break;
+          }
+          
+          case 'wallet:verify': {
+            const { verification, signature, from_pubkey, nonce, timestamp } = message;
+            
+            if (!verifyGenericSignature({ verification, nonce, timestamp }, signature, from_pubkey, nonce, timestamp)) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Invalid signature' } as WSMessage));
+              return;
+            }
+            
+            policyStore.saveWalletVerification(verification);
+            ws.send(JSON.stringify({
+              type: 'wallet:verified',
+              verification
+            } as WSMessage));
+            console.log(`Wallet verified: ${verification.wallet_address} for ${verification.call_address}`);
+            break;
+          }
+          
+          case 'wallet:get': {
+            const { address } = message;
+            const verification = policyStore.getWalletVerification(address);
+            ws.send(JSON.stringify({
+              type: 'wallet:response',
+              verification
+            } as WSMessage));
+            break;
+          }
+          
           default:
             ws.send(JSON.stringify({ type: 'error', message: 'Unknown message type' } as WSMessage));
         }
