@@ -5,6 +5,7 @@ import { TopBar } from '@/components/TopBar';
 import { LockScreen } from '@/components/LockScreen';
 import { CallView } from '@/components/CallView';
 import { IncomingCallModal } from '@/components/IncomingCallModal';
+import { CallRequestModal } from '@/components/CallRequestModal';
 import { FAB } from '@/components/FAB';
 import { ChatsTab } from '@/components/tabs/ChatsTab';
 import { CallsTab } from '@/components/tabs/CallsTab';
@@ -12,11 +13,19 @@ import { ContactsTab } from '@/components/tabs/ContactsTab';
 import { AddTab } from '@/components/tabs/AddTab';
 import { SettingsTab } from '@/components/tabs/SettingsTab';
 import { CreateGroupModal } from '@/components/CreateGroupModal';
+import { CallPermissionsSettings } from '@/components/CallPermissionsSettings';
+import { BlocklistManager } from '@/components/BlocklistManager';
+import { AIGuardianSettings } from '@/components/AIGuardianSettings';
+import { WalletVerification } from '@/components/WalletVerification';
+import { InvitePassManager } from '@/components/InvitePassManager';
 import { ChatPage } from '@/pages/chat';
 import * as cryptoLib from '@/lib/crypto';
 import { getAppSettings, addCallRecord, getContactByAddress, getContacts } from '@/lib/storage';
 import { getLocalConversations, saveLocalConversation, getOrCreateDirectConvo, saveLocalMessage, incrementUnreadCount, getPrivacySettings } from '@/lib/messageStorage';
-import type { CryptoIdentity, WSMessage, Conversation, Message } from '@shared/types';
+import { addToLocalBlocklist } from '@/lib/policyStorage';
+import type { CryptoIdentity, WSMessage, Conversation, Message, CallRequest } from '@shared/types';
+
+type SettingsScreen = 'main' | 'call_permissions' | 'blocklist' | 'ai_guardian' | 'wallet' | 'passes';
 
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -49,6 +58,8 @@ export default function CallPage() {
   const [activeChat, setActiveChat] = useState<Conversation | null>(null);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [settingsScreen, setSettingsScreen] = useState<SettingsScreen>('main');
+  const [callRequest, setCallRequest] = useState<CallRequest | null>(null);
 
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -151,6 +162,15 @@ export default function CallPage() {
         from_pubkey: message.from_pubkey,
         media: message.media
       });
+    }
+    
+    if (message.type === 'call:blocked') {
+      toast.error(message.reason);
+    }
+    
+    if (message.type === 'call:request') {
+      setCallRequest(message.request);
+      toast.info('Someone wants to call you');
     }
     
     if (message.type === 'msg:incoming') {
@@ -304,6 +324,31 @@ export default function CallPage() {
     setShowCreateGroup(false);
   };
 
+  const handleCallRequestAccept = () => {
+    if (!callRequest || !ws) return;
+    ws.send(JSON.stringify({
+      type: 'call:request_response',
+      request_id: callRequest.id,
+      accepted: true
+    }));
+    setCallRequest(null);
+    toast.success('Call request accepted');
+  };
+
+  const handleCallRequestDecline = () => {
+    if (!callRequest || !ws) return;
+    ws.send(JSON.stringify({
+      type: 'call:request_response',
+      request_id: callRequest.id,
+      accepted: false
+    }));
+    setCallRequest(null);
+  };
+
+  const handleSettingsNavigate = (screen: SettingsScreen) => {
+    setSettingsScreen(screen);
+  };
+
   if (isLocked) {
     return <LockScreen onUnlock={() => setIsLocked(false)} />;
   }
@@ -377,11 +422,48 @@ export default function CallPage() {
             onStartCall={handleStartCall}
           />
         )}
-        {activeTab === 'settings' && (
+        {activeTab === 'settings' && settingsScreen === 'main' && (
           <SettingsTab
             identity={identity}
             onRotateAddress={handleRotateAddress}
             turnEnabled={turnEnabled}
+            ws={ws}
+            onNavigate={handleSettingsNavigate}
+          />
+        )}
+        {activeTab === 'settings' && settingsScreen === 'call_permissions' && (
+          <CallPermissionsSettings
+            identity={identity}
+            ws={ws}
+            onBack={() => setSettingsScreen('main')}
+          />
+        )}
+        {activeTab === 'settings' && settingsScreen === 'passes' && (
+          <div className="p-4">
+            <InvitePassManager
+              identity={identity}
+              ws={ws}
+              onBack={() => setSettingsScreen('main')}
+            />
+          </div>
+        )}
+        {activeTab === 'settings' && settingsScreen === 'blocklist' && (
+          <BlocklistManager
+            identity={identity}
+            ws={ws}
+            onBack={() => setSettingsScreen('main')}
+          />
+        )}
+        {activeTab === 'settings' && settingsScreen === 'ai_guardian' && (
+          <AIGuardianSettings
+            onBack={() => setSettingsScreen('main')}
+          />
+        )}
+        {activeTab === 'settings' && settingsScreen === 'wallet' && (
+          <WalletVerification
+            identity={identity}
+            ws={ws}
+            onBack={() => setSettingsScreen('main')}
           />
         )}
       </main>
@@ -412,6 +494,14 @@ export default function CallPage() {
         <CreateGroupModal
           onClose={() => setShowCreateGroup(false)}
           onCreate={handleCreateGroup}
+        />
+      )}
+
+      {callRequest && (
+        <CallRequestModal
+          request={callRequest}
+          onAccept={handleCallRequestAccept}
+          onDecline={handleCallRequestDecline}
         />
       )}
     </div>

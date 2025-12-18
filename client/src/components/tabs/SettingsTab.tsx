@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { User, Shield, Wifi, ChevronDown, ChevronUp, Copy, RefreshCw, Fingerprint, Eye, EyeOff, MessageSquare, CheckCheck, Clock } from 'lucide-react';
+import { User, Shield, Wifi, ChevronDown, ChevronUp, Copy, RefreshCw, Fingerprint, Eye, EyeOff, MessageSquare, CheckCheck, Clock, Phone, Ban, Bot, Wallet, ChevronRight, Ticket } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -7,17 +7,22 @@ import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { getUserProfile, saveUserProfile, getAppSettings, saveAppSettings } from '@/lib/storage';
 import { getPrivacySettings, savePrivacySettings, type PrivacySettings } from '@/lib/messageStorage';
+import { getLocalWalletVerification } from '@/lib/policyStorage';
 import { enrollBiometric, disableBiometric, isPlatformAuthenticatorAvailable } from '@/lib/biometric';
 import { toast } from 'sonner';
 import type { CryptoIdentity } from '@shared/types';
+
+type SettingsScreen = 'main' | 'call_permissions' | 'blocklist' | 'ai_guardian' | 'wallet' | 'passes';
 
 interface SettingsTabProps {
   identity: CryptoIdentity | null;
   onRotateAddress: () => void;
   turnEnabled: boolean;
+  ws?: WebSocket | null;
+  onNavigate?: (screen: SettingsScreen) => void;
 }
 
-export function SettingsTab({ identity, onRotateAddress, turnEnabled }: SettingsTabProps) {
+export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavigate }: SettingsTabProps) {
   const [profile, setProfile] = useState(getUserProfile());
   const [settings, setSettings] = useState(getAppSettings());
   const [privacy, setPrivacy] = useState<PrivacySettings>(getPrivacySettings());
@@ -103,6 +108,64 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled }: Settings
       <Card className="bg-slate-800/50 border-slate-700">
         <CardHeader>
           <CardTitle className="text-white flex items-center gap-2">
+            <Phone className="w-5 h-5" />
+            Call Settings
+          </CardTitle>
+          <CardDescription className="text-slate-400">
+            People can only reach you with your permission
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <button
+            onClick={() => onNavigate?.('call_permissions')}
+            className="w-full flex items-center justify-between p-3 bg-slate-900/30 rounded-lg hover:bg-slate-900/50 transition-colors"
+            data-testid="button-call-permissions"
+          >
+            <div className="flex items-center gap-3">
+              <Shield className="w-5 h-5 text-emerald-400" />
+              <div className="text-left">
+                <p className="text-white font-medium">Call Permissions</p>
+                <p className="text-slate-500 text-sm">Who can call you & spam protection</p>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-slate-400" />
+          </button>
+
+          <button
+            onClick={() => onNavigate?.('passes')}
+            className="w-full flex items-center justify-between p-3 bg-slate-900/30 rounded-lg hover:bg-slate-900/50 transition-colors"
+            data-testid="button-invite-passes"
+          >
+            <div className="flex items-center gap-3">
+              <Ticket className="w-5 h-5 text-purple-400" />
+              <div className="text-left">
+                <p className="text-white font-medium">Invite Passes</p>
+                <p className="text-slate-500 text-sm">Create passes to let others call you</p>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-slate-400" />
+          </button>
+
+          <button
+            onClick={() => onNavigate?.('blocklist')}
+            className="w-full flex items-center justify-between p-3 bg-slate-900/30 rounded-lg hover:bg-slate-900/50 transition-colors"
+            data-testid="button-blocklist"
+          >
+            <div className="flex items-center gap-3">
+              <Ban className="w-5 h-5 text-red-400" />
+              <div className="text-left">
+                <p className="text-white font-medium">Blocked Users</p>
+                <p className="text-slate-500 text-sm">Manage blocked callers</p>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-slate-400" />
+          </button>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-slate-800/50 border-slate-700">
+        <CardHeader>
+          <CardTitle className="text-white flex items-center gap-2">
             <Shield className="w-5 h-5" />
             Privacy & Security
           </CardTitle>
@@ -148,6 +211,44 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled }: Settings
               data-testid="switch-hide-advanced"
             />
           </div>
+
+          <button
+            onClick={() => onNavigate?.('ai_guardian')}
+            className="w-full flex items-center justify-between p-3 bg-slate-900/30 rounded-lg hover:bg-slate-900/50 transition-colors"
+            data-testid="button-ai-guardian"
+          >
+            <div className="flex items-center gap-3">
+              <Bot className="w-5 h-5 text-orange-400" />
+              <div className="text-left">
+                <p className="text-white font-medium flex items-center gap-2">
+                  AI Call Guardian
+                  <span className="text-xs bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded">Beta</span>
+                </p>
+                <p className="text-slate-500 text-sm">Spam & abuse detection</p>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-slate-400" />
+          </button>
+
+          <button
+            onClick={() => onNavigate?.('wallet')}
+            className="w-full flex items-center justify-between p-3 bg-slate-900/30 rounded-lg hover:bg-slate-900/50 transition-colors"
+            data-testid="button-wallet-verify"
+          >
+            <div className="flex items-center gap-3">
+              <Wallet className="w-5 h-5 text-blue-400" />
+              <div className="text-left">
+                <p className="text-white font-medium flex items-center gap-2">
+                  Wallet Verification
+                  {getLocalWalletVerification() && (
+                    <span className="text-xs bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded">Verified</span>
+                  )}
+                </p>
+                <p className="text-slate-500 text-sm">Optional trust badge</p>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-slate-400" />
+          </button>
         </CardContent>
       </Card>
 
