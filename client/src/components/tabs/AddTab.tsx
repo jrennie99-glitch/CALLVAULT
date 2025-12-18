@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { QrCode, Copy, UserPlus, Link, CheckCircle } from 'lucide-react';
+import { QrCode, Copy, UserPlus, Link, CheckCircle, Video, Phone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,13 +11,16 @@ import QRCode from 'qrcode';
 interface AddTabProps {
   myAddress: string;
   onContactAdded: () => void;
+  onStartCall?: (address: string, video: boolean) => void;
 }
 
-export function AddTab({ myAddress, onContactAdded }: AddTabProps) {
+export function AddTab({ myAddress, onContactAdded, onStartCall }: AddTabProps) {
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [newContactName, setNewContactName] = useState('');
   const [newContactAddress, setNewContactAddress] = useState('');
   const [pastedQrPayload, setPastedQrPayload] = useState('');
+  const [quickCallAddress, setQuickCallAddress] = useState('');
+  const [quickCallType, setQuickCallType] = useState<'video' | 'audio'>('video');
 
   useEffect(() => {
     if (myAddress) {
@@ -165,6 +168,87 @@ export function AddTab({ myAddress, onContactAdded }: AddTabProps) {
           >
             <CheckCircle className="w-4 h-4 mr-2" />
             Add Contact
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-slate-800/50 border-slate-700">
+        <CardHeader>
+          <CardTitle className="text-white flex items-center gap-2">
+            <Phone className="w-5 h-5" />
+            Quick Call
+          </CardTitle>
+          <CardDescription className="text-slate-400">
+            Call someone directly by their Call ID
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <Label className="text-slate-300">Call ID</Label>
+            <Input
+              placeholder="call:..."
+              value={quickCallAddress}
+              onChange={(e) => setQuickCallAddress(e.target.value)}
+              className="mt-1 bg-slate-900/50 border-slate-600 text-white placeholder:text-slate-500 font-mono text-sm"
+              data-testid="input-quick-call-address"
+            />
+          </div>
+          <div>
+            <Label className="text-slate-300 mb-2 block">Call Type</Label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setQuickCallType('video')}
+                className={`flex items-center justify-center gap-2 p-3 rounded-xl border transition-colors ${
+                  quickCallType === 'video'
+                    ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
+                    : 'bg-slate-900/50 border-slate-600 text-slate-400 hover:border-slate-500'
+                }`}
+                data-testid="button-call-type-video"
+              >
+                <Video className="w-5 h-5" />
+                <span>Video</span>
+              </button>
+              <button
+                onClick={() => setQuickCallType('audio')}
+                className={`flex items-center justify-center gap-2 p-3 rounded-xl border transition-colors ${
+                  quickCallType === 'audio'
+                    ? 'bg-blue-500/20 border-blue-500 text-blue-400'
+                    : 'bg-slate-900/50 border-slate-600 text-slate-400 hover:border-slate-500'
+                }`}
+                data-testid="button-call-type-audio"
+              >
+                <Phone className="w-5 h-5" />
+                <span>Audio</span>
+              </button>
+            </div>
+          </div>
+          <Button
+            onClick={() => {
+              if (!quickCallAddress.trim() || !quickCallAddress.startsWith('call:')) {
+                toast.error('Please enter a valid Call ID');
+                return;
+              }
+              onStartCall?.(quickCallAddress.trim(), quickCallType === 'video');
+            }}
+            className={`w-full h-14 rounded-2xl text-lg font-medium ${
+              quickCallType === 'video'
+                ? 'bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700'
+                : 'bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700'
+            }`}
+            disabled={!quickCallAddress || !onStartCall}
+            data-testid="button-call-now"
+          >
+            {quickCallType === 'video' ? (
+              <>
+                <Video className="w-5 h-5 mr-2" />
+                Video Call Now
+              </>
+            ) : (
+              <>
+                <Phone className="w-5 h-5 mr-2" />
+                Voice Call Now
+              </>
+            )}
           </Button>
         </CardContent>
       </Card>

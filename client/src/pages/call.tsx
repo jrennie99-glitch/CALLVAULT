@@ -258,6 +258,7 @@ export default function CallPage() {
           <AddTab
             myAddress={identity.address}
             onContactAdded={() => setActiveTab('contacts')}
+            onStartCall={handleStartCall}
           />
         )}
         {activeTab === 'settings' && (

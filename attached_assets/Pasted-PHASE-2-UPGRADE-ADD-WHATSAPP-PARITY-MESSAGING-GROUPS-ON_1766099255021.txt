@@ -1,0 +1,149 @@
+PHASE 2 UPGRADE: ADD WHATSAPP-PARITY MESSAGING + GROUPS ON TOP OF MY EXISTING “CRYPTO CALL” APP (KEEP AUDIO/VIDEO CALLING WORKING).
+
+NON-NEGOTIABLE RULES
+- Do NOT remove, rename, or break any existing features: crypto identity, call IDs, signature verification, replay protection, rate limiting, WebRTC signaling/calls, UI tabs, biometric app lock, PWA.
+- Add Phase 2 features by extending the existing architecture.
+- No mock data: messaging must work live between two tabs/devices.
+- No “Replit agent” branding.
+
+GOAL
+Make the app feel like WhatsApp:
+- Contacts -> tap -> Chat
+- Send/receive messages in real time
+- Group chats
+- Media/file sharing
+- Voice notes
+- Message status (sent/delivered/read) with privacy toggles
+- Notifications (best-effort in PWA; full push can be staged)
+
+IDENTITY MODEL (KEEP EXISTING)
+- Continue using existing crypto call identity and call address as the user identifier.
+- Messages must be authenticated: every message is signed client-side with the user’s keypair and verified server-side.
+- Private key never leaves the browser.
+- Avoid crypto jargon in the UI; keep “Advanced identity” for power users.
+
+PHASE 2 FEATURES TO IMPLEMENT
+
+A) NEW TAB + SCREENS
+1) Add a bottom tab: “Chats” (or replace the least critical tab if you must, but keep current tabs if possible).
+2) Chats Tab:
+   - List conversations (1:1 and group)
+   - Show last message preview + timestamp + unread badge
+3) Chat Screen:
+   - Message bubbles (incoming/outgoing)
+   - Timestamp grouping
+   - “Typing…” indicator (optional toggle)
+   - Scroll to latest, load earlier messages
+4) Contact Detail:
+   - Add a “Message” button next to Audio/Video call buttons.
+   - Tapping opens chat with that contact.
+
+B) REAL-TIME MESSAGING (LIVE)
+1) WebSocket message types (ADD, DON’T BREAK EXISTING):
+   - msg:send
+   - msg:deliver
+   - msg:read
+   - msg:typing (optional)
+   - convo:create (1:1)
+   - group:create
+   - group:invite
+   - group:leave
+2) Message payload format (must be signed):
+   message = {
+     id, convo_id, from_address, to_address_or_group,
+     ts, type: "text"|"image"|"file"|"voice",
+     body_or_attachment_ref,
+     reply_to (optional),
+     nonce
+   }
+   signature = Ed25519 detached signature over stable-stringified message
+3) Server must verify signature + enforce replay protection (nonce/ts) similarly to call intents.
+4) Delivery semantics:
+   - Sent: client queued and accepted by server
+   - Delivered: recipient socket received it
+   - Read: recipient opened convo (optional; can be toggled off in privacy)
+
+C) STORAGE (LOCAL + SERVER)
+1) Local encrypted-ish storage:
+   - Store conversations + messages in IndexedDB (preferred) or localStorage fallback.
+   - Keep call history separate; do not break it.
+2) Server persistence:
+   - Add a simple persistence layer (SQLite or lightweight JSON DB) so messages survive reload.
+   - Store minimal metadata: do not store plaintext if you implement optional end-to-end encryption later.
+   - For Phase 2, server-side storage can store plaintext but MUST be designed to upgrade to E2EE later.
+   - Keep the schema clean and versioned.
+
+D) GROUP CHATS (WHATSAPP PARITY)
+1) Group chat creation:
+   - Name, optional icon
+   - Creator becomes admin
+2) Invites:
+   - Invite by contact address
+   - Optional invite link (address-gated)
+3) Group message delivery:
+   - Fan-out to group members
+   - Unread counts per member
+4) Group permissions:
+   - Admin can remove members
+   - Members can leave
+
+E) MEDIA + FILE SHARING
+1) Allow sending:
+   - Images (jpg/png/webp)
+   - Files (pdf, txt, etc.)
+2) Upload handling:
+   - Add /upload endpoint to server (multipart)
+   - Store files in a server directory with random IDs
+   - Return attachment ref URL
+3) In chat UI:
+   - Image previews
+   - File cards with filename + size + download
+4) Max size safeguards + validation
+
+F) VOICE NOTES (IMPORTANT)
+1) Record button (press/hold or tap record)
+2) Capture audio using MediaRecorder
+3) Upload as audio/webm or audio/ogg
+4) Play inline in chat bubble
+
+G) PRIVACY CONTROLS (SETTINGS)
+Add toggles:
+- Read receipts (on/off)
+- Typing indicators (on/off)
+- Last seen / online indicator (on/off)
+Default privacy-friendly.
+
+H) NOTIFICATIONS (BEST EFFORT)
+1) In-app notifications:
+   - Banner/toast when message arrives if not in that chat
+2) PWA notifications:
+   - If Notification API permitted, show notifications while app open
+3) If full background push is not feasible in pure web on iOS, implement the code structure for later:
+   - service worker push handlers stubbed
+   - explain that full push requires native wrapper (Capacitor) or a push service setup
+
+I) DO NOT BREAK CALLING
+- The calling tabs and call flows must remain functional.
+- Contacts must still have Video Call and Audio Call buttons.
+
+QUALITY REQUIREMENTS
+- Mobile-first layout, WhatsApp-like
+- Fast, minimal, polished
+- No crypto-key fields shown by default
+- Works in two tabs/devices immediately
+
+TEST CHECKLIST (MUST PASS)
+1) Two tabs/devices add each other as contacts.
+2) Start a 1:1 chat; send text both ways live.
+3) Send image/file; recipient can view/download.
+4) Record and send voice note; recipient can play.
+5) Create group with 2+ members; send messages; everyone receives.
+6) Read receipts toggle off -> do not send msg:read events.
+7) Calls (audio/video) still work.
+
+DELIVERABLE OUTPUT
+- Implement Phase 2 features fully.
+- Provide a short “How to test Phase 2” section.
+- List any new env vars or dependencies added.
+
+Proceed now and implement Phase 2.

@@ -168,24 +168,52 @@ export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR }: Contact
       ) : (
         <div className="divide-y divide-slate-800">
           {filteredContacts.map((contact) => (
-            <button
+            <div
               key={contact.id}
-              onClick={() => setSelectedContact(contact)}
-              className="w-full flex items-center gap-4 p-4 hover:bg-slate-800/50 transition-colors text-left"
+              className="flex items-center gap-3 p-4 hover:bg-slate-800/50 transition-colors"
               data-testid={`contact-${contact.id}`}
             >
-              {contact.avatar ? (
-                <img src={contact.avatar} alt="" className="w-12 h-12 rounded-full object-cover flex-shrink-0" />
-              ) : (
-                <Avatar name={contact.name} address={contact.address} size="md" />
-              )}
-              <div className="flex-1 min-w-0">
-                <div className="font-medium text-white truncate">{contact.name}</div>
-                <div className="text-sm text-slate-500 truncate font-mono">
-                  {contact.address.slice(0, 25)}...
+              <button
+                onClick={() => setSelectedContact(contact)}
+                className="flex items-center gap-3 flex-1 min-w-0 text-left"
+              >
+                {contact.avatar ? (
+                  <img src={contact.avatar} alt="" className="w-12 h-12 rounded-full object-cover flex-shrink-0" />
+                ) : (
+                  <Avatar name={contact.name} address={contact.address} size="md" />
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-white truncate">{contact.name}</div>
+                  <div className="text-sm text-slate-500 truncate font-mono">
+                    {contact.address.slice(0, 20)}...
+                  </div>
                 </div>
+              </button>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onStartCall(contact.address, true);
+                  }}
+                  className="w-10 h-10 rounded-full flex items-center justify-center text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+                  data-testid={`button-video-call-${contact.id}`}
+                  title="Video Call"
+                >
+                  <Video className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onStartCall(contact.address, false);
+                  }}
+                  className="w-10 h-10 rounded-full flex items-center justify-center text-blue-400 hover:bg-blue-500/20 transition-colors"
+                  data-testid={`button-audio-call-${contact.id}`}
+                  title="Voice Call"
+                >
+                  <Phone className="w-5 h-5" />
+                </button>
               </div>
-            </button>
+            </div>
           ))}
         </div>
       )}

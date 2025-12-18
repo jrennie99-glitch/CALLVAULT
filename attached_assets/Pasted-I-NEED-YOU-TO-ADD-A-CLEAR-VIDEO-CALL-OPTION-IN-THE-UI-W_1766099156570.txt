@@ -1,0 +1,56 @@
+I NEED YOU TO ADD A CLEAR VIDEO CALL OPTION IN THE UI (WHATSAPP-STYLE) WITHOUT BREAKING ANY EXISTING FEATURES OR CALL LOGIC.
+
+CURRENT ISSUE
+- The new mobile UI (Calls/Contacts/Add/Settings) is missing an obvious “Video Call” option.
+- Video calling already exists in the project (WebRTC supports video), but the UI does not expose the button/flow.
+
+NON-NEGOTIABLE RULES
+- Do NOT change the underlying WebRTC implementation or signaling message types unless absolutely necessary.
+- Do NOT remove or rename any existing functions that currently place calls.
+- Only add UI wiring so the user can choose VIDEO or AUDIO from Contacts and Add flows.
+- Keep it mobile-first and WhatsApp-like.
+
+REQUIRED UI CHANGES (DO THESE)
+1) CONTACT DETAIL SCREEN
+- When a user taps a contact, show a Contact Detail screen with:
+  - Large “Video Call” button
+  - Large “Audio Call” button
+- Pressing Video Call must start a call with video enabled.
+- Pressing Audio Call must start a call with video disabled (audio-only).
+
+2) CONTACT LIST QUICK ACTIONS
+- In the Contacts list rows, add two icons on the right (like WhatsApp):
+  - video camera icon -> starts video call
+  - phone icon -> starts audio call
+- Keep rows thumb-friendly, do not clutter.
+
+3) ADD TAB CALL TYPE SELECTOR
+- In Add tab (where user pastes a Call ID), add a selector:
+  - Video / Audio
+- And a “Call Now” button that uses that selector.
+
+4) CALL ENGINE WIRING (IMPORTANT)
+- Reuse the existing call-start function(s). If there is a single function like startCall(toAddress) then extend it to accept callType:
+  startCall(toAddress, { video: true/false })
+- Ensure getUserMedia uses:
+  - { audio: true, video: true } for video calls
+  - { audio: true, video: false } for audio calls
+- Ensure the call intent payload includes media flags (if your project already does this, keep format exactly; if missing, add media:{audio:true, video:true/false} without breaking server verification).
+
+5) INCOMING CALL SCREEN
+- If incoming call media.video is true -> show “Incoming Video Call”
+- If false -> show “Incoming Audio Call”
+- Accept must respect the type (video stays off for audio-only).
+
+6) TESTS YOU MUST RUN
+- Create a contact by pasting Call ID.
+- Tap contact -> Video Call -> accept -> confirm remote video + audio works.
+- Tap contact -> Audio Call -> accept -> confirm audio works and video stays off.
+- Confirm old calling flow still works (if present).
+
+DELIVERABLE
+- Implement the missing screens/buttons and wiring.
+- Do not change styling theme; keep it consistent with current UI.
+- After changes, show me where the Video Call button is located (which screen) and confirm it works.
+
+Proceed now.
