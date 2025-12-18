@@ -1,0 +1,46 @@
+I need you to TAKE THE CURRENT PROJECT AS-IS and do the following in order. Do NOT remove or change existing features or functionality. Only add what’s missing and fix bugs.
+
+STEP 1 — RUN A FULL VALIDATION TEST (NO MOCKS)
+1) Open the app in two browser tabs (Tab A and Tab B).
+2) In Tab A: copy the current “Call ID”.
+3) In Tab B: add Tab A as a contact by pasting the Call ID.
+4) Start a VIDEO call from Tab B to Tab A.
+5) Accept on Tab A.
+6) Verify: local preview loads, remote video loads, and two-way audio works.
+7) End the call; verify call history updates and shows the call.
+8) Start an AUDIO-only call; accept; verify audio works; end call; verify history updates.
+
+If ANY of the above fails, identify the exact failure, print the root cause, and implement the smallest code fix necessary. Do not refactor unrelated code.
+
+STEP 2 — VERIFY APP LOCK (BIOMETRIC / PASSKEY)
+1) Go to Settings and enable “App Lock (Face ID / Touch ID)”.
+2) Reload the app; confirm lock screen blocks the UI.
+3) Unlock successfully using WebAuthn platform authenticator.
+4) Disable App Lock; reload; confirm no lock screen.
+If any part fails, fix only the lock implementation and keep everything else unchanged.
+
+STEP 3 — TURN SUPPORT CHECK (RELIABILITY)
+1) Confirm the code reads TURN_URL, TURN_USER, TURN_PASS from environment variables.
+2) If those are present, ensure RTCPeerConnection iceServers includes TURN plus STUN.
+3) Show in Settings whether TURN is ACTIVE or STUN-ONLY.
+Do not require TURN to run; app must still work with STUN only.
+
+STEP 4 — PWA CHECK
+1) Confirm manifest.json exists and is linked correctly.
+2) Confirm service worker registers and caches only the app shell.
+3) Confirm iOS Add-to-Home-Screen meta tags exist.
+If anything is missing, add it with minimal changes.
+
+STEP 5 — OUTPUT
+When done, provide:
+- A short checklist of what passed
+- Any fixes you made (file + lines changed)
+- Any remaining issues that require external TURN credentials or device permissions
+
+IMPORTANT
+- Do not add Replit branding.
+- Do not remove or rename websocket message types.
+- Do not change the crypto identity/signing scheme.
+- Keep video calling working above all else.
+
+Proceed now.
