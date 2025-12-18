@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { Phone, Video, PhoneIncoming, PhoneOutgoing, PhoneMissed, UserPlus, Bell, Check, X, Ban, ChevronRight } from 'lucide-react';
+import { Phone, Video, PhoneIncoming, PhoneOutgoing, PhoneMissed, UserPlus, Bell, Check, X, Ban, ChevronRight, MessageCircle, Ticket, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getCallHistory, getContactByAddress, type CallRecord } from '@/lib/storage';
+import { getLocalPasses, isLocallyBlocked } from '@/lib/policyStorage';
 import { formatDistanceToNow } from 'date-fns';
 import { Avatar } from '@/components/Avatar';
 import type { CallRequest } from '@shared/types';
@@ -10,15 +11,30 @@ interface CallsTabProps {
   onStartCall: (address: string, video: boolean) => void;
   onNavigateToAdd?: () => void;
   onNavigateToContacts?: () => void;
+  onNavigateToSettings?: () => void;
+  onOpenChat?: (address: string) => void;
   callRequests?: CallRequest[];
   onAcceptRequest?: (request: CallRequest) => void;
   onDeclineRequest?: (request: CallRequest) => void;
   onBlockRequester?: (address: string) => void;
 }
 
-export function CallsTab({ onStartCall, onNavigateToAdd, onNavigateToContacts, callRequests = [], onAcceptRequest, onDeclineRequest, onBlockRequester }: CallsTabProps) {
+export function CallsTab({ onStartCall, onNavigateToAdd, onNavigateToContacts, onNavigateToSettings, onOpenChat, callRequests = [], onAcceptRequest, onDeclineRequest, onBlockRequester }: CallsTabProps) {
   const [showRequests, setShowRequests] = useState(true);
   const callHistory = getCallHistory();
+  const passes = getLocalPasses();
+
+  const getCallPermissionLabel = (address: string): { label: string; color: string } => {
+    const contact = getContactByAddress(address);
+    if (contact) {
+      return { label: 'Contact', color: 'text-emerald-400 bg-emerald-400/10' };
+    }
+    const hasPass = passes.some(p => p.recipient_address === address && !p.revoked && !p.burned);
+    if (hasPass) {
+      return { label: 'Call Invite', color: 'text-purple-400 bg-purple-400/10' };
+    }
+    return { label: 'Unknown', color: 'text-slate-400 bg-slate-400/10' };
+  };
 
   const formatDuration = (seconds?: number) => {
     if (!seconds) return '';
@@ -38,22 +54,24 @@ export function CallsTab({ onStartCall, onNavigateToAdd, onNavigateToContacts, c
     }
   };
 
-  if (callHistory.length === 0) {
+  if (callHistory.length === 0 && callRequests.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-center px-6">
-        <Phone className="w-16 h-16 text-slate-600 mb-4" />
-        <h3 className="text-lg font-medium text-slate-300 mb-2">No Recent Calls</h3>
-        <p className="text-slate-500 text-sm mb-6">
-          Start a call to see your history here
+        <div className="w-16 h-16 rounded-full bg-emerald-500/10 flex items-center justify-center mb-4">
+          <Shield className="w-8 h-8 text-emerald-400" />
+        </div>
+        <h3 className="text-lg font-medium text-white mb-2">Only people you allow can call you</h3>
+        <p className="text-slate-400 text-sm mb-6">
+          Add contacts or create call invites to let others reach you
         </p>
-        <div className="flex gap-3">
+        <div className="flex flex-col gap-3 w-full max-w-xs">
           <Button
-            onClick={onNavigateToContacts}
-            className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700"
-            data-testid="button-start-call-empty"
+            onClick={onNavigateToSettings}
+            className="bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700"
+            data-testid="button-create-invite-empty"
           >
-            <Phone className="w-4 h-4 mr-2" />
-            Start a Call
+            <Ticket className="w-4 h-4 mr-2" />
+            Create Call Invite
           </Button>
           <Button
             onClick={onNavigateToAdd}
@@ -126,14 +144,14 @@ export function CallsTab({ onStartCall, onNavigateToAdd, onNavigateToContacts, c
                         Accept
                       </Button>
                       <Button
-                        onClick={() => onDeclineRequest?.(request)}
+                        onClick={() => onOpenChat?.(request.from_address)}
                         size="sm"
                         variant="outline"
                         className="flex-1 border-slate-600 text-slate-300"
-                        data-testid={`decline-request-${request.id}`}
+                        data-testid={`message-request-${request.id}`}
                       >
-                        <X className="w-4 h-4 mr-1" />
-                        Ignore
+                        <MessageCircle className="w-4 h-4 mr-1" />
+                        Message
                       </Button>
                       <Button
                         onClick={() => onBlockRequester?.(request.from_address)}
@@ -177,6 +195,14 @@ export function CallsTab({ onStartCall, onNavigateToAdd, onNavigateToContacts, c
                 <span className={`font-medium truncate ${call.type === 'missed' ? 'text-red-400' : 'text-white'}`}>
                   {displayName}
                 </span>
+                {(() => {
+                  const perm = getCallPermissionLabel(call.address);
+                  return (
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${perm.color}`}>
+                      {perm.label}
+                    </span>
+                  );
+                })()}
               </div>
               <div className="flex items-center gap-2 text-sm text-slate-500">
                 <span>{formatDistanceToNow(call.timestamp, { addSuffix: true })}</span>

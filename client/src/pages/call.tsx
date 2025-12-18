@@ -211,6 +211,15 @@ export default function CallPage() {
     if (message.type === 'group:member_left') {
       loadConversations();
     }
+    
+    if ((message as any).type === 'pass:used') {
+      const passMsg = message as any;
+      toast.info('Your Call Invite was used', {
+        description: passMsg.pass_type === 'one_time' 
+          ? 'This invite is now expired' 
+          : `${passMsg.uses_remaining || 0} uses remaining`
+      });
+    }
   }, [activeChat]);
 
   const handleStartCall = (address: string, video: boolean) => {
@@ -388,6 +397,16 @@ export default function CallPage() {
             onStartCall={handleStartCall}
             onNavigateToAdd={() => setActiveTab('add')}
             onNavigateToContacts={() => setActiveTab('contacts')}
+            onNavigateToSettings={() => {
+              setActiveTab('settings');
+              setSettingsScreen('passes');
+            }}
+            onOpenChat={(address) => {
+              const convo = getOrCreateDirectConvo(identity.address, address);
+              saveLocalConversation(convo);
+              loadConversations();
+              setActiveChat(convo);
+            }}
             callRequests={callRequests}
             onAcceptRequest={(request) => {
               if (ws && ws.readyState === WebSocket.OPEN) {
