@@ -7,7 +7,6 @@ import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { getUserProfile, saveUserProfile, getAppSettings, saveAppSettings } from '@/lib/storage';
 import { getPrivacySettings, savePrivacySettings, type PrivacySettings } from '@/lib/messageStorage';
-import { getLocalWalletVerification } from '@/lib/policyStorage';
 import { enrollBiometric, disableBiometric, isPlatformAuthenticatorAvailable } from '@/lib/biometric';
 import { toast } from 'sonner';
 import type { CryptoIdentity } from '@shared/types';
@@ -238,11 +237,8 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
             <div className="flex items-center gap-3">
               <Wallet className="w-5 h-5 text-blue-400" />
               <div className="text-left">
-                <p className="text-white font-medium flex items-center gap-2">
+                <p className="text-white font-medium">
                   Wallet Verification
-                  {getLocalWalletVerification() && (
-                    <span className="text-xs bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded">Verified</span>
-                  )}
                 </p>
                 <p className="text-slate-500 text-sm">Optional trust badge</p>
               </div>

@@ -1,0 +1,80 @@
+FINALIZE PHASE 3 BY SURFACING PERMISSIONED CALLING + INVITE PASSES + CALL REQUESTS IN THE MAIN UI — WITHOUT ADDING NEW FEATURES OR BREAKING EXISTING ONES.
+
+DO NOT ADD NEW LOGIC. ONLY CONNECT EXISTING PHASE 3 FEATURES TO THE UI FLOW.
+
+NON-NEGOTIABLE
+- Do NOT remove or refactor Phase 1 or Phase 2 features.
+- Do NOT change WebRTC or messaging internals.
+- Only expose Phase 3 state visually and behaviorally.
+- Keep mobile-first, WhatsApp-like UX.
+
+TASKS TO COMPLETE
+
+1) CONTACT DETAIL SCREEN — PERMISSION AWARE
+When viewing a contact:
+- Show their current permission status:
+  - “Allowed”
+  - “Blocked”
+  - “Invite-only”
+- If blocked → disable call buttons with label “Blocked”
+- If invite-only → show “Send Call Request” instead of ringing
+- Add quick actions:
+  - Allow always
+  - Block
+  - Create one-time pass for this contact
+
+2) INCOMING CALL UX — EXPLAIN WHY IT’S RINGING
+On incoming calls:
+- If allowed via contact → label: “Contact”
+- If allowed via invite pass → label: “Invite Pass”
+- If unknown but allowed → label: “Unknown caller”
+- If policy converts to request:
+  - Show “Call Request” screen instead of ringing
+  - Buttons: Accept / Ignore / Block
+
+3) CALL REQUESTS INBOX
+- Add a lightweight “Requests” section:
+  - Either inside Chats tab or as a badge on Calls
+- Call requests should show:
+  - Caller address
+  - Reason (unknown / invite / expired attempt)
+- Accepting request:
+  - Rings back or opens call
+  - Optionally auto-adds contact
+
+4) INVITE PASSES — USER FEEDBACK
+In Add tab → Invite Passes:
+- Show active passes clearly:
+  - One-time / expiring
+  - Remaining uses
+- When a pass is used:
+  - Notify user: “Your invite pass was used”
+  - Update remaining uses or mark burned
+
+5) BLOCKLIST FEEDBACK
+- If a blocked user attempts to call:
+  - Do NOT ring
+  - Log attempt silently
+- In Blocklist:
+  - Show “X blocked attempts prevented”
+
+6) AI GUARDIAN (VISUAL ONLY)
+Without changing logic:
+- If AI Guardian is ON and flags a call:
+  - Show banner: “Possible spam — AI Guardian”
+  - One-tap “Block”
+
+7) COPY / LABEL CLEANUP
+- Replace technical wording with human language:
+  - “Call Policy” → “Who can call me”
+  - “Invite Pass” → “Call Invite”
+  - “Unknown” → “Not in your contacts”
+
+DELIVERABLE
+- Phase 3 should now be visible, understandable, and explainable to a non-technical user.
+- After implementation, list:
+  - Where users see call permissions
+  - Where call requests appear
+  - How invite passes are surfaced
+
+Proceed now.

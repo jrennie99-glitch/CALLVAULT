@@ -1,18 +1,23 @@
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { PhoneOff, Phone, PhoneIncoming, Video, User } from 'lucide-react';
+import { PhoneOff, Phone, PhoneIncoming, Video, User, Ticket, Shield, AlertTriangle } from 'lucide-react';
 import { getContactByAddress } from '@/lib/storage';
+
+type CallSource = 'contact' | 'invite' | 'unknown';
 
 interface IncomingCallModalProps {
   fromAddress: string;
   isVideo: boolean;
   onAccept: () => void;
   onReject: () => void;
+  callSource?: CallSource;
+  aiWarning?: boolean;
 }
 
-export function IncomingCallModal({ fromAddress, isVideo, onAccept, onReject }: IncomingCallModalProps) {
+export function IncomingCallModal({ fromAddress, isVideo, onAccept, onReject, callSource, aiWarning }: IncomingCallModalProps) {
   const contact = getContactByAddress(fromAddress);
   const displayName = contact?.name || fromAddress.slice(0, 20) + '...';
+  const source = callSource || (contact ? 'contact' : 'unknown');
 
   return (
     <Dialog open={true} onOpenChange={(open) => !open && onReject()}>
@@ -39,7 +44,38 @@ export function IncomingCallModal({ fromAddress, isVideo, onAccept, onReject }: 
               </>
             )}
           </DialogDescription>
+          
+          <div className="flex justify-center mt-2">
+            {source === 'contact' && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-500/20 text-emerald-400 rounded-full text-xs">
+                <Shield className="w-3 h-3" />
+                Contact
+              </span>
+            )}
+            {source === 'invite' && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-purple-500/20 text-purple-400 rounded-full text-xs">
+                <Ticket className="w-3 h-3" />
+                Call Invite
+              </span>
+            )}
+            {source === 'unknown' && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-orange-500/20 text-orange-400 rounded-full text-xs">
+                <User className="w-3 h-3" />
+                Not in contacts
+              </span>
+            )}
+          </div>
         </DialogHeader>
+
+        {aiWarning && (
+          <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center gap-3" data-testid="ai-warning-banner">
+            <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0" />
+            <div>
+              <p className="text-red-400 font-medium text-sm">Possible spam</p>
+              <p className="text-slate-500 text-xs">AI Guardian flagged this call</p>
+            </div>
+          </div>
+        )}
 
         {!contact && (
           <div className="p-3 bg-slate-900/50 rounded-xl font-mono text-xs text-emerald-400 break-all text-center" data-testid="text-incoming-address">

@@ -1,9 +1,11 @@
 import { useState } from 'react';
-import { Search, User, Video, Phone, Trash2, ChevronLeft, UserPlus, QrCode, MessageSquare } from 'lucide-react';
+import { Search, User, Video, Phone, Trash2, ChevronLeft, UserPlus, QrCode, MessageSquare, Shield, Ban, Check, Ticket } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { getContacts, deleteContact, type Contact } from '@/lib/storage';
 import { Avatar } from '@/components/Avatar';
+import { getLocalOverrides, saveLocalOverride, deleteLocalOverride, isLocallyBlocked, addToLocalBlocklist, removeFromLocalBlocklist, getLocalPasses, saveLocalPass } from '@/lib/policyStorage';
+import { toast } from 'sonner';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -14,6 +16,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+
+type PermissionStatus = 'allowed' | 'blocked' | 'default';
+
+function getContactPermissionStatus(address: string): PermissionStatus {
+  if (isLocallyBlocked(address)) return 'blocked';
+  const overrides = getLocalOverrides();
+  const override = overrides.find(o => o.contact_address === address);
+  if (override?.permission === 'always') return 'allowed';
+  if (override?.permission === 'blocked') return 'blocked';
+  return 'default';
+}
 
 interface ContactsTabProps {
   onStartCall: (address: string, video: boolean) => void;
@@ -63,12 +76,38 @@ export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR, onOpenCha
             )}
           </div>
           <h2 className="text-2xl font-bold text-white mb-2">{selectedContact.name}</h2>
-          <p className="text-slate-400 text-sm font-mono break-all px-4">
+          <p className="text-slate-400 text-sm font-mono break-all px-4 mb-3">
             {selectedContact.address}
           </p>
+          
+          {(() => {
+            const status = getContactPermissionStatus(selectedContact.address);
+            return (
+              <div className="flex justify-center">
+                {status === 'allowed' && (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-500/20 text-emerald-400 rounded-full text-sm">
+                    <Check className="w-4 h-4" />
+                    Always allowed
+                  </span>
+                )}
+                {status === 'blocked' && (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-red-500/20 text-red-400 rounded-full text-sm">
+                    <Ban className="w-4 h-4" />
+                    Blocked
+                  </span>
+                )}
+                {status === 'default' && (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-700 text-slate-300 rounded-full text-sm">
+                    <Shield className="w-4 h-4" />
+                    Default settings
+                  </span>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
-        <div className="grid grid-cols-3 gap-3 mb-8">
+        <div className="grid grid-cols-3 gap-3 mb-6">
           <Button
             onClick={() => onOpenChat?.(selectedContact.address)}
             className="h-16 bg-gradient-to-r from-purple-500 to-pink-600 hover:from-purple-600 hover:to-pink-700 flex flex-col items-center justify-center gap-1 rounded-2xl"
@@ -77,22 +116,125 @@ export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR, onOpenCha
             <MessageSquare className="h-6 w-6" />
             <span className="text-sm">Message</span>
           </Button>
-          <Button
-            onClick={() => onStartCall(selectedContact.address, true)}
-            className="h-16 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 flex flex-col items-center justify-center gap-1 rounded-2xl"
-            data-testid="button-contact-video-call"
-          >
-            <Video className="h-6 w-6" />
-            <span className="text-sm">Video</span>
-          </Button>
-          <Button
-            onClick={() => onStartCall(selectedContact.address, false)}
-            className="h-16 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 flex flex-col items-center justify-center gap-1 rounded-2xl"
-            data-testid="button-contact-voice-call"
-          >
-            <Phone className="h-6 w-6" />
-            <span className="text-sm">Call</span>
-          </Button>
+          {getContactPermissionStatus(selectedContact.address) === 'blocked' ? (
+            <Button
+              disabled
+              className="h-16 bg-slate-700 flex flex-col items-center justify-center gap-1 rounded-2xl cursor-not-allowed opacity-50"
+              data-testid="button-contact-video-call"
+            >
+              <Video className="h-6 w-6" />
+              <span className="text-sm">Blocked</span>
+            </Button>
+          ) : (
+            <Button
+              onClick={() => onStartCall(selectedContact.address, true)}
+              className="h-16 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 flex flex-col items-center justify-center gap-1 rounded-2xl"
+              data-testid="button-contact-video-call"
+            >
+              <Video className="h-6 w-6" />
+              <span className="text-sm">Video</span>
+            </Button>
+          )}
+          {getContactPermissionStatus(selectedContact.address) === 'blocked' ? (
+            <Button
+              disabled
+              className="h-16 bg-slate-700 flex flex-col items-center justify-center gap-1 rounded-2xl cursor-not-allowed opacity-50"
+              data-testid="button-contact-voice-call"
+            >
+              <Phone className="h-6 w-6" />
+              <span className="text-sm">Blocked</span>
+            </Button>
+          ) : (
+            <Button
+              onClick={() => onStartCall(selectedContact.address, false)}
+              className="h-16 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 flex flex-col items-center justify-center gap-1 rounded-2xl"
+              data-testid="button-contact-voice-call"
+            >
+              <Phone className="h-6 w-6" />
+              <span className="text-sm">Call</span>
+            </Button>
+          )}
+        </div>
+
+        <div className="bg-slate-800/50 rounded-xl p-4 mb-6 space-y-3">
+          <h3 className="text-sm font-medium text-slate-400 mb-2">Quick Actions</h3>
+          {getContactPermissionStatus(selectedContact.address) === 'blocked' ? (
+            <Button
+              onClick={() => {
+                removeFromLocalBlocklist(selectedContact.address);
+                forceUpdate({});
+                toast.success('Contact unblocked');
+              }}
+              variant="ghost"
+              className="w-full justify-start text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10"
+              data-testid="button-unblock-contact"
+            >
+              <Check className="w-4 h-4 mr-3" />
+              Unblock this contact
+            </Button>
+          ) : (
+            <>
+              <Button
+                onClick={() => {
+                  saveLocalOverride({
+                    owner_address: '',
+                    contact_address: selectedContact.address,
+                    permission: 'always',
+                    updated_at: Date.now()
+                  });
+                  forceUpdate({});
+                  toast.success('Contact set to always allow calls');
+                }}
+                variant="ghost"
+                className="w-full justify-start text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10"
+                data-testid="button-allow-always"
+              >
+                <Check className="w-4 h-4 mr-3" />
+                Always allow calls
+              </Button>
+              <Button
+                onClick={() => {
+                  addToLocalBlocklist({
+                    owner_address: '',
+                    blocked_address: selectedContact.address,
+                    reason: 'Manual block',
+                    blocked_at: Date.now()
+                  });
+                  forceUpdate({});
+                  toast.success('Contact blocked');
+                }}
+                variant="ghost"
+                className="w-full justify-start text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                data-testid="button-block-contact"
+              >
+                <Ban className="w-4 h-4 mr-3" />
+                Block this contact
+              </Button>
+              <Button
+                onClick={() => {
+                  const passId = crypto.randomUUID();
+                  const pass = {
+                    id: passId,
+                    recipient_address: selectedContact.address,
+                    created_by: '',
+                    pass_type: 'one_time' as const,
+                    created_at: Date.now(),
+                    burned: false,
+                    revoked: false
+                  };
+                  saveLocalPass(pass);
+                  navigator.clipboard.writeText(`call-invite:${passId}`);
+                  toast.success('Call invite created and copied!');
+                }}
+                variant="ghost"
+                className="w-full justify-start text-purple-400 hover:text-purple-300 hover:bg-purple-500/10"
+                data-testid="button-create-invite"
+              >
+                <Ticket className="w-4 h-4 mr-3" />
+                Create one-time call invite
+              </Button>
+            </>
+          )}
         </div>
 
         <Button
