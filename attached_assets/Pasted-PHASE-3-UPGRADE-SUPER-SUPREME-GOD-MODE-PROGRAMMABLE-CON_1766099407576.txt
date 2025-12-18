@@ -1,0 +1,139 @@
+PHASE 3 UPGRADE (SUPER SUPREME GOD MODE): PROGRAMMABLE CONSENT + ANTI-SPAM + SMART ROUTING + OPTIONAL AI CALL GUARDIAN + OPTIONAL WALLET-VERIFIED BADGES — DO NOT BREAK PHASE 1 CALLING OR PHASE 2 MESSAGING.
+
+NON-NEGOTIABLE RULES
+- Do NOT remove, rename, or break existing: crypto identity, call IDs, signatures, replay protection, rate limiting, WebRTC audio/video calling, contacts UI, chats/group chats/media/voice notes, PWA, biometric lock.
+- Add Phase 3 as additive features with minimal refactors.
+- No mock functionality: core consent rules must enforce real call blocking/allowing.
+- No “Replit agent” branding.
+
+GOAL
+Make the app “future-now”:
+- Users are only reachable by permissions they grant (not just possessing an address).
+- Stop spam permanently.
+- Smart routing for unknown callers.
+- Optional AI guardian for abuse/scam detection (privacy-respecting and opt-in).
+- Optional wallet verification to add trust signals, without requiring wallets for normal users.
+
+PHASE 3 FEATURES TO IMPLEMENT
+
+A) PROGRAMMABLE CALL CONSENT (CORE MOAT)
+Introduce “Call Access Policies” for each identity + per-contact overrides.
+
+1) Global policy settings (Settings -> Privacy -> Call Permissions):
+   - Allow calls from: (A) Contacts only (default) (B) Anyone with my Call ID (C) Invite-only
+   - Unknown caller behavior:
+     - Block silently
+     - Send “Call request” message instead of ringing
+     - Let ring but show “Unknown”
+   - Rate limits:
+     - Max incoming rings per sender per X minutes
+     - Auto-block after N rejected/blocked attempts
+2) Per-contact overrides:
+   - Allow always / allow scheduled hours / allow one-time / block
+3) Enforce on server:
+   - Add a server-side policy check before delivering call:incoming.
+   - The recipient’s policy determines whether to:
+     - deliver call:incoming (ring)
+     - convert to call:request message (no ring)
+     - reject/block
+4) Policy storage:
+   - Persist policy server-side tied to the user’s address/public key, and cache locally for UI.
+   - All policy updates must be authenticated (signed request).
+
+B) ONE-TIME + EXPIRING CALL PASSES (INVITE SYSTEM)
+Create “Call Passes” that can be shared and revoked.
+
+1) Pass types:
+   - One-time pass (burn after first accepted call)
+   - Expiring pass (15m / 1h / 24h)
+   - Limited-use pass (e.g., 3 calls)
+2) Pass format:
+   - pass:<randomId> (or a URL with pass id)
+   - Pass maps to recipient address + constraints server-side
+3) UI:
+   - Add in “Add” tab and FAB quick actions:
+     - “Create One-Time Call Pass”
+     - “Create Expiring Pass”
+     - “View Active Passes”
+   - Show active passes list with:
+     - remaining uses
+     - expiration
+     - revoke button
+4) Enforcement:
+   - Server validates pass on call:init:
+     - If caller uses valid pass, allow ring even if global policy is “Invite-only”
+     - Burn/decrement pass on accept (not on ring)
+     - Reject invalid/expired/revoked passes
+
+C) SPAM / ABUSE DEFENSE (AUTOMATIC)
+1) Reputation + throttling:
+   - Maintain per-sender attempt counters and cooldowns (server-side)
+   - Exponential backoff on repeated attempts
+2) Blocklist:
+   - Add “Block user” in contact detail and incoming call screen
+   - Block applies to calls + messages
+3) Report flow (lightweight):
+   - “Report spam” button (stores local + server flag for future heuristics; no external reporting required)
+
+D) SMART ROUTING (WHATSAPP++ BEHAVIOR)
+Add rule-based routing that triggers actions instead of ringing.
+
+1) Routing rules UI (Settings -> Automation / Routing):
+   - If Unknown caller -> send call request message template
+   - If Missed call -> auto-send “I missed you—text me here” message
+   - If Business hours only -> after hours auto-respond
+   - If user is in-call -> auto-reply “Busy, will call back”
+2) Implement as:
+   - Client-side + server-side fallback (server triggers auto-message if recipient offline)
+3) Routing messages must be clearly labeled as automated in UI.
+
+E) OPTIONAL AI CALL GUARDIAN (OPT-IN, PRIVACY RESPECTING)
+IMPORTANT: This must be OFF by default and must not send raw audio to third parties without explicit opt-in.
+Implement a minimal v1 that is safe and useful:
+
+1) Settings toggle:
+   - “AI Call Guardian (Beta)” OFF by default
+2) What it does (v1):
+   - During calls, run lightweight local checks:
+     - Detect excessively repeated call attempts (behavioral)
+     - Show warnings for unknown caller patterns
+   - Optional (explicit opt-in) transcription/safety:
+     - If user enables “Transcription”, use Web Speech API locally when available (browser dependent)
+     - OR implement a pluggable server endpoint but keep it DISABLED unless user provides their own API key
+3) If AI guardian detects spam/abuse patterns:
+   - show on-screen “Possible spam” banner to the user only
+   - offer one-tap “Block”
+Do not build a heavy AI system that breaks privacy; keep it minimal and optional.
+
+F) OPTIONAL WALLET-VERIFIED TRUST BADGES (OPT-IN)
+1) Add “Verify wallet (optional)” in Settings/Profile:
+   - Support Ethereum-style signature proof:
+     - User enters wallet address
+     - App requests user to sign a message: “Link this wallet to my Crypto Call ID: <callAddress> at <ts>”
+     - Store verification server-side as: wallet -> callAddress (with signature proof)
+   - If wallet connect library is too heavy, implement “paste signature” flow as fallback:
+     - User signs message in their wallet app and pastes signature
+2) UI:
+   - Verified badge on profile + contact detail
+   - Never require wallet verification to use the app
+
+G) UPDATE UX COPY (NO CRYPTO JARGON)
+- Replace “Call ID” explanation with:
+  “People can reach you only with your permission.”
+- Call passes described as:
+  “Invite Passes”
+
+TEST CHECKLIST (MUST PASS)
+1) If global policy = Contacts only, unknown address cannot ring; it becomes a call request message (or is blocked based on setting).
+2) Create one-time pass -> share -> caller rings successfully -> after accept pass is burned -> next call blocked.
+3) Create expiring pass -> expires -> blocked.
+4) Block a user -> calls + messages from them are blocked.
+5) Smart routing triggers auto-reply for missed call.
+6) Phase 1 calls still work (audio/video).
+7) Phase 2 messaging still works (1:1 + groups + media + voice notes).
+
+DELIVERABLE OUTPUT
+- Implement all Phase 3 features above.
+- List any new dependencies and env vars.
+- Provide a short Phase 3 test guide.
+Proceed now.

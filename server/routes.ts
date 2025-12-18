@@ -3,7 +3,10 @@ import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import * as nacl from "tweetnacl";
 import bs58 from "bs58";
-import type { WSMessage, SignedCallIntent, CallIntent } from "@shared/types";
+import * as fs from "fs";
+import * as path from "path";
+import type { WSMessage, SignedCallIntent, CallIntent, SignedMessage, Message, Conversation } from "@shared/types";
+import * as messageStore from "./messageStore";
 
 interface ClientConnection {
   ws: WebSocket;
@@ -81,10 +84,54 @@ function verifySignature(signedIntent: SignedCallIntent): boolean {
   }
 }
 
+function verifyMessageSignature(signedMessage: SignedMessage): boolean {
+  try {
+    const { message, signature, from_pubkey } = signedMessage;
+    const now = Date.now();
+    
+    const timeDiff = now - message.timestamp;
+    if (timeDiff < 0 || timeDiff > TIMESTAMP_FRESHNESS) {
+      console.log('Message timestamp validation failed: timeDiff =', timeDiff);
+      return false;
+    }
+    
+    if (recentNonces.has(message.nonce)) {
+      console.log('Message nonce already used:', message.nonce);
+      return false;
+    }
+    
+    const sortedMessage = JSON.stringify(message, Object.keys(message).sort());
+    const messageBytes = new TextEncoder().encode(sortedMessage);
+    const signatureBytes = bs58.decode(signature);
+    const publicKeyBytes = bs58.decode(from_pubkey);
+    
+    const valid = nacl.sign.detached.verify(messageBytes, signatureBytes, publicKeyBytes);
+    
+    if (valid) {
+      recentNonces.set(message.nonce, message.timestamp);
+    }
+    
+    return valid;
+  } catch (error) {
+    console.error('Message signature verification error:', error);
+    return false;
+  }
+}
+
+const UPLOADS_DIR = path.join(process.cwd(), 'uploads');
+
+function ensureUploadsDir() {
+  if (!fs.existsSync(UPLOADS_DIR)) {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  }
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  ensureUploadsDir();
+  
   app.get('/api/turn-config', (_req, res) => {
     const turnUrl = process.env.TURN_URL;
     const turnUser = process.env.TURN_USER;
@@ -99,6 +146,67 @@ export async function registerRoutes(
     } else {
       res.json({});
     }
+  });
+
+  app.post('/api/upload', (req, res) => {
+    const chunks: Buffer[] = [];
+    const contentType = req.headers['content-type'] || 'application/octet-stream';
+    const fileName = req.headers['x-filename'] as string || `file_${Date.now()}`;
+    
+    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    req.on('end', () => {
+      try {
+        const data = Buffer.concat(chunks);
+        const maxSize = 10 * 1024 * 1024;
+        if (data.length > maxSize) {
+          res.status(413).json({ error: 'File too large (max 10MB)' });
+          return;
+        }
+        
+        const ext = path.extname(fileName) || '.bin';
+        const safeExt = ext.replace(/[^a-zA-Z0-9.]/g, '');
+        const fileId = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}${safeExt}`;
+        const filePath = path.join(UPLOADS_DIR, fileId);
+        
+        fs.writeFileSync(filePath, data);
+        
+        res.json({
+          url: `/api/files/${fileId}`,
+          name: fileName,
+          size: data.length
+        });
+      } catch (error) {
+        console.error('Upload error:', error);
+        res.status(500).json({ error: 'Upload failed' });
+      }
+    });
+  });
+
+  app.get('/api/files/:fileId', (req, res) => {
+    const { fileId } = req.params;
+    const safeName = fileId.replace(/[^a-zA-Z0-9._-]/g, '');
+    const filePath = path.join(UPLOADS_DIR, safeName);
+    
+    if (!fs.existsSync(filePath)) {
+      res.status(404).json({ error: 'File not found' });
+      return;
+    }
+    
+    res.sendFile(filePath);
+  });
+
+  app.get('/api/conversations/:address', (req, res) => {
+    const { address } = req.params;
+    const convos = messageStore.getConversationsForAddress(address);
+    res.json(convos);
+  });
+
+  app.get('/api/messages/:convoId', (req, res) => {
+    const { convoId } = req.params;
+    const limit = parseInt(req.query.limit as string) || 50;
+    const before = req.query.before ? parseInt(req.query.before as string) : undefined;
+    const messages = messageStore.getMessages(convoId, limit, before);
+    res.json(messages);
   });
 
   const wss = new WebSocketServer({ 
@@ -177,6 +285,241 @@ export async function registerRoutes(
             if (targetConnection) {
               targetConnection.ws.send(JSON.stringify(message));
             }
+            break;
+          }
+
+          case 'msg:send': {
+            const { data: signedMsg } = message;
+            
+            if (!verifyMessageSignature(signedMsg)) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Invalid message signature' } as WSMessage));
+              return;
+            }
+            
+            const senderConnection = connections.get(signedMsg.message.from_address);
+            if (!senderConnection || senderConnection.ws !== ws) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Address spoofing detected' } as WSMessage));
+              return;
+            }
+            
+            const msg = signedMsg.message;
+            msg.status = 'sent';
+            
+            const convo = messageStore.getConversation(msg.convo_id);
+            if (convo) {
+              messageStore.addMessage(msg);
+              messageStore.updateConversationLastMessage(msg.convo_id, msg);
+              
+              const recipients = convo.participant_addresses.filter(a => a !== msg.from_address);
+              for (const recipientAddr of recipients) {
+                const recipientConnection = connections.get(recipientAddr);
+                if (recipientConnection) {
+                  recipientConnection.ws.send(JSON.stringify({
+                    type: 'msg:incoming',
+                    message: msg,
+                    from_pubkey: signedMsg.from_pubkey
+                  } as WSMessage));
+                  
+                  msg.status = 'delivered';
+                  messageStore.updateMessageStatus(msg.id, 'delivered');
+                  ws.send(JSON.stringify({
+                    type: 'msg:delivered',
+                    message_id: msg.id,
+                    convo_id: msg.convo_id
+                  } as WSMessage));
+                }
+              }
+            } else {
+              const dmConvo = messageStore.getOrCreateDirectConversation(msg.from_address, msg.to_address);
+              msg.convo_id = dmConvo.id;
+              messageStore.addMessage(msg);
+              messageStore.updateConversationLastMessage(dmConvo.id, msg);
+              
+              const recipientConnection = connections.get(msg.to_address);
+              if (recipientConnection) {
+                recipientConnection.ws.send(JSON.stringify({
+                  type: 'msg:incoming',
+                  message: msg,
+                  from_pubkey: signedMsg.from_pubkey
+                } as WSMessage));
+                
+                ws.send(JSON.stringify({
+                  type: 'convo:create',
+                  convo: dmConvo
+                } as WSMessage));
+                recipientConnection.ws.send(JSON.stringify({
+                  type: 'convo:create',
+                  convo: dmConvo
+                } as WSMessage));
+                
+                msg.status = 'delivered';
+                messageStore.updateMessageStatus(msg.id, 'delivered');
+                ws.send(JSON.stringify({
+                  type: 'msg:delivered',
+                  message_id: msg.id,
+                  convo_id: msg.convo_id
+                } as WSMessage));
+              }
+            }
+            
+            console.log(`Message sent from ${msg.from_address} in convo ${msg.convo_id}`);
+            break;
+          }
+
+          case 'msg:read': {
+            const { message_ids, convo_id, reader_address } = message;
+            const convo = messageStore.getConversation(convo_id);
+            if (convo) {
+              for (const msgId of message_ids) {
+                messageStore.updateMessageStatus(msgId, 'read');
+              }
+              
+              for (const participantAddr of convo.participant_addresses) {
+                if (participantAddr !== reader_address) {
+                  const conn = connections.get(participantAddr);
+                  if (conn) {
+                    conn.ws.send(JSON.stringify({
+                      type: 'msg:read',
+                      message_ids,
+                      convo_id,
+                      reader_address
+                    } as WSMessage));
+                  }
+                }
+              }
+            }
+            break;
+          }
+
+          case 'msg:typing': {
+            const { convo_id, from_address, is_typing } = message;
+            const convo = messageStore.getConversation(convo_id);
+            if (convo) {
+              for (const participantAddr of convo.participant_addresses) {
+                if (participantAddr !== from_address) {
+                  const conn = connections.get(participantAddr);
+                  if (conn) {
+                    conn.ws.send(JSON.stringify({
+                      type: 'msg:typing',
+                      convo_id,
+                      from_address,
+                      is_typing
+                    } as WSMessage));
+                  }
+                }
+              }
+            }
+            break;
+          }
+
+          case 'group:create': {
+            const { data, signature, from_pubkey, from_address, nonce, timestamp } = message;
+            
+            const now = Date.now();
+            const timeDiff = now - timestamp;
+            if (timeDiff < 0 || timeDiff > TIMESTAMP_FRESHNESS) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Invalid timestamp' } as WSMessage));
+              return;
+            }
+            
+            if (recentNonces.has(nonce)) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Nonce already used' } as WSMessage));
+              return;
+            }
+            
+            const payload = { ...data, from_address, nonce, timestamp };
+            const sortedPayload = JSON.stringify(payload, Object.keys(payload).sort());
+            const msgBytes = new TextEncoder().encode(sortedPayload);
+            const sigBytes = bs58.decode(signature);
+            const pubKeyBytes = bs58.decode(from_pubkey);
+            
+            if (!nacl.sign.detached.verify(msgBytes, sigBytes, pubKeyBytes)) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Invalid signature' } as WSMessage));
+              return;
+            }
+            
+            recentNonces.set(nonce, timestamp);
+            
+            const group = messageStore.createGroup(data.name, from_address, data.participant_addresses, data.icon);
+            
+            for (const addr of group.participant_addresses) {
+              const conn = connections.get(addr);
+              if (conn) {
+                conn.ws.send(JSON.stringify({
+                  type: 'group:created',
+                  convo: group
+                } as WSMessage));
+              }
+            }
+            
+            console.log(`Group created: ${group.name} by ${from_address}`);
+            break;
+          }
+
+          case 'group:leave': {
+            const { group_id, from_address: leaverAddress } = message;
+            if (clientAddress !== leaverAddress) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Address mismatch' } as WSMessage));
+              return;
+            }
+            
+            const group = messageStore.getConversation(group_id);
+            if (!group || group.type !== 'group') {
+              ws.send(JSON.stringify({ type: 'error', message: 'Group not found' } as WSMessage));
+              return;
+            }
+            
+            const members = [...group.participant_addresses];
+            messageStore.removeGroupMember(group_id, leaverAddress);
+            
+            for (const addr of members) {
+              const conn = connections.get(addr);
+              if (conn) {
+                conn.ws.send(JSON.stringify({
+                  type: 'group:member_left',
+                  group_id,
+                  member_address: leaverAddress
+                } as WSMessage));
+              }
+            }
+            
+            console.log(`Member ${leaverAddress} left group ${group_id}`);
+            break;
+          }
+
+          case 'group:remove_member': {
+            const { group_id, member_address, from_address: adminAddress } = message;
+            if (clientAddress !== adminAddress) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Address mismatch' } as WSMessage));
+              return;
+            }
+            
+            if (!messageStore.isGroupAdmin(group_id, adminAddress)) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Not an admin' } as WSMessage));
+              return;
+            }
+            
+            const group = messageStore.getConversation(group_id);
+            if (!group) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Group not found' } as WSMessage));
+              return;
+            }
+            
+            const members = [...group.participant_addresses];
+            messageStore.removeGroupMember(group_id, member_address);
+            
+            for (const addr of members) {
+              const conn = connections.get(addr);
+              if (conn) {
+                conn.ws.send(JSON.stringify({
+                  type: 'group:member_left',
+                  group_id,
+                  member_address
+                } as WSMessage));
+              }
+            }
+            
+            console.log(`Member ${member_address} removed from group ${group_id} by admin ${adminAddress}`);
             break;
           }
 
