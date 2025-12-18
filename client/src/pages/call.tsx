@@ -5,7 +5,6 @@ import { TopBar } from '@/components/TopBar';
 import { LockScreen } from '@/components/LockScreen';
 import { CallView } from '@/components/CallView';
 import { IncomingCallModal } from '@/components/IncomingCallModal';
-import { CallRequestModal } from '@/components/CallRequestModal';
 import { FAB } from '@/components/FAB';
 import { ChatsTab } from '@/components/tabs/ChatsTab';
 import { CallsTab } from '@/components/tabs/CallsTab';
@@ -59,7 +58,6 @@ export default function CallPage() {
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [settingsScreen, setSettingsScreen] = useState<SettingsScreen>('main');
-  const [callRequest, setCallRequest] = useState<CallRequest | null>(null);
   const [callRequests, setCallRequests] = useState<CallRequest[]>([]);
 
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
@@ -174,7 +172,6 @@ export default function CallPage() {
     }
     
     if (message.type === 'call:request') {
-      setCallRequest(message.request);
       setCallRequests(prev => [...prev.filter(r => r.id !== message.request.id), message.request]);
       toast.info('Someone wants to call you');
     }
@@ -331,27 +328,6 @@ export default function CallPage() {
     setShowCreateGroup(false);
   };
 
-  const handleCallRequestAccept = () => {
-    if (!callRequest || !ws) return;
-    ws.send(JSON.stringify({
-      type: 'call:request_response',
-      request_id: callRequest.id,
-      accepted: true
-    }));
-    setCallRequest(null);
-    toast.success('Call request accepted');
-  };
-
-  const handleCallRequestDecline = () => {
-    if (!callRequest || !ws) return;
-    ws.send(JSON.stringify({
-      type: 'call:request_response',
-      request_id: callRequest.id,
-      accepted: false
-    }));
-    setCallRequest(null);
-  };
-
   const handleSettingsNavigate = (screen: SettingsScreen) => {
     setSettingsScreen(screen);
   };
@@ -414,7 +390,7 @@ export default function CallPage() {
             onNavigateToContacts={() => setActiveTab('contacts')}
             callRequests={callRequests}
             onAcceptRequest={(request) => {
-              if (ws) {
+              if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({
                   type: 'call:request_response',
                   request_id: request.id,
@@ -422,12 +398,37 @@ export default function CallPage() {
                 }));
                 setCallRequests(prev => prev.filter(r => r.id !== request.id));
                 toast.success('Call request accepted');
+              } else {
+                toast.error('Not connected');
               }
             }}
             onDeclineRequest={(request) => {
+              if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                  type: 'call:request_response',
+                  request_id: request.id,
+                  accepted: false
+                }));
+              }
               setCallRequests(prev => prev.filter(r => r.id !== request.id));
             }}
             onBlockRequester={(address) => {
+              if (ws && ws.readyState === WebSocket.OPEN) {
+                const nonce = cryptoLib.generateNonce();
+                const timestamp = Date.now();
+                const payload = { blocked_address: address, from_address: identity.address, nonce, timestamp };
+                const signature = cryptoLib.signPayload(identity.secretKey, payload);
+                
+                ws.send(JSON.stringify({
+                  type: 'block:add',
+                  blocked_address: address,
+                  signature,
+                  from_pubkey: identity.publicKeyBase58,
+                  from_address: identity.address,
+                  nonce,
+                  timestamp
+                }));
+              }
               addToLocalBlocklist({
                 owner_address: identity.address,
                 blocked_address: address,
@@ -526,14 +527,6 @@ export default function CallPage() {
         <CreateGroupModal
           onClose={() => setShowCreateGroup(false)}
           onCreate={handleCreateGroup}
-        />
-      )}
-
-      {callRequest && (
-        <CallRequestModal
-          request={callRequest}
-          onAccept={handleCallRequestAccept}
-          onDecline={handleCallRequestDecline}
         />
       )}
     </div>
