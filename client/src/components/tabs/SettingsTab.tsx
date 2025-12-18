@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { User, Shield, Wifi, ChevronDown, ChevronUp, Copy, RefreshCw, Fingerprint, Eye, EyeOff } from 'lucide-react';
+import { User, Shield, Wifi, ChevronDown, ChevronUp, Copy, RefreshCw, Fingerprint, Eye, EyeOff, MessageSquare, CheckCheck, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { getUserProfile, saveUserProfile, getAppSettings, saveAppSettings } from '@/lib/storage';
+import { getPrivacySettings, savePrivacySettings, type PrivacySettings } from '@/lib/messageStorage';
 import { enrollBiometric, disableBiometric, isPlatformAuthenticatorAvailable } from '@/lib/biometric';
 import { toast } from 'sonner';
 import type { CryptoIdentity } from '@shared/types';
@@ -19,6 +20,7 @@ interface SettingsTabProps {
 export function SettingsTab({ identity, onRotateAddress, turnEnabled }: SettingsTabProps) {
   const [profile, setProfile] = useState(getUserProfile());
   const [settings, setSettings] = useState(getAppSettings());
+  const [privacy, setPrivacy] = useState<PrivacySettings>(getPrivacySettings());
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [isEnrolling, setIsEnrolling] = useState(false);
@@ -26,6 +28,12 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled }: Settings
   useEffect(() => {
     isPlatformAuthenticatorAvailable().then(setBiometricAvailable);
   }, []);
+
+  const updatePrivacy = (updates: Partial<PrivacySettings>) => {
+    const newPrivacy = { ...privacy, ...updates };
+    setPrivacy(newPrivacy);
+    savePrivacySettings(newPrivacy);
+  };
 
   const updateProfile = (updates: Partial<typeof profile>) => {
     const newProfile = { ...profile, ...updates };
@@ -138,6 +146,64 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled }: Settings
                 saveAppSettings(newSettings);
               }}
               data-testid="switch-hide-advanced"
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-slate-800/50 border-slate-700">
+        <CardHeader>
+          <CardTitle className="text-white flex items-center gap-2">
+            <MessageSquare className="w-5 h-5" />
+            Message Privacy
+          </CardTitle>
+          <CardDescription className="text-slate-400">
+            Control what others see about your activity
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <CheckCheck className="w-5 h-5 text-slate-400" />
+              <div>
+                <p className="text-white font-medium">Read Receipts</p>
+                <p className="text-slate-500 text-sm">Let others know when you've read messages</p>
+              </div>
+            </div>
+            <Switch
+              checked={privacy.readReceipts}
+              onCheckedChange={(checked) => updatePrivacy({ readReceipts: checked })}
+              data-testid="switch-read-receipts"
+            />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <MessageSquare className="w-5 h-5 text-slate-400" />
+              <div>
+                <p className="text-white font-medium">Typing Indicators</p>
+                <p className="text-slate-500 text-sm">Show when you're typing a message</p>
+              </div>
+            </div>
+            <Switch
+              checked={privacy.typingIndicators}
+              onCheckedChange={(checked) => updatePrivacy({ typingIndicators: checked })}
+              data-testid="switch-typing-indicators"
+            />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Clock className="w-5 h-5 text-slate-400" />
+              <div>
+                <p className="text-white font-medium">Last Seen</p>
+                <p className="text-slate-500 text-sm">Show when you were last online</p>
+              </div>
+            </div>
+            <Switch
+              checked={privacy.lastSeen}
+              onCheckedChange={(checked) => updatePrivacy({ lastSeen: checked })}
+              data-testid="switch-last-seen"
             />
           </div>
         </CardContent>

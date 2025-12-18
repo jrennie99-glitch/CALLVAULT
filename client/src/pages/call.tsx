@@ -6,13 +6,17 @@ import { LockScreen } from '@/components/LockScreen';
 import { CallView } from '@/components/CallView';
 import { IncomingCallModal } from '@/components/IncomingCallModal';
 import { FAB } from '@/components/FAB';
+import { ChatsTab } from '@/components/tabs/ChatsTab';
 import { CallsTab } from '@/components/tabs/CallsTab';
 import { ContactsTab } from '@/components/tabs/ContactsTab';
 import { AddTab } from '@/components/tabs/AddTab';
 import { SettingsTab } from '@/components/tabs/SettingsTab';
+import { CreateGroupModal } from '@/components/CreateGroupModal';
+import { ChatPage } from '@/pages/chat';
 import * as cryptoLib from '@/lib/crypto';
 import { getAppSettings, addCallRecord, getContactByAddress, getContacts } from '@/lib/storage';
-import type { CryptoIdentity, WSMessage } from '@shared/types';
+import { getLocalConversations, saveLocalConversation, getOrCreateDirectConvo, saveLocalMessage, incrementUnreadCount, getPrivacySettings } from '@/lib/messageStorage';
+import type { CryptoIdentity, WSMessage, Conversation, Message } from '@shared/types';
 
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -24,7 +28,7 @@ export default function CallPage() {
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     const contacts = getContacts();
-    return contacts.length === 0 ? 'contacts' : 'calls';
+    return contacts.length === 0 ? 'contacts' : 'chats';
   });
   const [showQRModal, setShowQRModal] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
@@ -40,6 +44,11 @@ export default function CallPage() {
   const [iceServers, setIceServers] = useState<RTCIceServer[]>(DEFAULT_ICE_SERVERS);
   const [turnEnabled, setTurnEnabled] = useState(false);
   const [, forceUpdate] = useState({});
+  
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [activeChat, setActiveChat] = useState<Conversation | null>(null);
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -60,6 +69,7 @@ export default function CallPage() {
 
     fetchTurnConfig();
     initWebSocket(storedIdentity);
+    loadConversations();
 
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(console.error);
@@ -74,6 +84,13 @@ export default function CallPage() {
       }
     };
   }, []);
+
+  const loadConversations = () => {
+    const convos = getLocalConversations();
+    setConversations(convos);
+    const total = convos.reduce((sum, c) => sum + (c.unread_count || 0), 0);
+    setUnreadCount(total);
+  };
 
   const fetchTurnConfig = async () => {
     try {
@@ -135,7 +152,43 @@ export default function CallPage() {
         media: message.media
       });
     }
-  }, []);
+    
+    if (message.type === 'msg:incoming') {
+      const msg = message.message;
+      saveLocalMessage(msg);
+      
+      if (!activeChat || activeChat.id !== msg.convo_id) {
+        incrementUnreadCount(msg.convo_id);
+        setUnreadCount(prev => prev + 1);
+        
+        if ('Notification' in window && Notification.permission === 'granted') {
+          const contact = getContactByAddress(msg.from_address);
+          new Notification(contact?.name || 'New Message', {
+            body: msg.type === 'text' ? msg.content : `Sent ${msg.type}`,
+            icon: '/icon-192.png'
+          });
+        }
+        toast.info('New message received');
+      }
+      
+      loadConversations();
+    }
+    
+    if (message.type === 'convo:create' || message.type === 'convo:update') {
+      saveLocalConversation(message.convo);
+      loadConversations();
+    }
+    
+    if (message.type === 'group:created') {
+      saveLocalConversation(message.convo);
+      loadConversations();
+      toast.success(`Group "${message.convo.name}" created`);
+    }
+    
+    if (message.type === 'group:member_left') {
+      loadConversations();
+    }
+  }, [activeChat]);
 
   const handleStartCall = (address: string, video: boolean) => {
     setCallDestination(address);
@@ -209,6 +262,48 @@ export default function CallPage() {
     }
   };
 
+  const handleOpenChat = (contactAddress: string) => {
+    if (!identity) return;
+    const convo = getOrCreateDirectConvo(identity.address, contactAddress);
+    saveLocalConversation(convo);
+    loadConversations();
+    setActiveChat(convo);
+  };
+
+  const handleSelectChat = (convo: Conversation) => {
+    setActiveChat(convo);
+  };
+
+  const handleCloseChat = () => {
+    setActiveChat(null);
+    loadConversations();
+  };
+
+  const handleCreateGroup = async (name: string, participants: string[]) => {
+    if (!identity || !ws || ws.readyState !== WebSocket.OPEN) {
+      toast.error('Not connected');
+      return;
+    }
+    
+    const nonce = cryptoLib.generateNonce();
+    const timestamp = Date.now();
+    const data = { name, participant_addresses: participants };
+    const payload = { ...data, from_address: identity.address, nonce, timestamp };
+    const signature = cryptoLib.signPayload(identity.secretKey, payload);
+    
+    ws.send(JSON.stringify({
+      type: 'group:create',
+      data,
+      signature,
+      from_pubkey: identity.publicKeyBase58,
+      from_address: identity.address,
+      nonce,
+      timestamp
+    }));
+    
+    setShowCreateGroup(false);
+  };
+
   if (isLocked) {
     return <LockScreen onUnlock={() => setIsLocked(false)} />;
   }
@@ -235,11 +330,31 @@ export default function CallPage() {
     );
   }
 
+  if (activeChat) {
+    return (
+      <ChatPage
+        identity={identity}
+        ws={ws}
+        convo={activeChat}
+        onBack={handleCloseChat}
+        onStartCall={handleStartCall}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-900 text-white flex flex-col">
       <TopBar />
 
       <main className="flex-1 pb-20 overflow-y-auto">
+        {activeTab === 'chats' && (
+          <ChatsTab
+            myAddress={identity.address}
+            conversations={conversations}
+            onSelectChat={handleSelectChat}
+            onCreateGroup={() => setShowCreateGroup(true)}
+          />
+        )}
         {activeTab === 'calls' && (
           <CallsTab 
             onStartCall={handleStartCall}
@@ -252,6 +367,7 @@ export default function CallPage() {
             onStartCall={handleStartCall}
             onNavigateToAdd={() => setActiveTab('add')}
             onShareQR={() => setActiveTab('add')}
+            onOpenChat={handleOpenChat}
           />
         )}
         {activeTab === 'add' && (
@@ -270,7 +386,7 @@ export default function CallPage() {
         )}
       </main>
 
-      {(activeTab === 'calls' || activeTab === 'contacts') && (
+      {(activeTab === 'calls' || activeTab === 'contacts' || activeTab === 'chats') && (
         <FAB 
           onNavigate={setActiveTab}
           onAction={(action) => {
@@ -281,7 +397,7 @@ export default function CallPage() {
         />
       )}
 
-      <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
+      <BottomNav activeTab={activeTab} onTabChange={setActiveTab} unreadCount={unreadCount} />
 
       {incomingCall && (
         <IncomingCallModal
@@ -289,6 +405,13 @@ export default function CallPage() {
           isVideo={incomingCall.media.video}
           onAccept={handleAcceptCall}
           onReject={handleRejectCall}
+        />
+      )}
+
+      {showCreateGroup && (
+        <CreateGroupModal
+          onClose={() => setShowCreateGroup(false)}
+          onCreate={handleCreateGroup}
         />
       )}
     </div>

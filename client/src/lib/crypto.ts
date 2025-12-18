@@ -1,6 +1,6 @@
 import * as nacl from "tweetnacl";
 import bs58 from "bs58";
-import type { CryptoIdentity, CallIntent, SignedCallIntent } from "@shared/types";
+import type { CryptoIdentity, CallIntent, SignedCallIntent, Message, SignedMessage } from "@shared/types";
 
 const STORAGE_KEY = "crypto_identity";
 
@@ -71,4 +71,23 @@ export function signCallIntent(intent: CallIntent, secretKey: Uint8Array): Signe
 
 export function generateNonce(): string {
   return bs58.encode(nacl.randomBytes(16));
+}
+
+export async function signMessage(identity: CryptoIdentity, message: Message): Promise<SignedMessage> {
+  const sortedMessage = JSON.stringify(message, Object.keys(message).sort());
+  const messageBytes = new TextEncoder().encode(sortedMessage);
+  const signature = nacl.sign.detached(messageBytes, identity.secretKey);
+  
+  return {
+    message,
+    signature: bs58.encode(signature),
+    from_pubkey: identity.publicKeyBase58
+  };
+}
+
+export function signPayload(secretKey: Uint8Array, payload: object): string {
+  const sorted = JSON.stringify(payload, Object.keys(payload).sort());
+  const bytes = new TextEncoder().encode(sorted);
+  const sig = nacl.sign.detached(bytes, secretKey);
+  return bs58.encode(sig);
 }

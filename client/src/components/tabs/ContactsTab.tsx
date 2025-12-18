@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Search, User, Video, Phone, Trash2, ChevronLeft, UserPlus, QrCode } from 'lucide-react';
+import { Search, User, Video, Phone, Trash2, ChevronLeft, UserPlus, QrCode, MessageSquare } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { getContacts, deleteContact, type Contact } from '@/lib/storage';
@@ -19,9 +19,10 @@ interface ContactsTabProps {
   onStartCall: (address: string, video: boolean) => void;
   onNavigateToAdd?: () => void;
   onShareQR?: () => void;
+  onOpenChat?: (address: string) => void;
 }
 
-export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR }: ContactsTabProps) {
+export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR, onOpenChat }: ContactsTabProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<Contact | null>(null);
@@ -67,14 +68,22 @@ export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR }: Contact
           </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-4 mb-8">
+        <div className="grid grid-cols-3 gap-3 mb-8">
+          <Button
+            onClick={() => onOpenChat?.(selectedContact.address)}
+            className="h-16 bg-gradient-to-r from-purple-500 to-pink-600 hover:from-purple-600 hover:to-pink-700 flex flex-col items-center justify-center gap-1 rounded-2xl"
+            data-testid="button-contact-message"
+          >
+            <MessageSquare className="h-6 w-6" />
+            <span className="text-sm">Message</span>
+          </Button>
           <Button
             onClick={() => onStartCall(selectedContact.address, true)}
             className="h-16 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 flex flex-col items-center justify-center gap-1 rounded-2xl"
             data-testid="button-contact-video-call"
           >
             <Video className="h-6 w-6" />
-            <span className="text-sm">Video Call</span>
+            <span className="text-sm">Video</span>
           </Button>
           <Button
             onClick={() => onStartCall(selectedContact.address, false)}
@@ -82,7 +91,7 @@ export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR }: Contact
             data-testid="button-contact-voice-call"
           >
             <Phone className="h-6 w-6" />
-            <span className="text-sm">Voice Call</span>
+            <span className="text-sm">Call</span>
           </Button>
         </div>
 

@@ -3,11 +3,12 @@ import { generateInitials, stringToGradient } from '@/lib/avatar';
 interface AvatarProps {
   name?: string;
   address: string;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'xs' | 'sm' | 'md' | 'lg';
 }
 
 export function Avatar({ name, address, size = 'md' }: AvatarProps) {
   const sizeClasses = {
+    xs: 'w-6 h-6 text-[10px]',
     sm: 'w-10 h-10 text-sm',
     md: 'w-12 h-12 text-base',
     lg: 'w-24 h-24 text-2xl'
