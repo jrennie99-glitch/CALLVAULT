@@ -35,9 +35,20 @@ Preferred communication style: Simple, everyday language.
 - Separate Video Call and Voice Call buttons
 - In-call controls: Mute, Camera toggle, Flip camera, Speakerphone toggle, Hang up
 - Call timer showing duration
-- Connection status indicators (Ringing, Connecting, Connected)
+- Connection status indicators (Ringing, Connecting, Connected, Reconnecting)
 - Incoming call modal with Accept/Decline options
-- Copy address and generate new address functionality
+- Copy Call ID and generate new address functionality
+- ICE restart and automatic reconnection on network interruption
+- Network change detection (online/offline events)
+
+### Mobile-First UX
+- Bottom tab navigation: Calls, Contacts, Add, Settings
+- Contacts-first onboarding for new users
+- Floating Action Button (FAB) for quick actions
+- Improved empty states with helpful CTAs
+- Auto-generated avatars (deterministic gradients from address)
+- "Private Mode" label for anonymous users
+- "Call ID" terminology (user-friendly vs technical "Call Address")
 
 ### Cryptographic Identity System
 - **Key Generation**: tweetnacl Ed25519 keypairs generated client-side
@@ -55,6 +66,13 @@ Preferred communication style: Simple, everyday language.
 - Timestamp freshness check (60-second window)
 - Nonce replay protection (5-minute expiry)
 - Rate limiting per caller address (10 calls per minute)
+- Optional biometric app lock using WebAuthn (Face ID / Touch ID)
+
+### PWA Support
+- manifest.json with app icons and theme colors
+- Service worker for offline app shell caching
+- iOS Add to Home Screen meta tags
+- Standalone display mode
 
 ## External Dependencies
 
