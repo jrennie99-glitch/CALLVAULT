@@ -1,0 +1,115 @@
+ADD CRYPTO PAYMENTS (BASE NETWORK: USDC + ETH) AS AN OPTIONAL SECOND PAYMENT METHOD. KEEP STRIPE AS PRIMARY. DO NOT CHANGE OR BREAK ANY EXISTING FEATURE OR FUNCTIONALITY.
+
+NON-NEGOTIABLE RULES
+- Do NOT remove/rename/refactor existing call/video/chat/permissions/invite passes/admin/trials/Stripe/PWA/biometric code.
+- Only ADD new code + minimal wiring to existing “Payment Required” and /pay/<token> flows.
+- Crypto payments must be OPTIONAL (advanced). Stripe remains default.
+- Never store private keys, seed phrases, or custodial funds. We only verify on-chain payments.
+- Production paths must be real (no mock verification), but allow a DEV toggle to simulate verification if needed.
+
+SCOPE (KEEP IT CONVERSION-FOCUSED)
+- Support crypto payments ONLY for:
+  1) Per-session paid calls (fixed amount)
+  2) Paid call links (/pay/<token>)
+- Do NOT implement per-minute crypto billing yet.
+- Only support BASE chain for v1:
+  - USDC on Base (ERC20)
+  - ETH on Base (native)
+
+UI REQUIREMENTS (MOBILE-FIRST)
+1) On the existing “Payment Required” screen and /pay/<token> page:
+   - Primary button: “Pay with Card” (Stripe)
+   - Secondary button: “Pay with Crypto (Advanced)”
+2) If user selects crypto:
+   - Show tabs/buttons: “USDC (Base)” and “ETH (Base)”
+   - Show: exact amount, network “Base”, recipient address, QR code
+   - Show warning: “Crypto payments are final. Send the exact amount on Base.”
+   - Show “I’ve Paid” button + input for tx hash
+3) Only show “Pay with Crypto” if recipient has a verified EVM wallet address on file (Phase 3 wallet verification).
+   - If no verified wallet: hide crypto option (Stripe only).
+
+BACKEND / DATA MODEL (ADD ONLY)
+Add a “crypto_invoices” (or similar) table/collection:
+- id
+- pay_token_id (links to existing paid call token / checkout context)
+- recipient_call_id
+- recipient_wallet (EVM address)
+- payer_call_id (optional if known)
+- chain: "base"
+- asset: "USDC" | "ETH"
+- amount_usd
+- amount_asset (string, exact, e.g. "25.00" USDC or "0.01" ETH)
+- status: "pending" | "paid" | "expired" | "failed"
+- tx_hash (nullable)
+- expires_at (e.g. now + 20 minutes)
+- created_at, paid_at
+
+CRYPTO PRICING
+- USDC: 1 USDC = 1 USD; amount_asset = amount_usd (2 decimals)
+- ETH: compute amount_asset = amount_usd / ETH_USD_PRICE
+  - For v1, avoid price oracle complexity:
+    - Use env var ETH_USD_PRICE (manually set) OR
+    - Use a simple price API server-side if available; cache for 5 minutes
+  - If price is unavailable, disable ETH payments and show “ETH option unavailable”.
+
+ON-CHAIN VERIFICATION (REQUIRED)
+Implement server endpoints:
+1) POST /api/crypto-invoice/create
+   - input: pay_token_id, asset ("USDC"|"ETH")
+   - output: invoice details (recipient_wallet, amount_asset, chain, expires_at, invoice_id)
+2) POST /api/crypto-invoice/confirm
+   - input: invoice_id, tx_hash
+   - server verifies on Base RPC:
+     - tx exists
+     - tx not already used by another invoice
+     - tx timestamp within invoice window (or block time acceptable)
+     - recipient matches & amount sufficient
+   - if asset == ETH:
+     - verify tx.to == recipient_wallet
+     - verify tx.value >= required wei
+   - if asset == USDC:
+     - verify ERC20 Transfer event on USDC contract
+     - Transfer(to == recipient_wallet AND value >= required)
+     - accept if logs show correct contract and chain
+   - if verified:
+     - mark invoice PAID + store tx_hash
+     - unlock the paid call token (the same way Stripe success unlocks it)
+     - return success so UI shows “Payment verified — Call Now”
+3) GET /api/crypto-invoice/:id (optional for polling)
+
+IMPLEMENTATION DETAILS
+- Use ethers.js for Base chain RPC + log parsing.
+- Add env vars:
+  ENABLE_CRYPTO_PAYMENTS=true
+  BASE_RPC_URL=<your Base RPC endpoint>
+  BASE_CHAIN_ID=8453
+  BASE_USDC_CONTRACT=<USDC contract on Base>
+  ETH_USD_PRICE=<optional fixed price for ETH option>
+  CRYPTO_INVOICE_EXP_MINUTES=20
+- Keep secrets on server only.
+- Add rate limits:
+  - max invoice create attempts per IP/user per minute
+  - max confirm attempts per invoice
+
+INTEGRATION WITH EXISTING PAID CALL TOKENS
+- Do NOT invent a new entitlement system.
+- After crypto payment verifies, mint/activate the EXISTING “Paid Call Token” (same as Stripe success path):
+  - so “Call Now” works identically regardless of payment method.
+- Ensure tokens remain single-use if that’s current behavior.
+
+ADMIN CONSOLE ADDITIONS (SMALL)
+- Add Admin -> Payments:
+  - Toggle crypto payments on/off
+  - Show last 50 crypto invoices with status
+  - Filter: pending/paid/expired
+
+TEST CHECKLIST (MUST PASS)
+1) Stripe card flow still works exactly as before.
+2) If recipient has verified wallet + ENABLE_CRYPTO_PAYMENTS=true:
+   - crypto option appears
+3) Create USDC invoice -> shows amount, Base, address, QR
+4) Confirm with tx hash -> server verifies -> invoice marked paid -> “Call Now” works and token is burned after accepted call.
+5) Expired invoice cannot be confirmed.
+6) If recipient has NO verified wallet -> crypto option hidden.
+
+DO THIS NOW WITHOUT BREAKING ANY EXISTING FEATURE OR FUNCTIONALITY.

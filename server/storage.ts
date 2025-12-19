@@ -12,6 +12,7 @@ import {
   trialNoncesTable,
   inviteLinks, type InviteLink, type InsertInviteLink,
   inviteRedemptions, type InviteRedemption,
+  cryptoInvoices, type CryptoInvoice, type InsertCryptoInvoice,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, asc, sql, gte, lte, ilike, or } from "drizzle-orm";
@@ -109,6 +110,15 @@ export interface IStorage {
     disabledUsers: number;
     adminCount: number;
   }>;
+
+  // Crypto invoices
+  getCryptoInvoice(id: string): Promise<CryptoInvoice | undefined>;
+  getCryptoInvoiceByTxHash(txHash: string): Promise<CryptoInvoice | undefined>;
+  getCryptoInvoicesByPayToken(payTokenId: string): Promise<CryptoInvoice[]>;
+  createCryptoInvoice(invoice: InsertCryptoInvoice): Promise<CryptoInvoice>;
+  updateCryptoInvoice(id: string, updates: Partial<CryptoInvoice>): Promise<CryptoInvoice | undefined>;
+  getRecentCryptoInvoices(limit?: number): Promise<CryptoInvoice[]>;
+  expireOldCryptoInvoices(): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -736,6 +746,47 @@ export class DatabaseStorage implements IStorage {
       disabledUsers: allIdentities.filter(i => i.isDisabled).length,
       adminCount: allIdentities.filter(i => i.role === 'admin' || i.role === 'founder').length,
     };
+  }
+
+  // Crypto invoice methods
+  async getCryptoInvoice(id: string): Promise<CryptoInvoice | undefined> {
+    const [invoice] = await db.select().from(cryptoInvoices).where(eq(cryptoInvoices.id, id));
+    return invoice || undefined;
+  }
+
+  async getCryptoInvoiceByTxHash(txHash: string): Promise<CryptoInvoice | undefined> {
+    const [invoice] = await db.select().from(cryptoInvoices).where(eq(cryptoInvoices.txHash, txHash));
+    return invoice || undefined;
+  }
+
+  async getCryptoInvoicesByPayToken(payTokenId: string): Promise<CryptoInvoice[]> {
+    return db.select().from(cryptoInvoices).where(eq(cryptoInvoices.payTokenId, payTokenId)).orderBy(desc(cryptoInvoices.createdAt));
+  }
+
+  async createCryptoInvoice(invoice: InsertCryptoInvoice): Promise<CryptoInvoice> {
+    const [created] = await db.insert(cryptoInvoices).values(invoice).returning();
+    return created;
+  }
+
+  async updateCryptoInvoice(id: string, updates: Partial<CryptoInvoice>): Promise<CryptoInvoice | undefined> {
+    const [updated] = await db.update(cryptoInvoices).set(updates).where(eq(cryptoInvoices.id, id)).returning();
+    return updated || undefined;
+  }
+
+  async getRecentCryptoInvoices(limit: number = 50): Promise<CryptoInvoice[]> {
+    return db.select().from(cryptoInvoices).orderBy(desc(cryptoInvoices.createdAt)).limit(limit);
+  }
+
+  async expireOldCryptoInvoices(): Promise<number> {
+    const now = new Date();
+    const result = await db.update(cryptoInvoices)
+      .set({ status: 'expired' })
+      .where(and(
+        eq(cryptoInvoices.status, 'pending'),
+        lte(cryptoInvoices.expiresAt, now)
+      ))
+      .returning();
+    return result.length;
   }
 }
 

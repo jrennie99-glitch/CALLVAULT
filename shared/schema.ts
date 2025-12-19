@@ -310,3 +310,29 @@ export const inviteRedemptions = pgTable("invite_redemptions", {
 });
 
 export type InviteRedemption = typeof inviteRedemptions.$inferSelect;
+
+// Crypto Invoices (for Base chain USDC/ETH payments)
+export const cryptoInvoices = pgTable("crypto_invoices", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  payTokenId: text("pay_token_id").notNull(), // links to paid_call_tokens
+  recipientCallId: text("recipient_call_id").notNull(),
+  recipientWallet: text("recipient_wallet").notNull(), // EVM address
+  payerCallId: text("payer_call_id"),
+  chain: text("chain").notNull().default("base"), // 'base'
+  asset: text("asset").notNull(), // 'USDC' | 'ETH'
+  amountUsd: real("amount_usd").notNull(),
+  amountAsset: text("amount_asset").notNull(), // exact amount in asset decimals
+  status: text("status").notNull().default("pending"), // 'pending' | 'paid' | 'expired' | 'failed'
+  txHash: text("tx_hash"),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  paidAt: timestamp("paid_at"),
+});
+
+export const insertCryptoInvoiceSchema = createInsertSchema(cryptoInvoices).omit({
+  id: true,
+  createdAt: true,
+  paidAt: true,
+});
+export type InsertCryptoInvoice = z.infer<typeof insertCryptoInvoiceSchema>;
+export type CryptoInvoice = typeof cryptoInvoices.$inferSelect;
