@@ -94,3 +94,45 @@ Preferred communication style: Simple, everyday language.
 - Vite: Frontend build and development server
 - tsx: TypeScript execution for development
 - esbuild: Production bundling
+
+## Phase 4: Business/Creator Mode (Monetization)
+
+### Creator Profile
+- Business Mode toggle to enable paid features
+- Display name, bio, and category selection
+- Timezone-aware availability
+- Public profile page for sharing
+
+### Business Hours
+- Weekly schedule with per-day availability slots
+- Start/end times for each day
+- After-hours behavior options:
+  - Send auto-message
+  - Allow paid calls only
+  - Block request (show in call request queue)
+
+### Paid Calls
+- **Per-session pricing**: Fixed fee for session duration
+- **Per-minute pricing**: Metered billing with minimum
+- Free first call option for new contacts
+- Friends & family whitelist for free calls
+- Currency configuration (USD default)
+
+### Payment Integration
+- Stripe integration via stripe-replit-sync
+- Automatic webhook handling
+- Paid call token/link generation
+- Payment verification before call connection
+
+### Call Queue
+- Queue management for busy creators
+- Position tracking with estimated wait times
+- Priority for paid callers
+- Queue notifications via WebSocket
+
+### Files Added
+- `server/stripeClient.ts`: Stripe API client with Replit connection
+- `server/webhookHandlers.ts`: Stripe webhook processing
+- `server/paymentStore.ts`: In-memory storage for creator profiles, pricing, and queue
+- `client/src/components/CreatorModeSettings.tsx`: Business mode UI with profile, hours, and pricing editors
+- `shared/types.ts`: Extended with Phase 4 types (CreatorProfile, BusinessHours, CallPricing, etc.)

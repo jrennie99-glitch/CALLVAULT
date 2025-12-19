@@ -1,4 +1,4 @@
-import type { CallPolicy, ContactOverride, CallPass, BlockedUser, RoutingRule, WalletVerification, AIGuardianSettings } from '@shared/types';
+import type { CallPolicy, ContactOverride, CallPass, BlockedUser, RoutingRule, WalletVerification, AIGuardianSettings, CreatorProfile, BusinessHours, CallPricing, PaidCallToken, BusinessHoursSlot, BusinessCategory, AfterHoursBehavior, PricingMode } from '@shared/types';
 
 const POLICY_KEY = 'crypto_call_policy';
 const OVERRIDES_KEY = 'crypto_call_overrides';
@@ -7,6 +7,10 @@ const ROUTING_KEY = 'crypto_call_routing';
 const PASSES_KEY = 'crypto_call_passes';
 const WALLET_KEY = 'crypto_call_wallet';
 const AI_GUARDIAN_KEY = 'crypto_call_ai_guardian';
+const CREATOR_PROFILE_KEY = 'crypto_call_creator_profile';
+const BUSINESS_HOURS_KEY = 'crypto_call_business_hours';
+const CALL_PRICING_KEY = 'crypto_call_pricing';
+const PAID_TOKENS_KEY = 'crypto_call_paid_tokens';
 
 export function getDefaultPolicy(): Omit<CallPolicy, 'owner_address' | 'updated_at'> {
   return {
@@ -182,4 +186,85 @@ export function formatPassExpiry(expiresAt: number): string {
 
 export function getPassShareUrl(passId: string): string {
   return `${window.location.origin}?pass=${passId}`;
+}
+
+// Phase 4: Creator/Business Mode Storage
+
+export function getDefaultBusinessHours(): BusinessHoursSlot[] {
+  return [0, 1, 2, 3, 4, 5, 6].map(day => ({
+    day: day as 0 | 1 | 2 | 3 | 4 | 5 | 6,
+    enabled: day >= 1 && day <= 5,
+    start: '09:00',
+    end: '17:00'
+  }));
+}
+
+export function getDefaultCallPricing(ownerAddress: string): CallPricing {
+  return {
+    owner_address: ownerAddress,
+    enabled: false,
+    mode: 'per_session' as PricingMode,
+    session_price_cents: 2500,
+    session_duration_minutes: 15,
+    per_minute_price_cents: 200,
+    minimum_minutes: 5,
+    currency: 'usd',
+    free_first_call: false,
+    friends_family_addresses: [],
+    updated_at: Date.now()
+  };
+}
+
+export function getCreatorProfile(): CreatorProfile | null {
+  const stored = localStorage.getItem(CREATOR_PROFILE_KEY);
+  return stored ? JSON.parse(stored) : null;
+}
+
+export function saveCreatorProfile(profile: CreatorProfile): void {
+  localStorage.setItem(CREATOR_PROFILE_KEY, JSON.stringify(profile));
+}
+
+export function getBusinessHoursSettings(): BusinessHours | null {
+  const stored = localStorage.getItem(BUSINESS_HOURS_KEY);
+  return stored ? JSON.parse(stored) : null;
+}
+
+export function saveBusinessHoursSettings(hours: BusinessHours): void {
+  localStorage.setItem(BUSINESS_HOURS_KEY, JSON.stringify(hours));
+}
+
+export function getCallPricingSettings(): CallPricing | null {
+  const stored = localStorage.getItem(CALL_PRICING_KEY);
+  return stored ? JSON.parse(stored) : null;
+}
+
+export function saveCallPricingSettings(pricing: CallPricing): void {
+  localStorage.setItem(CALL_PRICING_KEY, JSON.stringify(pricing));
+}
+
+export function getLocalPaidTokens(): PaidCallToken[] {
+  const stored = localStorage.getItem(PAID_TOKENS_KEY);
+  return stored ? JSON.parse(stored) : [];
+}
+
+export function saveLocalPaidToken(token: PaidCallToken): void {
+  const tokens = getLocalPaidTokens();
+  const idx = tokens.findIndex(t => t.id === token.id);
+  if (idx >= 0) {
+    tokens[idx] = token;
+  } else {
+    tokens.push(token);
+  }
+  localStorage.setItem(PAID_TOKENS_KEY, JSON.stringify(tokens));
+}
+
+export function getPaidCallLinkUrl(tokenId: string): string {
+  return `${window.location.origin}/pay/${tokenId}`;
+}
+
+export function formatPrice(cents: number, currency: string = 'usd'): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: currency.toUpperCase()
+  }).format(cents / 100);
 }

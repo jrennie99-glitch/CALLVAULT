@@ -17,6 +17,7 @@ import { BlocklistManager } from '@/components/BlocklistManager';
 import { AIGuardianSettings } from '@/components/AIGuardianSettings';
 import { WalletVerification } from '@/components/WalletVerification';
 import { InvitePassManager } from '@/components/InvitePassManager';
+import { CreatorModeSettings } from '@/components/CreatorModeSettings';
 import { ChatPage } from '@/pages/chat';
 import * as cryptoLib from '@/lib/crypto';
 import { getAppSettings, addCallRecord, getContactByAddress, getContacts } from '@/lib/storage';
@@ -24,7 +25,7 @@ import { getLocalConversations, saveLocalConversation, getOrCreateDirectConvo, s
 import { addToLocalBlocklist } from '@/lib/policyStorage';
 import type { CryptoIdentity, WSMessage, Conversation, Message, CallRequest } from '@shared/types';
 
-type SettingsScreen = 'main' | 'call_permissions' | 'blocklist' | 'ai_guardian' | 'wallet' | 'passes';
+type SettingsScreen = 'main' | 'call_permissions' | 'blocklist' | 'ai_guardian' | 'wallet' | 'passes' | 'creator_mode';
 
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -515,6 +516,12 @@ export default function CallPage() {
           <WalletVerification
             identity={identity}
             ws={ws}
+            onBack={() => setSettingsScreen('main')}
+          />
+        )}
+        {activeTab === 'settings' && settingsScreen === 'creator_mode' && (
+          <CreatorModeSettings
+            identity={identity}
             onBack={() => setSettingsScreen('main')}
           />
         )}
