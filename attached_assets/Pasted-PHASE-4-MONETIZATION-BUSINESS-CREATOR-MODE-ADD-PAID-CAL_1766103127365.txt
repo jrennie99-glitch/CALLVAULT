@@ -1,0 +1,137 @@
+PHASE 4 (MONETIZATION + BUSINESS/CREATOR MODE): ADD PAID CALLS + SCHEDULING + QUEUE + OPTIONAL AI SCREENING + PAID CALL LINKS — WITHOUT BREAKING PHASE 1-3.
+
+NON-NEGOTIABLE RULES
+- Do NOT remove, rename, or break any existing features: audio/video calls, chats/groups/media, permissions/invite passes/call requests, blocklist, AI guardian toggle, wallet verification, PWA, app lock.
+- Add Phase 4 as additive features; minimal refactor.
+- No mock payments: implement a real payment flow (Stripe) BUT ALSO support a “manual test mode” toggle that simulates paid access without money (for local testing).
+- Keep privacy-first and avoid crypto jargon.
+
+GOAL
+Turn this into a business-ready product:
+- Users can enable “Creator/Business Mode”
+- They can charge for calls (per-minute or per-session)
+- They can share paid links that grant call access
+- They can set business hours + auto-responses
+- They can manage a call queue
+- Optional AI Call Screener that asks a question before letting a call through (opt-in)
+
+FEATURES TO IMPLEMENT
+
+A) CREATOR/BUSINESS MODE (SETTINGS)
+Add Settings -> Monetization / Business Mode:
+- Toggle: “Creator/Business Mode” (default OFF)
+- Fields:
+  - Display name
+  - Short bio
+  - Category (Consulting, Tech, Music, Legal, etc.)
+  - Timezone
+- Public profile URL/route:
+  /u/<handleOrShortId>
+Shows:
+  - Name, bio, badge if wallet verified
+  - “Request a call” button
+  - “Book a paid call” button (if enabled)
+
+B) BUSINESS HOURS + AUTO-RESPONSES
+Settings -> Availability:
+- Business hours scheduler (per day)
+- If outside hours:
+  - Option A: auto-send message “I’m offline, leave a message”
+  - Option B: allow only paid calls
+  - Option C: block + show request
+Integrate with Phase 3 routing (do not duplicate logic; extend it).
+
+C) PAID CALLS (TWO PRICING MODES)
+Settings -> Paid Calls:
+- Toggle: Enable paid calls
+- Pricing:
+  1) Per-session (fixed fee) e.g. $25 / 15 min
+  2) Per-minute (metered) e.g. $2/min with minimum 5 minutes
+- Optional: Free first call for new contacts (promo)
+- Optional: “Friends & Family” whitelist free
+
+Enforcement:
+- If paid call required and caller not eligible:
+  - Convert to “Payment Required” request instead of ringing
+  - Provide a button to pay and then call
+
+D) PAYMENT INTEGRATION (STRIPE + TEST MODE)
+1) Add Stripe Checkout for per-session payments:
+- Server creates a Checkout Session:
+  - amount, currency
+  - success_url, cancel_url
+  - metadata: recipient_call_address, type=session, duration, pricing_id
+2) Webhook handling:
+- On checkout.session.completed:
+  - Mint a “Paid Call Token” (server-side record) granting:
+    - recipient address
+    - caller address (if known) OR a generic token usable by whoever has link
+    - expiration window (e.g. 24 hours to start the call)
+    - duration allowed (for session)
+3) Test Mode (no Stripe):
+- ENV var PAYMENTS_TEST_MODE=true
+- When enabled, simulate payment by issuing token immediately (no money).
+- UI must indicate “Test Mode” in Settings only (not public UI).
+
+E) PAID CALL LINKS (SHAREABLE)
+Add “Create Paid Call Link” action:
+- Generates link:
+  /pay/<tokenId>
+Flow:
+- Visitor sees pay page -> pays -> then gets “Call Now” button
+- “Call Now” opens the app and uses token to permit call
+Token behavior:
+- Single-use or multi-use configurable
+- Expires after first accepted call (default single-use)
+
+F) CALL QUEUE (BUSINESS FEATURE)
+When Business Mode ON:
+- Incoming paid calls go into a queue if user is busy:
+  - show “You are #2 in queue”
+  - estimated wait time (simple)
+- Business user sees “Queue” screen:
+  - list of waiting callers
+  - accept next / skip / message
+Queue must integrate with existing call request mechanism (do not invent a separate pipeline).
+
+G) OPTIONAL AI CALL SCREENER (OPT-IN, SAFE)
+Settings -> AI Screening:
+- Toggle OFF by default
+- If ON for unknown callers OR paid calls:
+  - Before ringing, show caller a prompt:
+    “What is this call about?” (text)
+  - Require caller to submit a short reason
+  - Deliver that reason to recipient as a Call Request card
+  - Recipient can Accept / Message / Block
+No external AI required for v1.
+If you do add AI, make it optional and only with user-provided API key.
+
+H) UI INTEGRATION (MUST FEEL LIKE A PRODUCT)
+- Calls tab: add “Create Paid Call Link” button when Business Mode ON
+- Add tab: include “Paid Call Link” and “Invite Call Link” in quick actions
+- Contact detail: show “Free / Paid required” status for that contact
+- Requests section: show “Payment required” badge when applicable
+
+SECURITY / ABUSE CONTROLS
+- All paid token creation must be authenticated by the recipient (signed request)
+- Rate limit pay link creation
+- Prevent token replay (single-use burns after accept)
+
+TEST CHECKLIST (MUST PASS)
+1) Enable Business Mode, set hours.
+2) Enable Paid Calls (session).
+3) Create Paid Call Link.
+4) In another browser/incognito: open link -> in test mode it issues token -> “Call Now”.
+5) Call rings and connects; after accept token is burned; second attempt fails.
+6) When user already in call: new paid call becomes queued request.
+7) Existing free calls between contacts still work if policy allows.
+
+DELIVERABLE OUTPUT
+- Implement Phase 4 fully.
+- Provide new ENV vars required:
+  STRIPE_SECRET_KEY
+  STRIPE_WEBHOOK_SECRET
+  PUBLIC_BASE_URL
+  PAYMENTS_TEST_MODE
+- Provide a short “How to test Phase 4 in test mode” guide.
+Proceed now.

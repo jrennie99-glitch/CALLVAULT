@@ -223,4 +223,108 @@ export type WSMessage =
   | { type: 'wallet:get'; address: string }
   | { type: 'wallet:response'; verification: WalletVerification | null }
   | { type: 'error'; message: string }
-  | { type: 'success'; message: string };
+  | { type: 'success'; message: string }
+  // Phase 4: Monetization
+  | { type: 'queue:join'; request: CallRequest; position: number }
+  | { type: 'queue:update'; position: number; estimated_wait: number }
+  | { type: 'queue:ready'; request_id: string }
+  | { type: 'payment:required'; recipient_address: string; pricing: CallPricing }
+  | { type: 'payment:verified'; token_id: string };
+
+// Phase 4: Creator/Business Mode
+export type BusinessCategory = 'consulting' | 'tech' | 'music' | 'legal' | 'coaching' | 'health' | 'education' | 'creative' | 'other';
+
+export interface CreatorProfile {
+  address: string;
+  enabled: boolean;
+  display_name: string;
+  bio: string;
+  category: BusinessCategory;
+  timezone: string;
+  handle?: string;
+  avatar_url?: string;
+  wallet_verified?: boolean;
+  created_at: number;
+  updated_at: number;
+}
+
+// Phase 4: Business Hours
+export interface BusinessHoursSlot {
+  day: 0 | 1 | 2 | 3 | 4 | 5 | 6; // 0 = Sunday
+  enabled: boolean;
+  start: string; // "09:00"
+  end: string;   // "17:00"
+}
+
+export type AfterHoursBehavior = 'message' | 'paid_only' | 'block_request';
+
+export interface BusinessHours {
+  owner_address: string;
+  slots: BusinessHoursSlot[];
+  after_hours_behavior: AfterHoursBehavior;
+  after_hours_message: string;
+  updated_at: number;
+}
+
+// Phase 4: Paid Calls
+export type PricingMode = 'per_session' | 'per_minute';
+
+export interface CallPricing {
+  owner_address: string;
+  enabled: boolean;
+  mode: PricingMode;
+  session_price_cents?: number;
+  session_duration_minutes?: number;
+  per_minute_price_cents?: number;
+  minimum_minutes?: number;
+  currency: string;
+  free_first_call: boolean;
+  friends_family_addresses: string[];
+  updated_at: number;
+}
+
+// Phase 4: Paid Call Links / Tokens
+export type PaidLinkType = 'single_use' | 'multi_use';
+
+export interface PaidCallToken {
+  id: string;
+  recipient_address: string;
+  caller_address?: string; // null = anyone with link
+  pricing_snapshot: {
+    mode: PricingMode;
+    amount_cents: number;
+    duration_minutes?: number;
+  };
+  link_type: PaidLinkType;
+  uses_remaining?: number;
+  expires_at: number;
+  payment_id?: string;
+  payment_status: 'pending' | 'completed' | 'failed';
+  created_at: number;
+  burned: boolean;
+}
+
+// Phase 4: Call Queue
+export interface QueueEntry {
+  id: string;
+  caller_address: string;
+  recipient_address: string;
+  position: number;
+  is_paid: boolean;
+  token_id?: string;
+  is_video: boolean;
+  reason?: string;
+  joined_at: number;
+  estimated_wait_minutes: number;
+}
+
+// Phase 4: Call Screener
+export interface CallScreeningRequest {
+  id: string;
+  caller_address: string;
+  recipient_address: string;
+  reason: string;
+  is_video: boolean;
+  timestamp: number;
+  status: 'pending' | 'accepted' | 'declined';
+}
