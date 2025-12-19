@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { Search, User, Video, Phone, Trash2, ChevronLeft, UserPlus, QrCode, MessageSquare, Shield, Ban, Check, Ticket } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Search, User, Video, Phone, Trash2, ChevronLeft, UserPlus, QrCode, MessageSquare, Shield, Ban, Check, Ticket, Snowflake } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { getContacts, deleteContact, type Contact } from '@/lib/storage';
@@ -33,13 +34,71 @@ interface ContactsTabProps {
   onNavigateToAdd?: () => void;
   onShareQR?: () => void;
   onOpenChat?: (address: string) => void;
+  ownerAddress?: string;
 }
 
-export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR, onOpenChat }: ContactsTabProps) {
+export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR, onOpenChat, ownerAddress }: ContactsTabProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<Contact | null>(null);
   const [, forceUpdate] = useState({});
+  const [alwaysAllowedContacts, setAlwaysAllowedContacts] = useState<Set<string>>(new Set());
+  const [isTogglingAlwaysAllowed, setIsTogglingAlwaysAllowed] = useState(false);
+
+  useEffect(() => {
+    if (ownerAddress) {
+      fetch(`/api/contacts/${ownerAddress}/always-allowed`)
+        .then(res => {
+          if (!res.ok) throw new Error('Failed to fetch');
+          return res.json();
+        })
+        .then(data => {
+          if (data.alwaysAllowed && Array.isArray(data.alwaysAllowed)) {
+            setAlwaysAllowedContacts(new Set(data.alwaysAllowed));
+          }
+        })
+        .catch(err => {
+          console.error('Error fetching always-allowed contacts:', err);
+        });
+    }
+  }, [ownerAddress]);
+
+  const handleToggleAlwaysAllowed = async (contactAddress: string, enabled: boolean) => {
+    if (!ownerAddress) {
+      toast.error('No owner address available');
+      return;
+    }
+    
+    setIsTogglingAlwaysAllowed(true);
+    try {
+      const res = await fetch(`/api/contacts/${ownerAddress}/${contactAddress}/always-allowed`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ alwaysAllowed: enabled })
+      });
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to update');
+      }
+      
+      setAlwaysAllowedContacts(prev => {
+        const newSet = new Set(prev);
+        if (enabled) {
+          newSet.add(contactAddress);
+        } else {
+          newSet.delete(contactAddress);
+        }
+        return newSet;
+      });
+      toast.success(enabled ? 'Contact added to Always Allowed' : 'Contact removed from Always Allowed');
+    } catch (error) {
+      console.error('Error updating Always Allowed:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to update Always Allowed status');
+    } finally {
+      setIsTogglingAlwaysAllowed(false);
+    }
+  };
 
   const contacts = getContacts();
   const filteredContacts = contacts.filter(c =>
@@ -235,6 +294,27 @@ export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR, onOpenCha
               </Button>
             </>
           )}
+        </div>
+
+        <div className="bg-slate-800/50 rounded-xl p-4 mb-6">
+          <h3 className="text-sm font-medium text-slate-400 mb-3 flex items-center gap-2">
+            <Snowflake className="w-4 h-4 text-cyan-400" />
+            Freeze Mode
+          </h3>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-white font-medium text-sm">Always Allowed</p>
+              <p className="text-slate-500 text-xs">
+                This contact can reach you even when Freeze Mode is on
+              </p>
+            </div>
+            <Switch
+              checked={alwaysAllowedContacts.has(selectedContact.address)}
+              onCheckedChange={(enabled) => handleToggleAlwaysAllowed(selectedContact.address, enabled)}
+              disabled={isTogglingAlwaysAllowed}
+              data-testid="switch-always-allowed"
+            />
+          </div>
         </div>
 
         <Button

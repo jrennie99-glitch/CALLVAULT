@@ -575,6 +575,7 @@ export default function CallPage() {
             onNavigateToAdd={() => setActiveTab('add')}
             onShareQR={() => setActiveTab('add')}
             onOpenChat={handleOpenChat}
+            ownerAddress={identity.address}
           />
         )}
         {activeTab === 'add' && (

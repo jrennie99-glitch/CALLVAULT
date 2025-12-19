@@ -47,6 +47,15 @@ Preferred communication style: Simple, everyday language.
     - **Admin Tier Management**: Endpoint to override user tiers via `/api/admin/users/:address/tier`.
     - **Database Tables**: `usage_counters` for tracking limits, `active_calls` for real-time monitoring.
     - **Key Files**: `server/freeTierShield.ts` (enforcement logic), integrated into WebSocket call flow in `server/routes.ts`.
+- **Freeze Mode (Phase 11)**: User-controlled call silencing feature to block unwanted calls:
+    - **Purpose**: Allows users to silence calls from unknown/unapproved contacts while allowing emergency contacts through.
+    - **Server-side Enforcement**: When Freeze Mode is enabled, unapproved calls are converted to call requests instead of ringing directly.
+    - **Bypass Rules**: Always-allowed contacts, paid callers, and pre-approved contacts can still ring through.
+    - **OS Guided Setup**: Platform-specific modal guides users to enable Do Not Disturb while allowing app notifications (iOS, Android, Desktop).
+    - **Always Allowed Contacts**: Per-contact toggle to mark emergency contacts who can always reach you.
+    - **Schema Fields**: `freezeMode`, `freezeModeSetupCompleted` on users table; `alwaysAllowed` on contacts table.
+    - **API Endpoints**: `/api/freeze-mode/:address` (GET/PUT), `/api/freeze-mode/:address/setup-complete`, `/api/contacts/:owner/always-allowed`, `/api/contacts/:owner/:contact/always-allowed`.
+    - **Key Files**: `client/src/components/FreezeModeSetupModal.tsx`, integration in SettingsTab and ContactsTab.
 
 ### Security Measures
 - Ed25519 signature verification for call initiation and admin actions.

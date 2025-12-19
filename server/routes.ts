@@ -1776,6 +1776,18 @@ export async function registerRoutes(
     }
   });
 
+  // Get always allowed contact addresses for an owner
+  app.get('/api/contacts/:ownerAddress/always-allowed', async (req, res) => {
+    try {
+      const { ownerAddress } = req.params;
+      const contacts = await storage.getAlwaysAllowedContacts(ownerAddress);
+      res.json({ alwaysAllowed: contacts.map(c => c.contactAddress) });
+    } catch (error) {
+      console.error('Error fetching always allowed contacts:', error);
+      res.status(500).json({ error: 'Failed to fetch always allowed contacts' });
+    }
+  });
+
   // Toggle always allowed on a contact
   app.put('/api/contacts/:ownerAddress/:contactAddress/always-allowed', async (req, res) => {
     try {
