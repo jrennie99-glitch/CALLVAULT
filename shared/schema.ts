@@ -336,3 +336,47 @@ export const insertCryptoInvoiceSchema = createInsertSchema(cryptoInvoices).omit
 });
 export type InsertCryptoInvoice = z.infer<typeof insertCryptoInvoiceSchema>;
 export type CryptoInvoice = typeof cryptoInvoices.$inferSelect;
+
+// Usage Counters (for Free Tier Cost Shield)
+export const usageCounters = pgTable("usage_counters", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userAddress: text("user_address").notNull().unique(),
+  dayKey: text("day_key").notNull(), // YYYY-MM-DD format
+  monthKey: text("month_key").notNull(), // YYYY-MM format
+  callsStartedToday: integer("calls_started_today").default(0),
+  failedStartsToday: integer("failed_starts_today").default(0),
+  callAttemptsHour: integer("call_attempts_hour").default(0),
+  lastAttemptHour: integer("last_attempt_hour"), // hour of day (0-23) for hourly reset
+  secondsUsedMonth: integer("seconds_used_month").default(0),
+  relayCalls24h: integer("relay_calls_24h").default(0),
+  relayPenaltyUntil: timestamp("relay_penalty_until"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertUsageCounterSchema = createInsertSchema(usageCounters).omit({
+  id: true,
+  updatedAt: true,
+});
+export type InsertUsageCounter = z.infer<typeof insertUsageCounterSchema>;
+export type UsageCounter = typeof usageCounters.$inferSelect;
+
+// Active Calls tracking (for server-side call monitoring)
+export const activeCalls = pgTable("active_calls", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  callSessionId: text("call_session_id").notNull().unique(),
+  callerAddress: text("caller_address").notNull(),
+  calleeAddress: text("callee_address").notNull(),
+  callerTier: text("caller_tier").notNull().default("free"), // 'free' | 'paid' | 'admin'
+  calleeTier: text("callee_tier").notNull().default("free"),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  lastHeartbeatCaller: timestamp("last_heartbeat_caller"),
+  lastHeartbeatCallee: timestamp("last_heartbeat_callee"),
+  relayUsed: boolean("relay_used").default(false),
+  maxDurationSeconds: integer("max_duration_seconds").default(600), // 10 min default for free
+});
+
+export const insertActiveCallSchema = createInsertSchema(activeCalls).omit({
+  id: true,
+});
+export type InsertActiveCall = z.infer<typeof insertActiveCallSchema>;
+export type ActiveCall = typeof activeCalls.$inferSelect;

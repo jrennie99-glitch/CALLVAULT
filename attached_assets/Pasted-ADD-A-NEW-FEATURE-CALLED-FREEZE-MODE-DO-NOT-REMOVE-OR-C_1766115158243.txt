@@ -1,0 +1,69 @@
+ADD A NEW FEATURE CALLED “FREEZE MODE”.
+DO NOT REMOVE OR CHANGE ANY EXISTING FEATURE OR FUNCTIONALITY.
+THIS FEATURE MUST BE ADDITIVE ONLY.
+
+GOAL:
+Allow users to intentionally silence carrier spam by making this app the only call/text notification channel.
+
+========================
+FEATURE: FREEZE MODE
+========================
+
+1) UI
+- Add a toggle switch labeled “Freeze Mode”
+- Description text:
+  “Freeze all unwanted calls and texts. Only people you allow can reach you through this app.”
+
+2) Behavior (App-Level)
+When Freeze Mode is ON:
+- Suppress all in-app notifications except:
+  - Approved contacts
+  - Paid / priority calls
+- Require approval rules before a call can notify the user
+- Default all new callers to “request access” (no ringing)
+
+When Freeze Mode is OFF:
+- App behaves normally
+
+3) OS GUIDED SETUP (IMPORTANT)
+On first enabling Freeze Mode:
+- Show a guided setup modal explaining:
+  - Turn on Do Not Disturb / Focus
+  - Allow notifications from THIS app
+  - Silence calls from unknown numbers
+- Provide deep links to:
+  - iOS Focus / DND settings
+  - Android Focus / DND settings
+(NOTE: Do NOT attempt to toggle OS settings programmatically.)
+
+4) SERVER ENFORCEMENT
+When Freeze Mode is ON:
+- Reject calls from:
+  - Unapproved contacts
+  - External call links
+  - Unknown users
+- Calls must be explicitly allowed to notify the user
+
+5) EMERGENCY BYPASS
+- Allow user to mark trusted contacts as “Always Allowed”
+- These contacts bypass Freeze Mode rules
+
+6) ADMIN / PAID CONTROL
+- Freeze Mode is available to all users
+- Advanced rules (business hours, paid access, queue) remain PAID features
+
+========================
+COMPLIANCE REQUIREMENTS
+========================
+- Do NOT claim OS-level blocking
+- Do NOT intercept carrier calls or SMS
+- Do NOT automate DND or Focus
+- Feature must rely on user consent + guidance
+
+========================
+EXPECTED RESULT
+========================
+- User experiences a “frozen” phone
+- Spam calls never interrupt them
+- Only intentional calls notify
+- App remains App Store compliant

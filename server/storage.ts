@@ -13,6 +13,8 @@ import {
   inviteLinks, type InviteLink, type InsertInviteLink,
   inviteRedemptions, type InviteRedemption,
   cryptoInvoices, type CryptoInvoice, type InsertCryptoInvoice,
+  usageCounters, type UsageCounter, type InsertUsageCounter,
+  activeCalls, type ActiveCall, type InsertActiveCall,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, asc, sql, gte, lte, ilike, or } from "drizzle-orm";
@@ -122,6 +124,29 @@ export interface IStorage {
   updateCryptoInvoice(id: string, updates: Partial<CryptoInvoice>): Promise<CryptoInvoice | undefined>;
   getRecentCryptoInvoices(limit?: number): Promise<CryptoInvoice[]>;
   expireOldCryptoInvoices(): Promise<number>;
+
+  // Usage counters (Free Tier Cost Shield)
+  getUsageCounter(userAddress: string): Promise<UsageCounter | undefined>;
+  getOrCreateUsageCounter(userAddress: string): Promise<UsageCounter>;
+  updateUsageCounter(userAddress: string, updates: Partial<UsageCounter>): Promise<UsageCounter | undefined>;
+  incrementCallsStarted(userAddress: string): Promise<UsageCounter>;
+  incrementFailedStarts(userAddress: string): Promise<UsageCounter>;
+  incrementCallAttempts(userAddress: string): Promise<UsageCounter>;
+  addSecondsUsed(userAddress: string, seconds: number): Promise<UsageCounter>;
+  incrementRelayCalls(userAddress: string): Promise<UsageCounter>;
+
+  // Active calls (server-side call monitoring)
+  getActiveCall(callSessionId: string): Promise<ActiveCall | undefined>;
+  getActiveCallsForUser(userAddress: string): Promise<ActiveCall[]>;
+  createActiveCall(call: InsertActiveCall): Promise<ActiveCall>;
+  updateActiveCall(callSessionId: string, updates: Partial<ActiveCall>): Promise<ActiveCall | undefined>;
+  deleteActiveCall(callSessionId: string): Promise<boolean>;
+  getAllActiveCalls(): Promise<ActiveCall[]>;
+  getStaleActiveCalls(heartbeatThresholdSeconds: number): Promise<ActiveCall[]>;
+
+  // User tier management
+  getUserTier(address: string): Promise<'free' | 'paid' | 'admin'>;
+  setUserTier(address: string, tier: 'free' | 'paid' | 'admin', actorAddress: string): Promise<CryptoIdentityRecord | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -878,6 +903,249 @@ export class DatabaseStorage implements IStorage {
       ))
       .returning();
     return result.length;
+  }
+
+  // Usage counter methods (Free Tier Cost Shield)
+  private getDayKey(): string {
+    return new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+  }
+
+  private getMonthKey(): string {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; // YYYY-MM
+  }
+
+  async getUsageCounter(userAddress: string): Promise<UsageCounter | undefined> {
+    const [counter] = await db.select().from(usageCounters).where(eq(usageCounters.userAddress, userAddress));
+    return counter || undefined;
+  }
+
+  async getOrCreateUsageCounter(userAddress: string): Promise<UsageCounter> {
+    const existing = await this.getUsageCounter(userAddress);
+    const dayKey = this.getDayKey();
+    const monthKey = this.getMonthKey();
+
+    if (existing) {
+      // Reset counters if day/month changed
+      const updates: Partial<UsageCounter> = { updatedAt: new Date() };
+      if (existing.dayKey !== dayKey) {
+        updates.dayKey = dayKey;
+        updates.callsStartedToday = 0;
+        updates.failedStartsToday = 0;
+        updates.callAttemptsHour = 0;
+      }
+      if (existing.monthKey !== monthKey) {
+        updates.monthKey = monthKey;
+        updates.secondsUsedMonth = 0;
+      }
+      if (Object.keys(updates).length > 1) {
+        const [updated] = await db.update(usageCounters)
+          .set(updates)
+          .where(eq(usageCounters.userAddress, userAddress))
+          .returning();
+        return updated;
+      }
+      return existing;
+    }
+
+    const [created] = await db.insert(usageCounters).values({
+      userAddress,
+      dayKey,
+      monthKey,
+      callsStartedToday: 0,
+      failedStartsToday: 0,
+      callAttemptsHour: 0,
+      secondsUsedMonth: 0,
+      relayCalls24h: 0,
+    }).returning();
+    return created;
+  }
+
+  async updateUsageCounter(userAddress: string, updates: Partial<UsageCounter>): Promise<UsageCounter | undefined> {
+    const [updated] = await db.update(usageCounters)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(usageCounters.userAddress, userAddress))
+      .returning();
+    return updated || undefined;
+  }
+
+  async incrementCallsStarted(userAddress: string): Promise<UsageCounter> {
+    const counter = await this.getOrCreateUsageCounter(userAddress);
+    const [updated] = await db.update(usageCounters)
+      .set({ 
+        callsStartedToday: (counter.callsStartedToday || 0) + 1,
+        updatedAt: new Date()
+      })
+      .where(eq(usageCounters.userAddress, userAddress))
+      .returning();
+    return updated;
+  }
+
+  async incrementFailedStarts(userAddress: string): Promise<UsageCounter> {
+    const counter = await this.getOrCreateUsageCounter(userAddress);
+    const [updated] = await db.update(usageCounters)
+      .set({ 
+        failedStartsToday: (counter.failedStartsToday || 0) + 1,
+        updatedAt: new Date()
+      })
+      .where(eq(usageCounters.userAddress, userAddress))
+      .returning();
+    return updated;
+  }
+
+  async incrementCallAttempts(userAddress: string): Promise<UsageCounter> {
+    const counter = await this.getOrCreateUsageCounter(userAddress);
+    const currentHour = new Date().getHours();
+    
+    // Reset hourly counter if hour changed
+    const attempts = counter.lastAttemptHour === currentHour 
+      ? (counter.callAttemptsHour || 0) + 1 
+      : 1;
+    
+    const [updated] = await db.update(usageCounters)
+      .set({ 
+        callAttemptsHour: attempts,
+        lastAttemptHour: currentHour,
+        updatedAt: new Date()
+      })
+      .where(eq(usageCounters.userAddress, userAddress))
+      .returning();
+    return updated;
+  }
+
+  async addSecondsUsed(userAddress: string, seconds: number): Promise<UsageCounter> {
+    const counter = await this.getOrCreateUsageCounter(userAddress);
+    const [updated] = await db.update(usageCounters)
+      .set({ 
+        secondsUsedMonth: (counter.secondsUsedMonth || 0) + seconds,
+        updatedAt: new Date()
+      })
+      .where(eq(usageCounters.userAddress, userAddress))
+      .returning();
+    return updated;
+  }
+
+  async incrementRelayCalls(userAddress: string): Promise<UsageCounter> {
+    const counter = await this.getOrCreateUsageCounter(userAddress);
+    const [updated] = await db.update(usageCounters)
+      .set({ 
+        relayCalls24h: (counter.relayCalls24h || 0) + 1,
+        updatedAt: new Date()
+      })
+      .where(eq(usageCounters.userAddress, userAddress))
+      .returning();
+    return updated;
+  }
+
+  // Active call methods
+  async getActiveCall(callSessionId: string): Promise<ActiveCall | undefined> {
+    const [call] = await db.select().from(activeCalls).where(eq(activeCalls.callSessionId, callSessionId));
+    return call || undefined;
+  }
+
+  async getActiveCallsForUser(userAddress: string): Promise<ActiveCall[]> {
+    return db.select().from(activeCalls).where(
+      or(
+        eq(activeCalls.callerAddress, userAddress),
+        eq(activeCalls.calleeAddress, userAddress)
+      )
+    );
+  }
+
+  async createActiveCall(call: InsertActiveCall): Promise<ActiveCall> {
+    const [created] = await db.insert(activeCalls).values(call).returning();
+    return created;
+  }
+
+  async updateActiveCall(callSessionId: string, updates: Partial<ActiveCall>): Promise<ActiveCall | undefined> {
+    const [updated] = await db.update(activeCalls)
+      .set(updates)
+      .where(eq(activeCalls.callSessionId, callSessionId))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteActiveCall(callSessionId: string): Promise<boolean> {
+    const result = await db.delete(activeCalls).where(eq(activeCalls.callSessionId, callSessionId)).returning();
+    return result.length > 0;
+  }
+
+  async getAllActiveCalls(): Promise<ActiveCall[]> {
+    return db.select().from(activeCalls);
+  }
+
+  async getStaleActiveCalls(heartbeatThresholdSeconds: number): Promise<ActiveCall[]> {
+    const threshold = new Date(Date.now() - heartbeatThresholdSeconds * 1000);
+    return db.select().from(activeCalls).where(
+      and(
+        or(
+          lte(activeCalls.lastHeartbeatCaller, threshold),
+          sql`${activeCalls.lastHeartbeatCaller} IS NULL`
+        ),
+        or(
+          lte(activeCalls.lastHeartbeatCallee, threshold),
+          sql`${activeCalls.lastHeartbeatCallee} IS NULL`
+        )
+      )
+    );
+  }
+
+  // User tier management
+  async getUserTier(address: string): Promise<'free' | 'paid' | 'admin'> {
+    const identity = await this.getIdentity(address);
+    if (!identity) return 'free';
+    
+    // Admin/founder = admin tier
+    if (identity.role === 'admin' || identity.role === 'founder') {
+      return 'admin';
+    }
+    
+    // Active subscription = paid tier
+    if ((identity.plan === 'pro' || identity.plan === 'business' || identity.plan === 'enterprise') && 
+        identity.planStatus === 'active') {
+      return 'paid';
+    }
+    
+    // Active trial = paid tier
+    if (identity.trialStatus === 'active') {
+      if (identity.trialEndAt && new Date(identity.trialEndAt) > new Date()) {
+        return 'paid';
+      }
+      if (identity.trialMinutesRemaining && identity.trialMinutesRemaining > 0) {
+        return 'paid';
+      }
+    }
+    
+    return 'free';
+  }
+
+  async setUserTier(address: string, tier: 'free' | 'paid' | 'admin', actorAddress: string): Promise<CryptoIdentityRecord | undefined> {
+    const identity = await this.getIdentity(address);
+    if (!identity) return undefined;
+
+    let updates: Partial<InsertCryptoIdentity> = {};
+    
+    if (tier === 'admin') {
+      updates = { role: 'admin' };
+    } else if (tier === 'paid') {
+      // Grant a perpetual pro plan
+      updates = { plan: 'pro', planStatus: 'active' };
+    } else {
+      // Reset to free - but keep role unless it's admin
+      updates = { plan: 'free', planStatus: 'none' };
+    }
+
+    const updated = await this.updateIdentity(address, updates);
+    
+    // Log the action
+    await this.createAuditLog({
+      actorAddress,
+      targetAddress: address,
+      actionType: 'TIER_CHANGE',
+      metadata: { oldTier: await this.getUserTier(address), newTier: tier }
+    });
+    
+    return updated;
   }
 }
 
