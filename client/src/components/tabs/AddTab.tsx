@@ -184,7 +184,7 @@ export function AddTab({ myAddress, onContactAdded, onStartCall, onNavigateToInv
             <Button
               onClick={copyMyAddress}
               variant="outline"
-              className="border-slate-600 hover:bg-slate-700"
+              className="border-slate-600 hover:bg-slate-700 text-white"
               data-testid="button-copy-my-address"
             >
               <Copy className="w-4 h-4 mr-2" />
@@ -193,7 +193,7 @@ export function AddTab({ myAddress, onContactAdded, onStartCall, onNavigateToInv
             <Button
               onClick={copyInviteLink}
               variant="outline"
-              className="border-slate-600 hover:bg-slate-700"
+              className="border-slate-600 hover:bg-slate-700 text-white"
               data-testid="button-copy-invite-link"
             >
               <Link className="w-4 h-4 mr-2" />
