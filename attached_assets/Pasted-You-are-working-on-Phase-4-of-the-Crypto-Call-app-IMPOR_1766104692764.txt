@@ -1,0 +1,81 @@
+You are working on Phase 4 of the Crypto Call app.
+
+IMPORTANT RULES:
+- Do NOT remove, rename, or break any existing feature, UI, or functionality.
+- Do NOT refactor unrelated files.
+- Only add or stabilize Phase 4 features.
+- Everything must remain production-ready (no mock logic in final paths).
+
+PHASE 4 OBJECTIVE:
+Finalize Business / Creator Mode for monetized voice & video calls.
+
+TASKS TO COMPLETE:
+
+1) BUSINESS / CREATOR MODE (SETTINGS)
+- Ensure Settings → Business Mode loads consistently.
+- Creator Profile Settings must include:
+  - Display name
+  - Bio
+  - Category / service type
+  - Toggle ON/OFF (private users see no business UI)
+- Add a visible “Pro / Business” badge when enabled.
+
+2) PAID CALL CONFIGURATION
+- Support BOTH pricing models:
+  - Per-minute billing
+  - Flat session price
+- Pricing must apply to:
+  - Voice calls
+  - Video calls
+- Validate pricing before call starts.
+- Show price clearly BEFORE accepting a call.
+
+3) AVAILABILITY & SCHEDULING
+- Business Hours Scheduler:
+  - Weekly schedule
+  - Per-day availability windows
+- Prevent paid calls outside business hours.
+- If unavailable, show:
+  “This creator is not accepting calls right now.”
+
+4) STRIPE (TEST MODE – NO LIVE CHARGES)
+- Stripe must be connected in TEST MODE only.
+- Create Payment Intents when:
+  - A paid call is accepted
+- Do NOT auto-charge yet.
+- Log call duration for later billing.
+- Ensure Stripe errors do NOT crash the app.
+
+5) CALL FLOW VALIDATION
+- Voice calls and video calls must:
+  - Start normally for free contacts
+  - Require payment confirmation for paid calls
+- No blank screens.
+- No dead buttons.
+- Calls tab must correctly reflect:
+  - Free calls
+  - Paid calls
+  - Incoming requests
+
+6) UI / UX FINAL CHECK
+- Calls tab:
+  - Paid call entry points visible only if Business Mode is ON
+- Add tab:
+  - Paid call setup accessible
+- No duplicated buttons
+- No empty states that block progress
+
+7) DATA SAFETY
+- Store:
+  - Call metadata (type, duration, price)
+  - Creator settings
+- Do NOT store card data.
+- Do NOT expose Stripe secrets to frontend.
+
+FINAL STEP:
+After completing all checks:
+- Confirm Phase 4 is COMPLETE
+- Summarize what is ready for Phase 5
+- Do NOT start Phase 5 yet
+
+Respond only after verification is complete.
