@@ -129,7 +129,7 @@ export function InvitePassManager({ identity, ws, onBack }: InvitePassManagerPro
       try {
         await navigator.share({
           title: 'Call Me',
-          text: 'Use this invite to call me on Crypto Call',
+          text: 'Use this invite to call me on Call Vault',
           url
         });
       } catch (e) {

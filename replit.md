@@ -1,7 +1,7 @@
-# Crypto Call - Secure P2P Video Calling
+# Call Vault (CV) - Secure P2P Video Calling
 
 ## Overview
-Crypto Call is a production-ready MVP for secure peer-to-peer audio and video calling using WebRTC. It enables permissioned calls without traditional phone numbers or user accounts, identifying users by cryptographic addresses derived from Ed25519 keypairs. The application features real-time signaling via WebSocket, signature verification for call authentication, and a modern React frontend. Its vision includes monetization through creator profiles, paid calls, and a robust subscription-based entitlement system, targeting a broad market for secure and private communication.
+Call Vault is a production-ready MVP for secure peer-to-peer audio and video calling using WebRTC. It enables permissioned calls without traditional phone numbers or user accounts, identifying users by cryptographic addresses derived from Ed25519 keypairs. The application features real-time signaling via WebSocket, signature verification for call authentication, and a modern React frontend. Its vision includes monetization through creator profiles, paid calls, and a robust subscription-based entitlement system, targeting a broad market for secure and private communication.
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.

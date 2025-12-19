@@ -21,7 +21,7 @@ export function WalletVerification({ identity, ws, onBack }: WalletVerificationP
   const [walletSignature, setWalletSignature] = useState('');
   const [showVerify, setShowVerify] = useState(false);
 
-  const messageToSign = `Link this wallet to my Crypto Call ID: ${identity.address} at ${Date.now()}`;
+  const messageToSign = `Link this wallet to my Call Vault ID: ${identity.address} at ${Date.now()}`;
 
   const verifyWallet = async () => {
     if (!walletAddress || !walletSignature) {

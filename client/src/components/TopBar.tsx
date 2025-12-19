@@ -5,7 +5,7 @@ interface TopBarProps {
   title?: string;
 }
 
-export function TopBar({ title = 'Crypto Call' }: TopBarProps) {
+export function TopBar({ title = 'Call Vault' }: TopBarProps) {
   const profile = getUserProfile();
 
   return (

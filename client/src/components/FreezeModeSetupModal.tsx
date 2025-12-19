@@ -100,14 +100,14 @@ export function FreezeModeSetupModal({ open, onClose, onComplete }: FreezeModeSe
     },
     {
       title: "Step 2: Allow This App's Notifications",
-      description: "Make sure Crypto Call can still notify you when approved contacts call.",
+      description: "Make sure Call Vault can still notify you when approved contacts call.",
       icon: Bell,
       content: (
         <div className="space-y-4">
           <div className="bg-blue-500/10 rounded-lg p-4 text-center">
             <Bell className="w-12 h-12 text-blue-500 mx-auto mb-2" />
             <p className="text-sm text-muted-foreground">
-              Allow Crypto Call notifications so approved calls can still reach you.
+              Allow Call Vault notifications so approved calls can still reach you.
             </p>
           </div>
           
@@ -116,7 +116,7 @@ export function FreezeModeSetupModal({ open, onClose, onComplete }: FreezeModeSe
               <Badge variant="secondary">iOS</Badge>
               <ol className="text-sm space-y-2 text-muted-foreground list-decimal list-inside">
                 <li>In your Focus settings, tap <strong>Apps</strong></li>
-                <li>Add <strong>Crypto Call</strong> to allowed apps</li>
+                <li>Add <strong>Call Vault</strong> to allowed apps</li>
                 <li>This lets approved calls notify you even in Focus mode</li>
               </ol>
             </div>
@@ -127,7 +127,7 @@ export function FreezeModeSetupModal({ open, onClose, onComplete }: FreezeModeSe
               <Badge variant="secondary">Android</Badge>
               <ol className="text-sm space-y-2 text-muted-foreground list-decimal list-inside">
                 <li>In DND settings, tap <strong>Apps</strong> or <strong>Exceptions</strong></li>
-                <li>Add <strong>Crypto Call</strong> as an exception</li>
+                <li>Add <strong>Call Vault</strong> as an exception</li>
                 <li>This allows the app to notify you in DND mode</li>
               </ol>
             </div>

@@ -801,7 +801,7 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
             "Calls only happen with your permission."
           </p>
           <p className="text-slate-500 text-xs mt-2">
-            Crypto Call uses end-to-end encryption for secure peer-to-peer calling.
+            Call Vault uses end-to-end encryption for secure peer-to-peer calling.
           </p>
         </CardContent>
       </Card>

@@ -104,7 +104,7 @@ export default function InvitePage() {
               {(error as Error)?.message || 'This invite link is no longer valid or has expired.'}
             </p>
             <Button onClick={() => setLocation('/')} data-testid="button-go-home">
-              Go to Crypto Call
+              Go to Call Vault
             </Button>
           </CardContent>
         </Card>
@@ -123,7 +123,7 @@ export default function InvitePage() {
         </CardHeader>
         <CardContent className="space-y-6">
           <p className="text-slate-300 text-center">
-            Someone special has invited you to try Crypto Call with a free trial.
+            Someone special has invited you to try Call Vault with a free trial.
           </p>
 
           <div className="bg-slate-700/50 rounded-xl p-4 space-y-3">
