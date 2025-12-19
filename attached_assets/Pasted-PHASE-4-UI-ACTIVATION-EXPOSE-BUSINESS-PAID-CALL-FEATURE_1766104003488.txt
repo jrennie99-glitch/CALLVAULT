@@ -1,0 +1,92 @@
+PHASE 4 UI ACTIVATION — EXPOSE BUSINESS / PAID CALL FEATURES IN THE MAIN APP (NO BACKEND CHANGES).
+
+IMPORTANT
+- Do NOT change any Phase 4 logic already implemented.
+- Do NOT rework Stripe or payment code.
+- Only ADD UI entry points and states so users can access Phase 4 features.
+- Mobile-first, WhatsApp/Calendly-style clarity.
+
+TASKS
+
+1) CALLS TAB — PAID CALL ENTRY POINT
+When Business/Creator Mode is ENABLED:
+- Add a new primary button at top of Calls tab:
+  “Create Paid Call Link”
+- Icon: 💼 or 💳
+- Tapping opens:
+  - Pricing summary
+  - Button: “Generate Link”
+  - After generation: copy/share link
+
+If Business Mode is OFF:
+- Do NOT show this button.
+
+2) ADD TAB — QUICK ACTIONS
+In Add tab, show cards:
+- “Invite Call Link” (free, Phase 3)
+- “Paid Call Link” (Phase 4, show Pro badge)
+- “Share My Profile”
+
+Each card routes to the correct flow.
+No hidden settings-only features.
+
+3) PUBLIC BUSINESS PROFILE PAGE
+Expose existing profile at:
+  /u/<handle>
+UI must show:
+- Name
+- Bio
+- Category
+- Availability status:
+  “Available now”
+  “Offline — paid calls only”
+- Buttons:
+  - Request Free Call (if allowed)
+  - Book Paid Call
+
+This page must be reachable by:
+- Copy profile link
+- Share button in Settings
+
+4) PAYMENT-REQUIRED CALL STATE
+If a caller tries to call and payment is required:
+- Show screen:
+  “This call requires payment”
+- Button:
+  “Pay & Call”
+- If PAYMENTS_TEST_MODE is ON:
+  - Clearly show “Test Mode — no charge”
+  - Allow flow to proceed
+
+5) CALL QUEUE VISIBILITY
+If user is already in a call and another PAID call arrives:
+- Caller sees:
+  “You’re in queue — position #X”
+- Recipient sees:
+  Queue panel in Calls tab:
+    - Caller
+    - Payment status
+    - Accept Next / Message / Skip
+
+6) CONTACT DETAIL — PAID STATUS BADGE
+On Contact Detail screen:
+- Show badge:
+  - Free
+  - Paid Required
+  - Always Allowed
+- Tapping badge opens permission/pricing quick actions.
+
+7) EMPTY STATES (VERY IMPORTANT)
+If Business Mode ON and no paid links yet:
+Replace empty text with:
+“Get paid for your time.”
+Buttons:
+- “Create Paid Call Link”
+- “View My Profile”
+
+DELIVERABLE
+- Phase 4 must be accessible without going into Settings.
+- A new user should discover paid calls in under 10 seconds.
+- Do not alter Phase 1–3 behavior.
+
+Proceed now.

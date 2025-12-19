@@ -136,3 +136,11 @@ Preferred communication style: Simple, everyday language.
 - `server/paymentStore.ts`: In-memory storage for creator profiles, pricing, and queue
 - `client/src/components/CreatorModeSettings.tsx`: Business mode UI with profile, hours, and pricing editors
 - `shared/types.ts`: Extended with Phase 4 types (CreatorProfile, BusinessHours, CallPricing, etc.)
+
+### UI Entry Points (Phase 4 Activation)
+- **Calls Tab**: "Create Paid Call Link" button when Business Mode enabled, Call Queue panel
+- **Add Tab**: Quick Actions section with Invite Link, Paid Call Link, Share Profile cards
+- **Public Profile Page**: `/u/:handle` route showing creator profile, pricing, hours, availability
+- **Payment Required Screen**: Modal for paid call confirmation with pricing breakdown
+- **Contact Paid Badge**: Reusable badge showing Free/Paid/Always Allowed status
+- **Empty States**: Business Mode specific empty state with "Get paid for your time" CTA

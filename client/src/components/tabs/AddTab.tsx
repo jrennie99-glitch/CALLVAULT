@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { QrCode, Copy, UserPlus, Link, CheckCircle, Video, Phone } from 'lucide-react';
+import { QrCode, Copy, UserPlus, Link, CheckCircle, Video, Phone, Ticket, DollarSign, Briefcase, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { addContact, getContactByAddress } from '@/lib/storage';
+import { getCreatorProfile } from '@/lib/policyStorage';
 import { toast } from 'sonner';
 import QRCode from 'qrcode';
 
@@ -12,15 +13,19 @@ interface AddTabProps {
   myAddress: string;
   onContactAdded: () => void;
   onStartCall?: (address: string, video: boolean) => void;
+  onNavigateToInvites?: () => void;
+  onNavigateToPaidLinks?: () => void;
 }
 
-export function AddTab({ myAddress, onContactAdded, onStartCall }: AddTabProps) {
+export function AddTab({ myAddress, onContactAdded, onStartCall, onNavigateToInvites, onNavigateToPaidLinks }: AddTabProps) {
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [newContactName, setNewContactName] = useState('');
   const [newContactAddress, setNewContactAddress] = useState('');
   const [pastedQrPayload, setPastedQrPayload] = useState('');
   const [quickCallAddress, setQuickCallAddress] = useState('');
   const [quickCallType, setQuickCallType] = useState<'video' | 'audio'>('video');
+  const creatorProfile = getCreatorProfile();
+  const isBusinessMode = creatorProfile?.enabled ?? false;
 
   useEffect(() => {
     if (myAddress) {
@@ -83,8 +88,77 @@ export function AddTab({ myAddress, onContactAdded, onStartCall }: AddTabProps) 
     toast.success('Invite link copied!');
   };
 
+  const copyProfileLink = () => {
+    const handle = creatorProfile?.handle || myAddress.slice(5, 15);
+    const profileUrl = `${window.location.origin}/u/${handle}`;
+    navigator.clipboard.writeText(profileUrl);
+    toast.success('Profile link copied!');
+  };
+
   return (
     <div className="p-4 space-y-6 pb-24">
+      <div className="space-y-3">
+        <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wider">Quick Actions</h3>
+        
+        <button
+          onClick={onNavigateToInvites}
+          className="w-full flex items-center justify-between p-4 bg-slate-800/50 border border-slate-700 rounded-xl hover:bg-slate-800 transition-colors"
+          data-testid="card-invite-link"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-purple-500/20 flex items-center justify-center">
+              <Ticket className="w-5 h-5 text-purple-400" />
+            </div>
+            <div className="text-left">
+              <p className="text-white font-medium">Invite Call Link</p>
+              <p className="text-slate-500 text-sm">Let someone call you once</p>
+            </div>
+          </div>
+          <ChevronRight className="w-5 h-5 text-slate-400" />
+        </button>
+
+        {isBusinessMode && (
+          <button
+            onClick={onNavigateToPaidLinks}
+            className="w-full flex items-center justify-between p-4 bg-gradient-to-r from-purple-500/10 to-pink-500/10 border border-purple-500/20 rounded-xl hover:from-purple-500/20 hover:to-pink-500/20 transition-all"
+            data-testid="card-paid-link"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-purple-500/20 flex items-center justify-center">
+                <DollarSign className="w-5 h-5 text-purple-400" />
+              </div>
+              <div className="text-left">
+                <p className="text-white font-medium flex items-center gap-2">
+                  Paid Call Link
+                  <span className="text-xs bg-purple-500/20 text-purple-400 px-1.5 py-0.5 rounded">Pro</span>
+                </p>
+                <p className="text-slate-500 text-sm">Earn from your calls</p>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-slate-400" />
+          </button>
+        )}
+
+        {isBusinessMode && (
+          <button
+            onClick={copyProfileLink}
+            className="w-full flex items-center justify-between p-4 bg-slate-800/50 border border-slate-700 rounded-xl hover:bg-slate-800 transition-colors"
+            data-testid="card-share-profile"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center">
+                <Briefcase className="w-5 h-5 text-blue-400" />
+              </div>
+              <div className="text-left">
+                <p className="text-white font-medium">Share My Profile</p>
+                <p className="text-slate-500 text-sm">Public business page</p>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-slate-400" />
+          </button>
+        )}
+      </div>
+
       <Card className="bg-slate-800/50 border-slate-700">
         <CardHeader>
           <CardTitle className="text-white flex items-center gap-2">

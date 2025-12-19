@@ -458,6 +458,13 @@ export default function CallPage() {
               setCallRequests(prev => prev.filter(r => r.from_address !== address));
               toast.success('User blocked');
             }}
+            callQueue={[]}
+            onAcceptQueueEntry={(entry) => {
+              handleStartCall(entry.caller_address, entry.is_video);
+            }}
+            onSkipQueueEntry={(entry) => {
+              toast.success('Caller skipped');
+            }}
           />
         )}
         {activeTab === 'contacts' && (
@@ -473,6 +480,14 @@ export default function CallPage() {
             myAddress={identity.address}
             onContactAdded={() => setActiveTab('contacts')}
             onStartCall={handleStartCall}
+            onNavigateToInvites={() => {
+              setActiveTab('settings');
+              setSettingsScreen('passes');
+            }}
+            onNavigateToPaidLinks={() => {
+              setActiveTab('settings');
+              setSettingsScreen('creator_mode');
+            }}
           />
         )}
         {activeTab === 'settings' && settingsScreen === 'main' && (
