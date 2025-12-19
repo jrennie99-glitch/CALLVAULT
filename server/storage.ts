@@ -147,6 +147,14 @@ export interface IStorage {
   // User tier management
   getUserTier(address: string): Promise<'free' | 'paid' | 'admin'>;
   setUserTier(address: string, tier: 'free' | 'paid' | 'admin', actorAddress: string): Promise<CryptoIdentityRecord | undefined>;
+
+  // Freeze Mode
+  getAlwaysAllowedContacts(ownerAddress: string): Promise<Contact[]>;
+  isContactAlwaysAllowed(ownerAddress: string, contactAddress: string): Promise<boolean>;
+  setContactAlwaysAllowed(ownerAddress: string, contactAddress: string, alwaysAllowed: boolean): Promise<Contact | undefined>;
+  getFreezeModeSetting(address: string): Promise<{ enabled: boolean; setupCompleted: boolean }>;
+  setFreezeMode(address: string, enabled: boolean): Promise<CryptoIdentityRecord | undefined>;
+  setFreezeModeSetupCompleted(address: string): Promise<CryptoIdentityRecord | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1146,6 +1154,54 @@ export class DatabaseStorage implements IStorage {
     });
     
     return updated;
+  }
+
+  // Freeze Mode methods
+  async getAlwaysAllowedContacts(ownerAddress: string): Promise<Contact[]> {
+    return db.select().from(contacts).where(
+      and(eq(contacts.ownerAddress, ownerAddress), eq(contacts.alwaysAllowed, true))
+    );
+  }
+
+  async isContactAlwaysAllowed(ownerAddress: string, contactAddress: string): Promise<boolean> {
+    const [contact] = await db.select().from(contacts).where(
+      and(
+        eq(contacts.ownerAddress, ownerAddress),
+        eq(contacts.contactAddress, contactAddress),
+        eq(contacts.alwaysAllowed, true)
+      )
+    );
+    return !!contact;
+  }
+
+  async setContactAlwaysAllowed(ownerAddress: string, contactAddress: string, alwaysAllowed: boolean): Promise<Contact | undefined> {
+    const [contact] = await db.select().from(contacts).where(
+      and(eq(contacts.ownerAddress, ownerAddress), eq(contacts.contactAddress, contactAddress))
+    );
+    if (!contact) return undefined;
+    
+    const [updated] = await db.update(contacts)
+      .set({ alwaysAllowed })
+      .where(eq(contacts.id, contact.id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async getFreezeModeSetting(address: string): Promise<{ enabled: boolean; setupCompleted: boolean }> {
+    const identity = await this.getIdentity(address);
+    if (!identity) return { enabled: false, setupCompleted: false };
+    return {
+      enabled: identity.freezeMode || false,
+      setupCompleted: identity.freezeModeSetupCompleted || false
+    };
+  }
+
+  async setFreezeMode(address: string, enabled: boolean): Promise<CryptoIdentityRecord | undefined> {
+    return this.updateIdentity(address, { freezeMode: enabled });
+  }
+
+  async setFreezeModeSetupCompleted(address: string): Promise<CryptoIdentityRecord | undefined> {
+    return this.updateIdentity(address, { freezeModeSetupCompleted: true });
   }
 }
 
