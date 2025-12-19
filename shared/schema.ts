@@ -22,16 +22,25 @@ export const cryptoIdentities = pgTable("crypto_identities", {
   address: text("address").notNull().unique(),
   publicKeyBase58: text("public_key_base58").notNull(),
   displayName: text("display_name"),
+  email: text("email"),
+  handle: text("handle"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   // RBAC fields
   role: text("role").notNull().default("user"), // 'founder' | 'admin' | 'user'
   isDisabled: boolean("is_disabled").default(false),
   lastLoginAt: timestamp("last_login_at"),
+  // Plan fields
+  plan: text("plan").notNull().default("free"), // 'free' | 'pro' | 'business' | 'enterprise'
+  planStatus: text("plan_status").default("none"), // 'none' | 'active' | 'cancelled' | 'past_due'
+  planRenewalAt: timestamp("plan_renewal_at"),
+  stripeCustomerId: text("stripe_customer_id"),
+  stripeSubscriptionId: text("stripe_subscription_id"),
   // Trial fields
   trialStatus: text("trial_status").default("none"), // 'none' | 'active' | 'expired'
   trialStartAt: timestamp("trial_start_at"),
   trialEndAt: timestamp("trial_end_at"),
   trialMinutesRemaining: integer("trial_minutes_remaining"),
+  trialPlan: text("trial_plan").default("pro"), // which plan trial grants access to: 'pro' | 'business'
 });
 
 export const insertCryptoIdentitySchema = createInsertSchema(cryptoIdentities).omit({
@@ -267,3 +276,37 @@ export const trialNoncesTable = pgTable("trial_nonces", {
 }));
 
 export type TrialNonce = typeof trialNoncesTable.$inferSelect;
+
+// Invite Links (for influencer onboarding)
+export const inviteLinks = pgTable("invite_links", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  code: text("code").notNull().unique(),
+  createdByAddress: text("created_by_address").notNull(),
+  type: text("type").notNull().default("trial"), // 'trial' | 'pro_access' | 'business_access'
+  trialDays: integer("trial_days").default(7),
+  trialMinutes: integer("trial_minutes").default(30),
+  grantPlan: text("grant_plan").default("pro"), // 'pro' | 'business'
+  maxUses: integer("max_uses"),
+  uses: integer("uses").default(0),
+  expiresAt: timestamp("expires_at"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertInviteLinkSchema = createInsertSchema(inviteLinks).omit({
+  id: true,
+  uses: true,
+  createdAt: true,
+});
+export type InsertInviteLink = z.infer<typeof insertInviteLinkSchema>;
+export type InviteLink = typeof inviteLinks.$inferSelect;
+
+// Invite Redemptions (track who used which invite)
+export const inviteRedemptions = pgTable("invite_redemptions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  inviteLinkId: text("invite_link_id").notNull(),
+  redeemedByAddress: text("redeemed_by_address").notNull(),
+  redeemedAt: timestamp("redeemed_at").defaultNow().notNull(),
+});
+
+export type InviteRedemption = typeof inviteRedemptions.$inferSelect;

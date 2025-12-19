@@ -10,6 +10,8 @@ import {
   creatorEarnings, type CreatorEarnings, type InsertCreatorEarnings,
   adminAuditLogs, type AdminAuditLog, type InsertAdminAuditLog,
   trialNoncesTable,
+  inviteLinks, type InviteLink, type InsertInviteLink,
+  inviteRedemptions, type InviteRedemption,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, asc, sql, gte, lte, ilike, or } from "drizzle-orm";
@@ -80,6 +82,33 @@ export interface IStorage {
   isTrialNonceUsed(address: string, nonce: string): Promise<boolean>;
   markTrialNonceUsed(address: string, nonce: string): Promise<boolean>;
   cleanupOldTrialNonces(): Promise<void>;
+
+  // Plan management
+  updatePlan(address: string, plan: string, actorAddress?: string): Promise<CryptoIdentityRecord | undefined>;
+  
+  // Invite links
+  getInviteLink(code: string): Promise<InviteLink | undefined>;
+  getInviteLinkById(id: string): Promise<InviteLink | undefined>;
+  getAllInviteLinks(createdByAddress?: string): Promise<InviteLink[]>;
+  createInviteLink(link: InsertInviteLink): Promise<InviteLink>;
+  updateInviteLink(id: string, updates: Partial<InviteLink>): Promise<InviteLink | undefined>;
+  deleteInviteLink(id: string): Promise<boolean>;
+  redeemInviteLink(code: string, redeemerAddress: string): Promise<{ success: boolean; error?: string; link?: InviteLink }>;
+  getInviteRedemptions(inviteLinkId: string): Promise<InviteRedemption[]>;
+
+  // Entitlement helpers
+  canUseProFeatures(address: string): Promise<boolean>;
+  canUseBusinessFeatures(address: string): Promise<boolean>;
+  
+  // Stats
+  getAdminStats(): Promise<{
+    totalUsers: number;
+    activeTrials: number;
+    proPlans: number;
+    businessPlans: number;
+    disabledUsers: number;
+    adminCount: number;
+  }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -504,6 +533,209 @@ export class DatabaseStorage implements IStorage {
   async cleanupOldTrialNonces(): Promise<void> {
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     await db.delete(trialNoncesTable).where(lte(trialNoncesTable.usedAt, oneHourAgo));
+  }
+
+  // Plan management
+  async updatePlan(address: string, plan: string, actorAddress?: string): Promise<CryptoIdentityRecord | undefined> {
+    const [updated] = await db.update(cryptoIdentities)
+      .set({ 
+        plan,
+        planStatus: plan === 'free' ? 'none' : 'active',
+        planRenewalAt: plan === 'free' ? null : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+      })
+      .where(eq(cryptoIdentities.address, address))
+      .returning();
+    
+    if (updated && actorAddress) {
+      await this.createAuditLog({
+        actorAddress,
+        targetAddress: address,
+        actionType: 'PLAN_CHANGE',
+        metadata: { newPlan: plan }
+      });
+    }
+    
+    return updated || undefined;
+  }
+
+  // Invite links
+  async getInviteLink(code: string): Promise<InviteLink | undefined> {
+    const [link] = await db.select().from(inviteLinks).where(eq(inviteLinks.code, code));
+    return link || undefined;
+  }
+
+  async getInviteLinkById(id: string): Promise<InviteLink | undefined> {
+    const [link] = await db.select().from(inviteLinks).where(eq(inviteLinks.id, id));
+    return link || undefined;
+  }
+
+  async getAllInviteLinks(createdByAddress?: string): Promise<InviteLink[]> {
+    if (createdByAddress) {
+      return db.select().from(inviteLinks)
+        .where(eq(inviteLinks.createdByAddress, createdByAddress))
+        .orderBy(desc(inviteLinks.createdAt));
+    }
+    return db.select().from(inviteLinks).orderBy(desc(inviteLinks.createdAt));
+  }
+
+  async createInviteLink(link: InsertInviteLink): Promise<InviteLink> {
+    const [created] = await db.insert(inviteLinks).values(link).returning();
+    return created;
+  }
+
+  async updateInviteLink(id: string, updates: Partial<InviteLink>): Promise<InviteLink | undefined> {
+    const [updated] = await db.update(inviteLinks).set(updates).where(eq(inviteLinks.id, id)).returning();
+    return updated || undefined;
+  }
+
+  async deleteInviteLink(id: string): Promise<boolean> {
+    const result = await db.delete(inviteLinks).where(eq(inviteLinks.id, id));
+    return true;
+  }
+
+  async redeemInviteLink(code: string, redeemerAddress: string): Promise<{ success: boolean; error?: string; link?: InviteLink }> {
+    const link = await this.getInviteLink(code);
+    
+    if (!link) {
+      return { success: false, error: 'Invite link not found' };
+    }
+    
+    if (!link.isActive) {
+      return { success: false, error: 'Invite link is no longer active' };
+    }
+    
+    if (link.expiresAt && new Date(link.expiresAt) < new Date()) {
+      return { success: false, error: 'Invite link has expired' };
+    }
+    
+    if (link.maxUses && link.uses !== null && link.uses >= link.maxUses) {
+      return { success: false, error: 'Invite link has reached maximum uses' };
+    }
+    
+    // Check if user already redeemed this link
+    const [existingRedemption] = await db.select().from(inviteRedemptions)
+      .where(and(
+        eq(inviteRedemptions.inviteLinkId, link.id),
+        eq(inviteRedemptions.redeemedByAddress, redeemerAddress)
+      ));
+    
+    if (existingRedemption) {
+      return { success: false, error: 'You have already redeemed this invite' };
+    }
+    
+    // Record redemption
+    await db.insert(inviteRedemptions).values({
+      inviteLinkId: link.id,
+      redeemedByAddress: redeemerAddress,
+    });
+    
+    // Increment uses
+    await db.update(inviteLinks)
+      .set({ uses: (link.uses || 0) + 1 })
+      .where(eq(inviteLinks.id, link.id));
+    
+    // Grant trial to user
+    const trialEndAt = link.trialDays ? new Date(Date.now() + link.trialDays * 24 * 60 * 60 * 1000) : null;
+    await db.update(cryptoIdentities)
+      .set({
+        trialStatus: 'active',
+        trialStartAt: new Date(),
+        trialEndAt,
+        trialMinutesRemaining: link.trialMinutes || 30,
+        trialPlan: link.grantPlan || 'pro',
+      })
+      .where(eq(cryptoIdentities.address, redeemerAddress));
+    
+    // Log the redemption
+    await this.createAuditLog({
+      actorAddress: redeemerAddress,
+      targetAddress: redeemerAddress,
+      actionType: 'INVITE_REDEEMED',
+      metadata: { inviteCode: code, inviteLinkId: link.id, createdBy: link.createdByAddress }
+    });
+    
+    return { success: true, link };
+  }
+
+  async getInviteRedemptions(inviteLinkId: string): Promise<InviteRedemption[]> {
+    return db.select().from(inviteRedemptions)
+      .where(eq(inviteRedemptions.inviteLinkId, inviteLinkId))
+      .orderBy(desc(inviteRedemptions.redeemedAt));
+  }
+
+  // Entitlement helpers
+  async canUseProFeatures(address: string): Promise<boolean> {
+    const identity = await this.getIdentity(address);
+    if (!identity) return false;
+    
+    // Check if user has active Pro or Business plan
+    if (identity.plan === 'pro' || identity.plan === 'business' || identity.plan === 'enterprise') {
+      if (identity.planStatus === 'active') return true;
+    }
+    
+    // Check if user has active trial
+    if (identity.trialStatus === 'active') {
+      // Check time-based trial
+      if (identity.trialEndAt && new Date(identity.trialEndAt) > new Date()) {
+        return true;
+      }
+      // Check minute-based trial
+      if (identity.trialMinutesRemaining && identity.trialMinutesRemaining > 0) {
+        return true;
+      }
+    }
+    
+    return false;
+  }
+
+  async canUseBusinessFeatures(address: string): Promise<boolean> {
+    const identity = await this.getIdentity(address);
+    if (!identity) return false;
+    
+    // Check if user has active Business plan
+    if (identity.plan === 'business' || identity.plan === 'enterprise') {
+      if (identity.planStatus === 'active') return true;
+    }
+    
+    // Check if user has active trial with business access
+    if (identity.trialStatus === 'active' && identity.trialPlan === 'business') {
+      // Check time-based trial
+      if (identity.trialEndAt && new Date(identity.trialEndAt) > new Date()) {
+        return true;
+      }
+      // Check minute-based trial
+      if (identity.trialMinutesRemaining && identity.trialMinutesRemaining > 0) {
+        return true;
+      }
+    }
+    
+    return false;
+  }
+
+  // Admin stats
+  async getAdminStats(): Promise<{
+    totalUsers: number;
+    activeTrials: number;
+    proPlans: number;
+    businessPlans: number;
+    disabledUsers: number;
+    adminCount: number;
+  }> {
+    const allIdentities = await db.select().from(cryptoIdentities);
+    
+    const now = new Date();
+    
+    return {
+      totalUsers: allIdentities.length,
+      activeTrials: allIdentities.filter(i => 
+        i.trialStatus === 'active' && 
+        ((i.trialEndAt && new Date(i.trialEndAt) > now) || (i.trialMinutesRemaining && i.trialMinutesRemaining > 0))
+      ).length,
+      proPlans: allIdentities.filter(i => i.plan === 'pro' && i.planStatus === 'active').length,
+      businessPlans: allIdentities.filter(i => i.plan === 'business' && i.planStatus === 'active').length,
+      disabledUsers: allIdentities.filter(i => i.isDisabled).length,
+      adminCount: allIdentities.filter(i => i.role === 'admin' || i.role === 'founder').length,
+    };
   }
 }
 
