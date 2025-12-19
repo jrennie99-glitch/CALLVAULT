@@ -23,7 +23,11 @@ Preferred communication style: Simple, everyday language.
     - **Subscription Tiers**: Free, Pro ($9/mo), Business ($29/mo) with feature gating.
     - **Invite Links**: Admin-generated codes for influencer onboarding with trial access.
 - **Admin Console**: Role-Based Access Control (RBAC) for `founder`, `admin`, `user` roles, user management (enable/disable, roles), free trial system (time-based/usage-based), audit logs, impersonation, crypto invoice monitoring.
-- **Crypto Payments (Phase 8)**: Optional alternative payment method using Base network (chain ID 8453). Supports USDC and ETH. Requires recipient to have a verified EVM wallet. Uses ethers.js for on-chain transaction verification. 20-minute invoice expiration. Controlled via `ENABLE_CRYPTO_PAYMENTS` environment variable (disabled by default).
+- **Crypto Payments (Phase 8)**: Optional alternative payment methods supporting multiple blockchains:
+    - **Base Network**: USDC and ETH payments. Requires verified EVM wallet. Uses ethers.js for verification. Controlled via `ENABLE_CRYPTO_PAYMENTS` env var.
+    - **Solana Network**: USDC and SOL payments. Requires verified Solana wallet. Uses @solana/web3.js for verification. Controlled via `ENABLE_SOLANA_PAYMENTS` env var. Supports mainnet-beta and devnet clusters via `SOLANA_CLUSTER` env var.
+    - **Common**: 20-minute invoice expiration, on-chain transaction verification, chain-specific explorer links (BaseScan/Solscan), price fetching from CoinGecko with 5-minute cache.
+    - **Limitation**: Users can only have one verified wallet at a time (either EVM or Solana, not both).
 
 ### Security Measures
 - Ed25519 signature verification for call initiation and admin actions.
