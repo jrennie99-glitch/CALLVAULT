@@ -1,0 +1,117 @@
+DO NOT REMOVE, RENAME, REFACTOR, OR BREAK ANY EXISTING FEATURE OR FUNCTIONALITY.
+ONLY ADD NEW PAGES/ROUTES/COMPONENTS IN AN ADDITIVE WAY.
+KEEP ALL EXISTING ROUTES, UI, CALL/VIDEO FEATURES, AUTH, ADMIN, PAYWALLS, AND STYLES WORKING EXACTLY AS-IS.
+
+GOAL:
+Add a phone-friendly marketing landing experience (Landing + How It Works + FAQ + Onboarding) that advertises “Freeze Mode” (privacy/no data brokers) honestly for a WEB APP (NOT App Store). This is content + UI only, not OS-level blocking.
+
+TECH ASSUMPTIONS:
+- App is React + Tailwind (or compatible).
+- If the app uses React Router, add routes. If it uses a different router/framework, implement equivalent pages with the project’s routing system.
+- If Tailwind exists, use it. If not, implement minimal CSS without changing existing styling.
+
+REQUIREMENTS:
+1) Add 4 new pages:
+   - /landing (or make it / if safe)  -> Landing page
+   - /how-it-works                   -> How it works page
+   - /faq                            -> FAQ page
+   - /onboarding                     -> Onboarding flow
+   IMPORTANT: Do NOT break the current home page. If the current "/" route is already used by the app, keep it untouched and mount Landing on "/landing" instead. Add a button/link from the existing home to /landing, but do not alter existing logic.
+
+2) Add links in the new pages:
+   - “Get Started Free” -> /onboarding
+   - “Learn How It Works” -> /how-it-works
+   - “FAQ” -> /faq
+   - Back links to return to the existing home route (whatever it currently is).
+
+3) Copy must be honest:
+   - DO NOT claim “App Store”
+   - DO NOT claim OS-level blocking or carrier interception
+   - Must clearly state: “This is a web-based communication service. It does not intercept carrier calls/SMS.”
+   - Messaging: users can keep phone on Do Not Disturb and use this app as the intentional call channel.
+
+4) Add ONLY UI + content. Do not implement payment logic here. Do not modify existing auth/calling systems. Just add pages.
+
+CONTENT TO USE (exact text):
+
+LANDING HERO:
+Headline: “Freeze Unwanted Calls. Take Back Control.”
+Subheadline: “Communicate without giving away your phone number. Only the people you approve can reach you — spam never interrupts you.”
+Primary CTA: “Get Started Free”
+Secondary CTA: “Learn How It Works”
+Disclaimer line (small): “This is a web-based communication service. It does not intercept carrier calls/SMS.”
+
+LANDING SECTIONS:
+Section 1 Title: “Why Phone Numbers Failed Us”
+Body: “Your phone number is permanent. Once it’s shared, data brokers resell it — and spam never stops. Blocking is reactive. This service is preventive.”
+
+Section 2 Title: “Permission-Only Communication”
+Body: “Instead of phone numbers, this service uses approval-based access. If someone isn’t approved, they can’t even ring you.”
+
+Bullets:
+- “No phone number required”
+- “Approval-only calling”
+- “No public identifier to sell”
+- “No robocalls, no spoofing”
+
+Section 3 Title: “Freeze Mode (Silence by Default)”
+Body: “Turn on Freeze Mode and keep your phone quiet. Many users keep their phone on Do Not Disturb and use this app as their primary call channel. Only approved people can notify you. Unknown callers must request access.”
+
+Section 4 Title: “Privacy Without Data Brokers”
+Body: “We don’t require a phone number. We don’t sell user data. We don’t create a public identifier. That means there’s nothing for data brokers to buy, resell, or leak.”
+
+Section 5 Title: “Your Time, Your Rules”
+Body: “You decide who can call you, when they can call, and whether approval is required. This is access control for people — not spam filtering.”
+
+Final CTA block:
+Title: “Ready to freeze unwanted interruptions?”
+Body: “Start free, then upgrade for advanced controls when you’re ready.”
+Button: “Get Started”
+
+HOW IT WORKS PAGE:
+Intro: “This is a web-based communication layer designed to reduce spam and protect privacy by minimizing reliance on phone numbers.”
+Steps:
+1) “Turn on Freeze Mode” — “Only approved contacts can notify you; unknown callers must request access.”
+2) “Stop sharing your phone number” — “Share an invite link or approval request instead.”
+3) “Approve who can reach you” — “No approval = no ring.”
+4) “Enjoy the silence” — “Spam never reaches you inside the service.”
+Important note box: “This service does not intercept carrier phone calls or SMS. Many users keep their phone on Do Not Disturb and use this as their intentional call channel.”
+
+FAQ PAGE (Q/A):
+Q1: “Does this block carrier phone calls or SMS?”
+A1: “No. This service does not intercept carrier calls or text messages. Instead, it lets you stop using your phone number as your primary contact method so unwanted calls don’t interrupt you.”
+
+Q2: “How does this reduce spam calls?”
+A2: “Calls are permission-based. If someone isn’t approved, they can’t notify you through this service. Many users keep their phone on Do Not Disturb and use this app as their intentional call channel.”
+
+Q3: “Do I have to give up my phone number?”
+A3: “No. You keep it. Most users simply stop sharing it publicly and share an invite link or approval request instead.”
+
+Q4: “Do you sell or share user data?”
+A4: “No ads, no data broker partnerships, and no selling personal data. Privacy is the point.”
+
+Q5: “Is this a phone carrier?”
+A5: “No. This is a web-based communication service that works over the internet.”
+
+ONBOARDING PAGE:
+Title: “Welcome 👋”
+Subtitle: “Let’s freeze unwanted interruptions and make calls intentional.”
+Steps:
+Step 1: “Turn on Freeze Mode” — “Freeze Mode keeps things silent by default. Only approved people can notify you; unknown callers must request access.” Note: “This does not change your carrier settings automatically. You stay in control.”
+Step 2: “Stop sharing your phone number” — “Share a private invite link or approval request instead of your number.”
+Step 3: “Approve who can reach you” — “Choose trusted contacts and decide when you want to be reachable. No approval = no ring.”
+Step 4: “You’re all set ✅” — “Your phone is no longer the gatekeeper — you are.” Tip box: “Many users keep their phone on Do Not Disturb and use this as their intentional call channel.”
+
+IMPLEMENTATION INSTRUCTIONS:
+- Create new page components under the project’s existing structure (e.g., src/pages/*).
+- Add routes in the existing router WITHOUT removing existing routes.
+- If "/" is currently used by the app, DO NOT replace it. Use "/landing" instead and add a link/button somewhere safe (e.g., existing nav or settings) to open the new landing page.
+- Use mobile-first layout and Tailwind classes if Tailwind exists.
+- Keep consistent theme (dark/modern) but do not alter existing global CSS.
+
+FINAL CHECKS:
+- Existing app routes still work
+- Existing call/video features still work
+- No existing components removed
+- New pages render correctly on mobile
+- Copy includes the disclaimer about not intercepting carrier calls/SMS

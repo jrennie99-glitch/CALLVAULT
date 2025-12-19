@@ -1717,6 +1717,95 @@ export async function registerRoutes(
     }
   });
 
+  // FREEZE MODE ENDPOINTS
+  
+  // Get freeze mode settings
+  app.get('/api/freeze-mode/:address', async (req, res) => {
+    try {
+      const { address } = req.params;
+      const settings = await storage.getFreezeModeSetting(address);
+      const alwaysAllowed = await storage.getAlwaysAllowedContacts(address);
+      res.json({
+        ...settings,
+        alwaysAllowedCount: alwaysAllowed.length
+      });
+    } catch (error) {
+      console.error('Error fetching freeze mode settings:', error);
+      res.status(500).json({ error: 'Failed to fetch freeze mode settings' });
+    }
+  });
+
+  // Toggle freeze mode
+  app.put('/api/freeze-mode/:address', async (req, res) => {
+    try {
+      const { address } = req.params;
+      const { enabled } = req.body;
+      
+      const identity = await storage.setFreezeMode(address, enabled);
+      if (!identity) {
+        return res.status(404).json({ error: 'Identity not found' });
+      }
+      
+      res.json({ 
+        freezeMode: identity.freezeMode,
+        freezeModeSetupCompleted: identity.freezeModeSetupCompleted
+      });
+    } catch (error) {
+      console.error('Error updating freeze mode:', error);
+      res.status(500).json({ error: 'Failed to update freeze mode' });
+    }
+  });
+
+  // Mark freeze mode setup as completed
+  app.put('/api/freeze-mode/:address/setup-complete', async (req, res) => {
+    try {
+      const { address } = req.params;
+      
+      const identity = await storage.setFreezeModeSetupCompleted(address);
+      if (!identity) {
+        return res.status(404).json({ error: 'Identity not found' });
+      }
+      
+      res.json({ 
+        freezeMode: identity.freezeMode,
+        freezeModeSetupCompleted: identity.freezeModeSetupCompleted
+      });
+    } catch (error) {
+      console.error('Error completing freeze mode setup:', error);
+      res.status(500).json({ error: 'Failed to complete freeze mode setup' });
+    }
+  });
+
+  // Toggle always allowed on a contact
+  app.put('/api/contacts/:ownerAddress/:contactAddress/always-allowed', async (req, res) => {
+    try {
+      const { ownerAddress, contactAddress } = req.params;
+      const { alwaysAllowed } = req.body;
+      
+      const contact = await storage.setContactAlwaysAllowed(ownerAddress, contactAddress, alwaysAllowed);
+      if (!contact) {
+        return res.status(404).json({ error: 'Contact not found' });
+      }
+      
+      res.json(contact);
+    } catch (error) {
+      console.error('Error updating always allowed:', error);
+      res.status(500).json({ error: 'Failed to update always allowed' });
+    }
+  });
+
+  // Get always allowed contacts
+  app.get('/api/freeze-mode/:address/always-allowed', async (req, res) => {
+    try {
+      const { address } = req.params;
+      const contacts = await storage.getAlwaysAllowedContacts(address);
+      res.json(contacts);
+    } catch (error) {
+      console.error('Error fetching always allowed contacts:', error);
+      res.status(500).json({ error: 'Failed to fetch always allowed contacts' });
+    }
+  });
+
   // Admin: Update user plan (admin/founder only)
   app.put('/api/admin/users/:address/plan', async (req, res) => {
     try {
