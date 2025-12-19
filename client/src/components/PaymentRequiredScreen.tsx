@@ -1,7 +1,9 @@
-import { DollarSign, Phone, Video, AlertCircle, CreditCard, Zap } from 'lucide-react';
+import { useState } from 'react';
+import { DollarSign, Phone, Video, AlertCircle, CreditCard, Zap, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar } from '@/components/Avatar';
 import { formatPrice } from '@/lib/policyStorage';
+import { toast } from 'sonner';
 import type { CallPricing } from '@shared/types';
 
 interface PaymentRequiredScreenProps {
@@ -10,7 +12,8 @@ interface PaymentRequiredScreenProps {
   pricing: CallPricing;
   isVideo: boolean;
   isTestMode?: boolean;
-  onPay: () => void;
+  callerAddress?: string;
+  onPay: (token?: string) => void;
   onCancel: () => void;
 }
 
@@ -20,28 +23,74 @@ export function PaymentRequiredScreen({
   pricing, 
   isVideo, 
   isTestMode = false,
+  callerAddress,
   onPay,
   onCancel
 }: PaymentRequiredScreenProps) {
+  const [loading, setLoading] = useState(false);
   const displayName = recipientName || recipientAddress.slice(0, 16) + '...';
   
   const getPriceDisplay = () => {
     if (pricing.mode === 'per_session') {
       return {
         amount: formatPrice(pricing.session_price_cents || 0),
-        description: `${pricing.session_duration_minutes} minute session`
+        amountCents: pricing.session_price_cents || 0,
+        description: `${pricing.session_duration_minutes} minute session`,
+        pricingType: 'per_session'
       };
     }
     return {
       amount: formatPrice(pricing.per_minute_price_cents || 0),
-      description: `per minute (min ${pricing.minimum_minutes} min)`
+      amountCents: pricing.per_minute_price_cents || 0,
+      description: `per minute (min ${pricing.minimum_minutes} min)`,
+      pricingType: 'per_minute'
     };
   };
 
   const priceInfo = getPriceDisplay();
 
+  const handlePayment = async () => {
+    if (isTestMode) {
+      toast.success('Payment simulated (test mode)');
+      onPay();
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await fetch('/api/checkout/paid-call', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          creatorAddress: recipientAddress,
+          callerAddress: callerAddress,
+          amountCents: priceInfo.amountCents,
+          callType: isVideo ? 'video' : 'audio',
+          pricingType: priceInfo.pricingType,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to create checkout session');
+      }
+
+      const { url, token } = await response.json();
+      
+      if (url) {
+        window.location.href = url;
+      } else {
+        onPay(token);
+      }
+    } catch (error) {
+      console.error('Payment error:', error);
+      toast.error('Failed to start payment. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4" data-testid="payment-required-screen">
       <div className="bg-slate-800 rounded-2xl p-6 w-full max-w-sm border border-slate-700">
         <div className="flex flex-col items-center text-center mb-6">
           <div className="mb-4">
@@ -97,15 +146,23 @@ export function PaymentRequiredScreen({
             onClick={onCancel}
             variant="outline"
             className="flex-1 border-slate-600"
+            disabled={loading}
+            data-testid="button-cancel-payment"
           >
             Cancel
           </Button>
           <Button
-            onClick={onPay}
+            onClick={handlePayment}
             className="flex-1 bg-gradient-to-r from-purple-500 to-pink-600 hover:from-purple-600 hover:to-pink-700"
+            disabled={loading}
+            data-testid="button-pay-and-call"
           >
-            <CreditCard className="w-4 h-4 mr-2" />
-            Pay & Call
+            {loading ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <CreditCard className="w-4 h-4 mr-2" />
+            )}
+            {loading ? 'Processing...' : 'Pay & Call'}
           </Button>
         </div>
       </div>

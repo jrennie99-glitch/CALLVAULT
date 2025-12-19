@@ -58,8 +58,8 @@ Preferred communication style: Simple, everyday language.
 
 ### Data Storage
 - **Client-side**: Browser localStorage for crypto identity (private keys never leave the device)
-- **Server-side**: No database required - all call state is ephemeral in WebSocket connections
-- **Optional Database**: PostgreSQL with Drizzle ORM available if future features require persistence
+- **Server-side**: PostgreSQL database with Drizzle ORM for persistent storage
+- **Database Tables**: crypto_identities, contacts, call_sessions, paid_call_tokens, call_queue_entries, creator_profiles, call_duration_records, creator_earnings
 
 ### Security Measures
 - Signature verification before delivering incoming calls
@@ -144,3 +144,46 @@ Preferred communication style: Simple, everyday language.
 - **Payment Required Screen**: Modal for paid call confirmation with pricing breakdown
 - **Contact Paid Badge**: Reusable badge showing Free/Paid/Always Allowed status
 - **Empty States**: Business Mode specific empty state with "Get paid for your time" CTA
+
+## Phase 5: Production-Grade Backend (Implemented)
+
+### Database Schema
+- **crypto_identities**: Public key addresses and display names
+- **contacts**: User contacts with owner/contact address relationships
+- **call_sessions**: Call history with duration, status, and payment info
+- **paid_call_tokens**: Payment tokens for paid calls with Stripe integration
+- **call_queue_entries**: Queue management for busy creators
+- **creator_profiles**: Business mode settings, pricing, and availability
+- **call_duration_records**: Per-call duration tracking for billing
+- **creator_earnings**: Aggregated earnings by period
+
+### API Routes (Phase 5)
+- `GET/POST/PUT /api/creator/:address` - Creator profile CRUD
+- `GET/POST/PUT/DELETE /api/contacts/:ownerAddress` - Contacts management
+- `GET/POST/PUT /api/calls/:address` - Call history and session management
+- `GET/POST/PUT /api/paid-tokens/:creatorAddress` - Paid call token management
+- `GET/POST/PUT/DELETE /api/queue/:creatorAddress` - Call queue operations
+- `GET /api/earnings/:creatorAddress/stats` - Earnings statistics
+- `POST /api/checkout/paid-call` - Stripe checkout session creation
+- `POST /api/checkout/verify-token` - Payment token verification
+- `POST /api/call-duration/start` - Start call duration tracking
+- `POST /api/call-duration/end` - End call and calculate billing
+
+### Stripe Integration
+- Real checkout sessions for paid calls (test mode)
+- Payment intent storage in database
+- Token verification before call connection
+- Per-minute billing foundation ready
+
+### Creator Earnings Dashboard
+- Total calls, minutes, and earnings statistics
+- Recent call history with payment status
+- Access via Settings > Earnings Dashboard
+
+### Files Added/Modified (Phase 5)
+- `shared/schema.ts`: Complete database schema with all tables
+- `server/storage.ts`: DatabaseStorage implementation with Drizzle ORM
+- `server/db.ts`: PostgreSQL connection pool
+- `server/routes.ts`: All Phase 5 API endpoints
+- `client/src/components/EarningsDashboard.tsx`: Earnings stats UI
+- `client/src/components/tabs/SettingsTab.tsx`: Earnings Dashboard navigation

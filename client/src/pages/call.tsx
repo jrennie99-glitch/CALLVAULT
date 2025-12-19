@@ -18,6 +18,7 @@ import { AIGuardianSettings } from '@/components/AIGuardianSettings';
 import { WalletVerification } from '@/components/WalletVerification';
 import { InvitePassManager } from '@/components/InvitePassManager';
 import { CreatorModeSettings } from '@/components/CreatorModeSettings';
+import { EarningsDashboard } from '@/components/EarningsDashboard';
 import { ChatPage } from '@/pages/chat';
 import * as cryptoLib from '@/lib/crypto';
 import { getAppSettings, addCallRecord, getContactByAddress, getContacts } from '@/lib/storage';
@@ -26,7 +27,7 @@ import { addToLocalBlocklist, isCreatorAvailable, shouldRequirePayment, getCallP
 import { PaymentRequiredScreen } from '@/components/PaymentRequiredScreen';
 import type { CryptoIdentity, WSMessage, Conversation, Message, CallRequest, CallPricing } from '@shared/types';
 
-type SettingsScreen = 'main' | 'call_permissions' | 'blocklist' | 'ai_guardian' | 'wallet' | 'passes' | 'creator_mode';
+type SettingsScreen = 'main' | 'call_permissions' | 'blocklist' | 'ai_guardian' | 'wallet' | 'passes' | 'creator_mode' | 'earnings_dashboard';
 
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -251,11 +252,18 @@ export default function CallPage() {
     pendingCallRef.current = { address, video };
   };
   
-  const handlePayAndCall = () => {
+  const handlePayAndCall = (token?: string) => {
     if (!pendingPaidCall) return;
     
-    // In test mode, simulate payment success
-    toast.success('Payment simulated (test mode)');
+    // Payment was handled by PaymentRequiredScreen (either test mode or real Stripe)
+    // If token is provided, mark it as used
+    if (token) {
+      fetch('/api/checkout/use-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      }).catch(console.error);
+    }
     
     setCallDestination(pendingPaidCall.address);
     setCallIsVideo(pendingPaidCall.video);
@@ -457,13 +465,14 @@ export default function CallPage() {
     <div className="min-h-screen bg-slate-900 text-white flex flex-col">
       <TopBar />
       
-      {pendingPaidCall && (
+      {pendingPaidCall && identity && (
         <PaymentRequiredScreen
           recipientAddress={pendingPaidCall.address}
           recipientName={getContactByAddress(pendingPaidCall.address)?.name}
           pricing={pendingPaidCall.pricing}
           isVideo={pendingPaidCall.video}
           isTestMode={true}
+          callerAddress={identity.address}
           onPay={handlePayAndCall}
           onCancel={handleCancelPaidCall}
         />
@@ -622,6 +631,12 @@ export default function CallPage() {
         {activeTab === 'settings' && settingsScreen === 'creator_mode' && (
           <CreatorModeSettings
             identity={identity}
+            onBack={() => setSettingsScreen('main')}
+          />
+        )}
+        {activeTab === 'settings' && settingsScreen === 'earnings_dashboard' && identity && (
+          <EarningsDashboard
+            creatorAddress={identity.address}
             onBack={() => setSettingsScreen('main')}
           />
         )}

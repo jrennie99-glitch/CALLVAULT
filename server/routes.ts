@@ -8,6 +8,8 @@ import * as path from "path";
 import type { WSMessage, SignedCallIntent, CallIntent, SignedMessage, Message, Conversation, CallPolicy, ContactOverride, CallPass, BlockedUser, RoutingRule, WalletVerification, CallRequest } from "@shared/types";
 import * as messageStore from "./messageStore";
 import * as policyStore from "./policyStore";
+import { storage } from "./storage";
+import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
 
 interface ClientConnection {
   ws: WebSocket;
@@ -241,6 +243,422 @@ export async function registerRoutes(
     const before = req.query.before ? parseInt(req.query.before as string) : undefined;
     const messages = messageStore.getMessages(convoId, limit, before);
     res.json(messages);
+  });
+
+  // Phase 5: Creator Profile API
+  app.get('/api/creator/:address', async (req, res) => {
+    try {
+      const { address } = req.params;
+      const profile = await storage.getCreatorProfile(address);
+      res.json(profile || null);
+    } catch (error) {
+      console.error('Error getting creator profile:', error);
+      res.status(500).json({ error: 'Failed to get creator profile' });
+    }
+  });
+
+  app.get('/api/creator/handle/:handle', async (req, res) => {
+    try {
+      const { handle } = req.params;
+      const profile = await storage.getCreatorProfileByHandle(handle);
+      res.json(profile || null);
+    } catch (error) {
+      console.error('Error getting creator profile by handle:', error);
+      res.status(500).json({ error: 'Failed to get creator profile' });
+    }
+  });
+
+  app.post('/api/creator', async (req, res) => {
+    try {
+      const profile = await storage.createCreatorProfile(req.body);
+      res.json(profile);
+    } catch (error) {
+      console.error('Error creating creator profile:', error);
+      res.status(500).json({ error: 'Failed to create creator profile' });
+    }
+  });
+
+  app.put('/api/creator/:address', async (req, res) => {
+    try {
+      const { address } = req.params;
+      const profile = await storage.updateCreatorProfile(address, req.body);
+      res.json(profile);
+    } catch (error) {
+      console.error('Error updating creator profile:', error);
+      res.status(500).json({ error: 'Failed to update creator profile' });
+    }
+  });
+
+  // Phase 5: Contacts API
+  app.get('/api/contacts/:ownerAddress', async (req, res) => {
+    try {
+      const { ownerAddress } = req.params;
+      const contactsList = await storage.getContacts(ownerAddress);
+      res.json(contactsList);
+    } catch (error) {
+      console.error('Error getting contacts:', error);
+      res.status(500).json({ error: 'Failed to get contacts' });
+    }
+  });
+
+  app.post('/api/contacts', async (req, res) => {
+    try {
+      const contact = await storage.createContact(req.body);
+      res.json(contact);
+    } catch (error) {
+      console.error('Error creating contact:', error);
+      res.status(500).json({ error: 'Failed to create contact' });
+    }
+  });
+
+  app.put('/api/contacts/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const contact = await storage.updateContact(id, req.body);
+      res.json(contact);
+    } catch (error) {
+      console.error('Error updating contact:', error);
+      res.status(500).json({ error: 'Failed to update contact' });
+    }
+  });
+
+  app.delete('/api/contacts/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const deleted = await storage.deleteContact(id);
+      res.json({ success: deleted });
+    } catch (error) {
+      console.error('Error deleting contact:', error);
+      res.status(500).json({ error: 'Failed to delete contact' });
+    }
+  });
+
+  // Phase 5: Call History API
+  app.get('/api/calls/:address', async (req, res) => {
+    try {
+      const { address } = req.params;
+      const limit = parseInt(req.query.limit as string) || 50;
+      const history = await storage.getCallHistory(address, limit);
+      res.json(history);
+    } catch (error) {
+      console.error('Error getting call history:', error);
+      res.status(500).json({ error: 'Failed to get call history' });
+    }
+  });
+
+  app.post('/api/calls', async (req, res) => {
+    try {
+      const session = await storage.createCallSession(req.body);
+      res.json(session);
+    } catch (error) {
+      console.error('Error creating call session:', error);
+      res.status(500).json({ error: 'Failed to create call session' });
+    }
+  });
+
+  app.put('/api/calls/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const session = await storage.updateCallSession(id, req.body);
+      res.json(session);
+    } catch (error) {
+      console.error('Error updating call session:', error);
+      res.status(500).json({ error: 'Failed to update call session' });
+    }
+  });
+
+  // Phase 5: Paid Call Tokens API
+  app.get('/api/paid-tokens/:creatorAddress', async (req, res) => {
+    try {
+      const { creatorAddress } = req.params;
+      const tokens = await storage.getCreatorPaidTokens(creatorAddress);
+      res.json(tokens);
+    } catch (error) {
+      console.error('Error getting paid tokens:', error);
+      res.status(500).json({ error: 'Failed to get paid tokens' });
+    }
+  });
+
+  app.get('/api/paid-token/:token', async (req, res) => {
+    try {
+      const { token } = req.params;
+      const tokenRecord = await storage.getPaidCallToken(token);
+      res.json(tokenRecord || null);
+    } catch (error) {
+      console.error('Error getting paid token:', error);
+      res.status(500).json({ error: 'Failed to get paid token' });
+    }
+  });
+
+  app.post('/api/paid-tokens', async (req, res) => {
+    try {
+      const tokenRecord = await storage.createPaidCallToken(req.body);
+      res.json(tokenRecord);
+    } catch (error) {
+      console.error('Error creating paid token:', error);
+      res.status(500).json({ error: 'Failed to create paid token' });
+    }
+  });
+
+  app.put('/api/paid-tokens/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const tokenRecord = await storage.updatePaidCallToken(id, req.body);
+      res.json(tokenRecord);
+    } catch (error) {
+      console.error('Error updating paid token:', error);
+      res.status(500).json({ error: 'Failed to update paid token' });
+    }
+  });
+
+  // Phase 5: Call Queue API
+  app.get('/api/queue/:creatorAddress', async (req, res) => {
+    try {
+      const { creatorAddress } = req.params;
+      const queue = await storage.getCallQueue(creatorAddress);
+      res.json(queue);
+    } catch (error) {
+      console.error('Error getting call queue:', error);
+      res.status(500).json({ error: 'Failed to get call queue' });
+    }
+  });
+
+  app.post('/api/queue', async (req, res) => {
+    try {
+      const entry = await storage.addToCallQueue(req.body);
+      res.json(entry);
+    } catch (error) {
+      console.error('Error adding to queue:', error);
+      res.status(500).json({ error: 'Failed to add to queue' });
+    }
+  });
+
+  app.put('/api/queue/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const entry = await storage.updateQueueEntry(id, req.body);
+      res.json(entry);
+    } catch (error) {
+      console.error('Error updating queue entry:', error);
+      res.status(500).json({ error: 'Failed to update queue entry' });
+    }
+  });
+
+  app.delete('/api/queue/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const removed = await storage.removeFromQueue(id);
+      res.json({ success: removed });
+    } catch (error) {
+      console.error('Error removing from queue:', error);
+      res.status(500).json({ error: 'Failed to remove from queue' });
+    }
+  });
+
+  // Phase 5: Creator Earnings API
+  app.get('/api/earnings/:creatorAddress', async (req, res) => {
+    try {
+      const { creatorAddress } = req.params;
+      const period = req.query.period as string;
+      const earnings = await storage.getCreatorEarnings(creatorAddress, period);
+      res.json(earnings);
+    } catch (error) {
+      console.error('Error getting earnings:', error);
+      res.status(500).json({ error: 'Failed to get earnings' });
+    }
+  });
+
+  app.get('/api/earnings/:creatorAddress/stats', async (req, res) => {
+    try {
+      const { creatorAddress } = req.params;
+      const stats = await storage.getCreatorStats(creatorAddress);
+      res.json(stats);
+    } catch (error) {
+      console.error('Error getting creator stats:', error);
+      res.status(500).json({ error: 'Failed to get creator stats' });
+    }
+  });
+
+  // Phase 5: Stripe Checkout for Paid Calls
+  app.post('/api/checkout/paid-call', async (req, res) => {
+    try {
+      const { creatorAddress, callerAddress, amountCents, callType, pricingType } = req.body;
+      
+      const stripe = await getUncachableStripeClient();
+      const token = `pct_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+      
+      // Create Stripe checkout session
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ['card'],
+        line_items: [{
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: `${callType === 'video' ? 'Video' : 'Voice'} Call`,
+              description: `Paid call with creator`,
+            },
+            unit_amount: amountCents,
+          },
+          quantity: 1,
+        }],
+        mode: 'payment',
+        success_url: `${req.protocol}://${req.get('host')}/call?token=${token}&success=true`,
+        cancel_url: `${req.protocol}://${req.get('host')}/call?cancelled=true`,
+        metadata: {
+          token,
+          creatorAddress,
+          callerAddress,
+          callType,
+          pricingType,
+        },
+      });
+
+      // Create paid call token in database
+      const tokenRecord = await storage.createPaidCallToken({
+        creatorAddress,
+        callerAddress,
+        token,
+        checkoutSessionId: session.id,
+        status: 'pending',
+        amountCents,
+        currency: 'usd',
+        pricingType,
+        callType,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+      });
+
+      res.json({ url: session.url, token: tokenRecord.token });
+    } catch (error) {
+      console.error('Error creating checkout session:', error);
+      res.status(500).json({ error: 'Failed to create checkout session' });
+    }
+  });
+
+  app.post('/api/checkout/verify-token', async (req, res) => {
+    try {
+      const { token } = req.body;
+      const tokenRecord = await storage.getPaidCallToken(token);
+      
+      if (!tokenRecord) {
+        return res.status(404).json({ error: 'Token not found' });
+      }
+      
+      if (tokenRecord.status === 'used') {
+        return res.status(400).json({ error: 'Token already used' });
+      }
+      
+      if (tokenRecord.status === 'expired' || (tokenRecord.expiresAt && new Date(tokenRecord.expiresAt) < new Date())) {
+        return res.status(400).json({ error: 'Token expired' });
+      }
+      
+      // Check payment status with Stripe
+      if (tokenRecord.checkoutSessionId) {
+        const stripe = await getUncachableStripeClient();
+        const session = await stripe.checkout.sessions.retrieve(tokenRecord.checkoutSessionId);
+        
+        if (session.payment_status === 'paid') {
+          await storage.updatePaidCallToken(tokenRecord.id, { 
+            status: 'paid',
+            paymentIntentId: session.payment_intent as string
+          });
+          return res.json({ valid: true, status: 'paid', tokenRecord: { ...tokenRecord, status: 'paid' } });
+        }
+      }
+      
+      res.json({ valid: tokenRecord.status === 'paid', status: tokenRecord.status, tokenRecord });
+    } catch (error) {
+      console.error('Error verifying token:', error);
+      res.status(500).json({ error: 'Failed to verify token' });
+    }
+  });
+
+  app.post('/api/checkout/use-token', async (req, res) => {
+    try {
+      const { token } = req.body;
+      const tokenRecord = await storage.getPaidCallToken(token);
+      
+      if (!tokenRecord || tokenRecord.status !== 'paid') {
+        return res.status(400).json({ error: 'Invalid or unpaid token' });
+      }
+      
+      await storage.updatePaidCallToken(tokenRecord.id, { 
+        status: 'used',
+        usedAt: new Date()
+      });
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error using token:', error);
+      res.status(500).json({ error: 'Failed to use token' });
+    }
+  });
+
+  // Phase 5: Call Duration Tracking
+  app.post('/api/call-duration/start', async (req, res) => {
+    try {
+      const { callSessionId, creatorAddress, callerAddress, ratePerMinuteCents } = req.body;
+      
+      const record = await storage.createCallDurationRecord({
+        callSessionId,
+        creatorAddress,
+        callerAddress,
+        startTime: new Date(),
+        ratePerMinuteCents: ratePerMinuteCents || 0,
+        isPaid: !!ratePerMinuteCents,
+      });
+      
+      res.json(record);
+    } catch (error) {
+      console.error('Error starting call duration:', error);
+      res.status(500).json({ error: 'Failed to start call duration tracking' });
+    }
+  });
+
+  app.post('/api/call-duration/end', async (req, res) => {
+    try {
+      const { callSessionId } = req.body;
+      
+      const record = await storage.getCallDurationRecord(callSessionId);
+      if (!record) {
+        return res.status(404).json({ error: 'Call duration record not found' });
+      }
+      
+      const endTime = new Date();
+      const durationSeconds = Math.floor((endTime.getTime() - new Date(record.startTime).getTime()) / 1000);
+      const billableMinutes = Math.ceil(durationSeconds / 60);
+      const totalAmountCents = (record.ratePerMinuteCents || 0) * billableMinutes;
+      
+      const updated = await storage.updateCallDurationRecord(record.id, {
+        endTime,
+        durationSeconds,
+        billableMinutes,
+        totalAmountCents,
+      });
+      
+      // Also update the call session
+      await storage.updateCallSession(callSessionId, {
+        endedAt: endTime,
+        durationSeconds,
+        status: 'ended',
+        endReason: 'completed',
+      });
+      
+      res.json(updated);
+    } catch (error) {
+      console.error('Error ending call duration:', error);
+      res.status(500).json({ error: 'Failed to end call duration tracking' });
+    }
+  });
+
+  // Phase 5: Stripe Publishable Key for Frontend
+  app.get('/api/stripe/publishable-key', async (_req, res) => {
+    try {
+      const publishableKey = await getStripePublishableKey();
+      res.json({ publishableKey });
+    } catch (error) {
+      console.error('Error getting Stripe publishable key:', error);
+      res.status(500).json({ error: 'Failed to get Stripe publishable key' });
+    }
   });
 
   const wss = new WebSocketServer({ 

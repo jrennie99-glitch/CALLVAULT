@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { User, Shield, Wifi, ChevronDown, ChevronUp, Copy, RefreshCw, Fingerprint, Eye, EyeOff, MessageSquare, CheckCheck, Clock, Phone, Ban, Bot, Wallet, ChevronRight, Ticket, Briefcase } from 'lucide-react';
+import { User, Shield, Wifi, ChevronDown, ChevronUp, Copy, RefreshCw, Fingerprint, Eye, EyeOff, MessageSquare, CheckCheck, Clock, Phone, Ban, Bot, Wallet, ChevronRight, Ticket, Briefcase, BarChart3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,7 +11,7 @@ import { enrollBiometric, disableBiometric, isPlatformAuthenticatorAvailable } f
 import { toast } from 'sonner';
 import type { CryptoIdentity } from '@shared/types';
 
-type SettingsScreen = 'main' | 'call_permissions' | 'blocklist' | 'ai_guardian' | 'wallet' | 'passes' | 'creator_mode';
+type SettingsScreen = 'main' | 'call_permissions' | 'blocklist' | 'ai_guardian' | 'wallet' | 'passes' | 'creator_mode' | 'earnings_dashboard';
 
 interface SettingsTabProps {
   identity: CryptoIdentity | null;
@@ -259,6 +259,24 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
                   <span className="text-xs bg-purple-500/20 text-purple-400 px-1.5 py-0.5 rounded">Pro</span>
                 </p>
                 <p className="text-slate-500 text-sm">Accept paid calls & set hours</p>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-slate-400" />
+          </button>
+
+          <button
+            onClick={() => onNavigate?.('earnings_dashboard')}
+            className="w-full flex items-center justify-between p-3 bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-500/20 rounded-lg hover:from-green-500/20 hover:to-emerald-500/20 transition-all"
+            data-testid="button-earnings-dashboard"
+          >
+            <div className="flex items-center gap-3">
+              <BarChart3 className="w-5 h-5 text-green-400" />
+              <div className="text-left">
+                <p className="text-white font-medium flex items-center gap-2">
+                  Earnings Dashboard
+                  <span className="text-xs bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded">Pro</span>
+                </p>
+                <p className="text-slate-500 text-sm">View your call stats & earnings</p>
               </div>
             </div>
             <ChevronRight className="w-5 h-5 text-slate-400" />
