@@ -65,14 +65,24 @@ export function CallsTab({ onStartCall, onNavigateToAdd, onNavigateToContacts, o
           Add contacts or create call invites to let others reach you
         </p>
         <div className="flex flex-col gap-3 w-full max-w-xs">
-          <Button
-            onClick={onNavigateToContacts}
-            className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700"
-            data-testid="button-start-video-call-empty"
-          >
-            <Video className="w-4 h-4 mr-2" />
-            Start Video Call
-          </Button>
+          <div className="flex gap-3">
+            <Button
+              onClick={onNavigateToContacts}
+              className="flex-1 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700"
+              data-testid="button-start-video-call-empty"
+            >
+              <Video className="w-4 h-4 mr-2" />
+              Video Call
+            </Button>
+            <Button
+              onClick={onNavigateToContacts}
+              className="flex-1 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700"
+              data-testid="button-start-voice-call-empty"
+            >
+              <Phone className="w-4 h-4 mr-2" />
+              Voice Call
+            </Button>
+          </div>
           <Button
             onClick={onNavigateToAdd}
             variant="outline"
