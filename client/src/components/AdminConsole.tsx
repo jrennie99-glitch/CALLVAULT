@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { 
   Users, Shield, Clock, Activity, Search, 
   UserX, UserCheck, Crown, Eye, FileText,
-  ArrowLeft, RefreshCw, Gift, Link, Copy, Plus, Trash2
+  ArrowLeft, RefreshCw, Gift, Link, Copy, Plus, Trash2, Wallet
 } from 'lucide-react';
 import { toast } from 'sonner';
 import * as nacl from 'tweetnacl';
@@ -59,6 +59,23 @@ interface AuditLog {
   targetAddress: string | null;
   actionType: string;
   metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+interface CryptoInvoice {
+  id: string;
+  payTokenId: string;
+  recipientCallId: string;
+  recipientWallet: string;
+  payerCallId: string | null;
+  chain: string;
+  asset: string;
+  amountUsd: number;
+  amountAsset: string;
+  status: string;
+  txHash: string | null;
+  paidAt: string | null;
+  expiresAt: string;
   createdAt: string;
 }
 
@@ -151,6 +168,17 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
         headers: generateAdminHeaders(identity),
       });
       if (!res.ok) throw new Error('Failed to fetch invite links');
+      return res.json();
+    },
+  });
+
+  const { data: cryptoInvoices, isLoading: cryptoLoading, refetch: refetchCrypto } = useQuery<CryptoInvoice[]>({
+    queryKey: ['admin-crypto-invoices'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/crypto-invoices', {
+        headers: generateAdminHeaders(identity),
+      });
+      if (!res.ok) throw new Error('Failed to fetch crypto invoices');
       return res.json();
     },
   });
@@ -360,7 +388,7 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="p-4">
-        <TabsList className="grid w-full grid-cols-5 bg-slate-800">
+        <TabsList className="grid w-full grid-cols-6 bg-slate-800">
           <TabsTrigger value="dashboard" data-testid="tab-admin-dashboard">
             <Activity className="w-4 h-4 mr-1" /> Stats
           </TabsTrigger>
@@ -372,6 +400,9 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
           </TabsTrigger>
           <TabsTrigger value="trials" data-testid="tab-admin-trials">
             <Gift className="w-4 h-4 mr-1" /> Trials
+          </TabsTrigger>
+          <TabsTrigger value="crypto" data-testid="tab-admin-crypto">
+            <Wallet className="w-4 h-4 mr-1" /> Crypto
           </TabsTrigger>
           <TabsTrigger value="logs" data-testid="tab-admin-logs">
             <FileText className="w-4 h-4 mr-1" /> Logs
@@ -788,6 +819,86 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
                         {user.displayName && <div className="text-slate-400 text-xs">{user.displayName}</div>}
                       </div>
                       <Badge variant="destructive">Expired</Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="crypto" className="mt-4 space-y-4">
+          <Card className="bg-slate-800 border-slate-700">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Wallet className="w-5 h-5 text-orange-400" />
+                Crypto Invoices
+              </CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => refetchCrypto()}
+                data-testid="button-refresh-crypto"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {cryptoLoading ? (
+                <div className="text-center py-4 text-slate-400">Loading invoices...</div>
+              ) : !cryptoInvoices || cryptoInvoices.length === 0 ? (
+                <div className="text-slate-400 text-center py-4">No crypto invoices yet</div>
+              ) : (
+                <div className="space-y-3 max-h-96 overflow-y-auto">
+                  {cryptoInvoices.map((invoice) => (
+                    <div key={invoice.id} className="p-3 bg-slate-700 rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <Badge 
+                          className={
+                            invoice.status === 'paid' ? 'bg-green-500' :
+                            invoice.status === 'pending' ? 'bg-yellow-500' :
+                            invoice.status === 'expired' ? 'bg-slate-500' : 'bg-red-500'
+                          }
+                        >
+                          {invoice.status}
+                        </Badge>
+                        <span className="text-xs text-slate-400">{formatDate(invoice.createdAt)}</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                          <span className="text-slate-400">Amount:</span>
+                          <span className="text-white ml-1 font-medium">
+                            {invoice.amountAsset} {invoice.asset}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400">USD:</span>
+                          <span className="text-white ml-1">${invoice.amountUsd.toFixed(2)}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400">Chain:</span>
+                          <span className="text-white ml-1">{invoice.chain}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400">Recipient:</span>
+                          <span className="text-white ml-1 font-mono text-[10px]">
+                            {invoice.recipientWallet.slice(0, 6)}...{invoice.recipientWallet.slice(-4)}
+                          </span>
+                        </div>
+                      </div>
+                      {invoice.txHash && (
+                        <div className="mt-2 pt-2 border-t border-slate-600">
+                          <span className="text-slate-400 text-xs">Tx: </span>
+                          <a
+                            href={`https://basescan.org/tx/${invoice.txHash}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-400 hover:text-blue-300 text-xs font-mono"
+                          >
+                            {invoice.txHash.slice(0, 10)}...{invoice.txHash.slice(-8)}
+                          </a>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
