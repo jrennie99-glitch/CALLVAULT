@@ -22,7 +22,8 @@ Preferred communication style: Simple, everyday language.
     - **Call Queue**: Management for busy creators, priority for paid callers.
     - **Subscription Tiers**: Free, Pro ($9/mo), Business ($29/mo) with feature gating.
     - **Invite Links**: Admin-generated codes for influencer onboarding with trial access.
-- **Admin Console**: Role-Based Access Control (RBAC) for `founder`, `admin`, `user` roles, user management (enable/disable, roles), free trial system (time-based/usage-based), audit logs, impersonation.
+- **Admin Console**: Role-Based Access Control (RBAC) for `founder`, `admin`, `user` roles, user management (enable/disable, roles), free trial system (time-based/usage-based), audit logs, impersonation, crypto invoice monitoring.
+- **Crypto Payments (Phase 8)**: Optional alternative payment method using Base network (chain ID 8453). Supports USDC and ETH. Requires recipient to have a verified EVM wallet. Uses ethers.js for on-chain transaction verification. 20-minute invoice expiration. Controlled via `ENABLE_CRYPTO_PAYMENTS` environment variable (disabled by default).
 
 ### Security Measures
 - Ed25519 signature verification for call initiation and admin actions.
