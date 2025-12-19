@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { 
   Users, Shield, Clock, Activity, Search, 
   UserX, UserCheck, Crown, Eye, FileText,
-  ArrowLeft, RefreshCw, Gift
+  ArrowLeft, RefreshCw, Gift, Link, Copy, Plus, Trash2
 } from 'lucide-react';
 import { toast } from 'sonner';
 import * as nacl from 'tweetnacl';
@@ -32,8 +32,25 @@ interface CryptoIdentity {
 interface AdminStats {
   totalUsers: number;
   activeTrials: number;
+  proPlans: number;
+  businessPlans: number;
   disabledUsers: number;
-  admins: number;
+  adminCount: number;
+}
+
+interface InviteLink {
+  id: string;
+  code: string;
+  createdByAddress: string;
+  type: string;
+  trialDays: number | null;
+  trialMinutes: number | null;
+  grantPlan: string | null;
+  maxUses: number | null;
+  uses: number | null;
+  expiresAt: string | null;
+  isActive: boolean;
+  createdAt: string;
 }
 
 interface AuditLog {
@@ -75,6 +92,11 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
   const [trialDays, setTrialDays] = useState('7');
   const [trialMinutes, setTrialMinutes] = useState('30');
   const [trialType, setTrialType] = useState<'days' | 'minutes'>('days');
+  const [newInviteDays, setNewInviteDays] = useState('7');
+  const [newInviteMinutes, setNewInviteMinutes] = useState('30');
+  const [newInvitePlan, setNewInvitePlan] = useState<string>('pro');
+  const [newInviteMaxUses, setNewInviteMaxUses] = useState('');
+  const [isCreateInviteOpen, setIsCreateInviteOpen] = useState(false);
   const queryClient = useQueryClient();
 
   const { data: stats, isLoading: statsLoading } = useQuery<AdminStats>({
@@ -118,6 +140,17 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
     queryKey: ['admin-role', identity.address],
     queryFn: async () => {
       const res = await fetch(`/api/identity/${identity.address}/role`);
+      return res.json();
+    },
+  });
+
+  const { data: inviteLinks, isLoading: invitesLoading, refetch: refetchInvites } = useQuery<InviteLink[]>({
+    queryKey: ['admin-invite-links'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/invite-links', {
+        headers: generateAdminHeaders(identity),
+      });
+      if (!res.ok) throw new Error('Failed to fetch invite links');
       return res.json();
     },
   });
@@ -184,6 +217,78 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
       toast.error('Failed to grant trial');
     },
   });
+
+  const createInviteLinkMutation = useMutation({
+    mutationFn: async (params: { trialDays: number; trialMinutes: number; grantPlan: string; maxUses?: number }) => {
+      const timestamp = Date.now();
+      const message = `admin:create-invite:${identity.address}:${timestamp}`;
+      const messageBytes = new TextEncoder().encode(message);
+      const signature = nacl.sign.detached(messageBytes, identity.secretKey);
+      
+      const res = await fetch('/api/admin/invite-links', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          createdByAddress: identity.address,
+          trialDays: params.trialDays,
+          trialMinutes: params.trialMinutes,
+          grantPlan: params.grantPlan,
+          maxUses: params.maxUses || null,
+          signature: bs58.encode(signature),
+          timestamp,
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to create invite link');
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['admin-invite-links'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-audit-logs'] });
+      toast.success('Invite link created');
+      setIsCreateInviteOpen(false);
+      // Copy to clipboard
+      const inviteUrl = `${window.location.origin}/invite/${data.code}`;
+      navigator.clipboard.writeText(inviteUrl);
+      toast.success('Invite URL copied to clipboard');
+    },
+    onError: () => {
+      toast.error('Failed to create invite link');
+    },
+  });
+
+  const deactivateInviteLinkMutation = useMutation({
+    mutationFn: async (linkId: string) => {
+      const res = await fetch(`/api/admin/invite-links/${linkId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actorAddress: identity.address }),
+      });
+      if (!res.ok) throw new Error('Failed to deactivate invite link');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-invite-links'] });
+      toast.success('Invite link deactivated');
+    },
+    onError: () => {
+      toast.error('Failed to deactivate invite link');
+    },
+  });
+
+  const copyInviteLink = (code: string) => {
+    const inviteUrl = `${window.location.origin}/invite/${code}`;
+    navigator.clipboard.writeText(inviteUrl);
+    toast.success('Invite URL copied to clipboard');
+  };
+
+  const handleCreateInvite = () => {
+    createInviteLinkMutation.mutate({
+      trialDays: parseInt(newInviteDays) || 7,
+      trialMinutes: parseInt(newInviteMinutes) || 30,
+      grantPlan: newInvitePlan,
+      maxUses: newInviteMaxUses ? parseInt(newInviteMaxUses) : undefined,
+    });
+  };
 
   const handleGrantTrial = () => {
     if (!selectedUser) return;
@@ -255,18 +360,21 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="p-4">
-        <TabsList className="grid w-full grid-cols-4 bg-slate-800">
+        <TabsList className="grid w-full grid-cols-5 bg-slate-800">
           <TabsTrigger value="dashboard" data-testid="tab-admin-dashboard">
-            <Activity className="w-4 h-4 mr-2" /> Stats
+            <Activity className="w-4 h-4 mr-1" /> Stats
           </TabsTrigger>
           <TabsTrigger value="users" data-testid="tab-admin-users">
-            <Users className="w-4 h-4 mr-2" /> Users
+            <Users className="w-4 h-4 mr-1" /> Users
+          </TabsTrigger>
+          <TabsTrigger value="invites" data-testid="tab-admin-invites">
+            <Link className="w-4 h-4 mr-1" /> Invites
           </TabsTrigger>
           <TabsTrigger value="trials" data-testid="tab-admin-trials">
-            <Gift className="w-4 h-4 mr-2" /> Trials
+            <Gift className="w-4 h-4 mr-1" /> Trials
           </TabsTrigger>
           <TabsTrigger value="logs" data-testid="tab-admin-logs">
-            <FileText className="w-4 h-4 mr-2" /> Logs
+            <FileText className="w-4 h-4 mr-1" /> Logs
           </TabsTrigger>
         </TabsList>
 
@@ -299,6 +407,28 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
               
               <Card className="bg-slate-800 border-slate-700">
                 <CardHeader className="pb-2">
+                  <CardTitle className="text-sm text-slate-400">Pro Plans</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-bold text-purple-400" data-testid="text-pro-plans">
+                    {stats?.proPlans ?? 0}
+                  </div>
+                </CardContent>
+              </Card>
+              
+              <Card className="bg-slate-800 border-slate-700">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm text-slate-400">Business Plans</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-3xl font-bold text-orange-400" data-testid="text-business-plans">
+                    {stats?.businessPlans ?? 0}
+                  </div>
+                </CardContent>
+              </Card>
+              
+              <Card className="bg-slate-800 border-slate-700">
+                <CardHeader className="pb-2">
                   <CardTitle className="text-sm text-slate-400">Disabled Users</CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -314,7 +444,7 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
                 </CardHeader>
                 <CardContent>
                   <div className="text-3xl font-bold text-blue-400" data-testid="text-admin-count">
-                    {stats?.admins ?? 0}
+                    {stats?.adminCount ?? 0}
                   </div>
                 </CardContent>
               </Card>
@@ -464,6 +594,150 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
                   No users found
                 </div>
               )}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="invites" className="mt-4 space-y-4">
+          <div className="flex justify-between items-center">
+            <h2 className="text-lg font-semibold">Invite Links</h2>
+            <div className="flex gap-2">
+              <Button variant="outline" size="icon" onClick={() => refetchInvites()} data-testid="button-refresh-invites">
+                <RefreshCw className="w-4 h-4" />
+              </Button>
+              <Dialog open={isCreateInviteOpen} onOpenChange={setIsCreateInviteOpen}>
+                <DialogTrigger asChild>
+                  <Button data-testid="button-create-invite">
+                    <Plus className="w-4 h-4 mr-2" /> Create Invite
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="bg-slate-800 border-slate-700">
+                  <DialogHeader>
+                    <DialogTitle>Create Invite Link</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4 mt-4">
+                    <div>
+                      <label className="text-sm text-slate-400 mb-1 block">Trial Days</label>
+                      <Input
+                        type="number"
+                        value={newInviteDays}
+                        onChange={(e) => setNewInviteDays(e.target.value)}
+                        placeholder="7"
+                        className="bg-slate-700"
+                        data-testid="input-invite-days"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm text-slate-400 mb-1 block">Trial Minutes</label>
+                      <Input
+                        type="number"
+                        value={newInviteMinutes}
+                        onChange={(e) => setNewInviteMinutes(e.target.value)}
+                        placeholder="30"
+                        className="bg-slate-700"
+                        data-testid="input-invite-minutes"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm text-slate-400 mb-1 block">Grant Plan</label>
+                      <Select value={newInvitePlan} onValueChange={setNewInvitePlan}>
+                        <SelectTrigger className="bg-slate-700">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="pro">Pro</SelectItem>
+                          <SelectItem value="business">Business</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <label className="text-sm text-slate-400 mb-1 block">Max Uses (optional)</label>
+                      <Input
+                        type="number"
+                        value={newInviteMaxUses}
+                        onChange={(e) => setNewInviteMaxUses(e.target.value)}
+                        placeholder="Unlimited"
+                        className="bg-slate-700"
+                        data-testid="input-invite-max-uses"
+                      />
+                    </div>
+                    <Button 
+                      onClick={handleCreateInvite} 
+                      className="w-full"
+                      disabled={createInviteLinkMutation.isPending}
+                      data-testid="button-confirm-create-invite"
+                    >
+                      {createInviteLinkMutation.isPending ? 'Creating...' : 'Create & Copy Link'}
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            </div>
+          </div>
+
+          {invitesLoading ? (
+            <div className="text-center py-8 text-slate-400">Loading invite links...</div>
+          ) : inviteLinks?.length === 0 ? (
+            <Card className="bg-slate-800 border-slate-700">
+              <CardContent className="py-8 text-center text-slate-400">
+                <Link className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                <p>No invite links yet</p>
+                <p className="text-sm mt-2">Create invite links to onboard influencers with free trials</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-2">
+              {inviteLinks?.map((link) => (
+                <Card key={link.id} className={`bg-slate-800 border-slate-700 ${!link.isActive ? 'opacity-50' : ''}`}>
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <code className="text-sm font-mono bg-slate-700 px-2 py-1 rounded" data-testid={`text-invite-code-${link.code}`}>
+                            {link.code}
+                          </code>
+                          <Badge variant={link.isActive ? "default" : "destructive"}>
+                            {link.isActive ? 'Active' : 'Inactive'}
+                          </Badge>
+                          <Badge variant="outline" className="capitalize">
+                            {link.grantPlan || 'pro'}
+                          </Badge>
+                        </div>
+                        <div className="text-slate-400 text-sm mt-2">
+                          <span>{link.trialDays}d + {link.trialMinutes}min trial</span>
+                          {link.maxUses && <span> · Max {link.maxUses} uses</span>}
+                          <span> · Used {link.uses || 0}x</span>
+                        </div>
+                        <div className="text-slate-500 text-xs mt-1">
+                          Created: {formatDate(link.createdAt)}
+                        </div>
+                      </div>
+                      
+                      <div className="flex gap-2">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => copyInviteLink(link.code)}
+                          disabled={!link.isActive}
+                          data-testid={`button-copy-invite-${link.code}`}
+                        >
+                          <Copy className="w-4 h-4" />
+                        </Button>
+                        {link.isActive && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => deactivateInviteLinkMutation.mutate(link.id)}
+                            data-testid={`button-deactivate-invite-${link.code}`}
+                          >
+                            <Trash2 className="w-4 h-4 text-red-400" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
           )}
         </TabsContent>
