@@ -594,14 +594,21 @@ export async function registerRoutes(
     }
   });
 
-  // Phase 7: Crypto Payments (Base network)
+  // Phase 7: Crypto Payments (Base network + Solana)
   const cryptoPayments = await import('./cryptoPayments');
+  const solanaPayments = await import('./solanaPayments');
   
   app.get('/api/crypto/enabled', async (_req, res) => {
     res.json({ 
-      enabled: cryptoPayments.isCryptoPaymentsEnabled(),
-      chain: 'base',
-      assets: ['USDC', 'ETH']
+      base: {
+        enabled: cryptoPayments.isCryptoPaymentsEnabled(),
+        assets: ['USDC', 'ETH']
+      },
+      solana: {
+        enabled: solanaPayments.isSolanaPaymentsEnabled(),
+        cluster: solanaPayments.getSolanaCluster(),
+        assets: ['USDC', 'SOL']
+      }
     });
   });
 
@@ -613,20 +620,40 @@ export async function registerRoutes(
     res.json({ price, available: price !== null });
   });
 
+  app.get('/api/crypto/sol-price', async (_req, res) => {
+    if (!solanaPayments.isSolanaPaymentsEnabled()) {
+      return res.status(400).json({ error: 'Solana payments disabled' });
+    }
+    const price = await solanaPayments.getSolUsdPrice();
+    res.json({ price, available: price !== null });
+  });
+
   app.post('/api/crypto-invoice/create', async (req, res) => {
     try {
-      if (!cryptoPayments.isCryptoPaymentsEnabled()) {
-        return res.status(400).json({ error: 'Crypto payments are disabled' });
+      const { payTokenId, asset, chain = 'base', payerCallId } = req.body;
+
+      if (!payTokenId || !asset || !chain) {
+        return res.status(400).json({ error: 'Missing required fields: payTokenId, asset, chain' });
       }
 
-      const { payTokenId, asset, payerCallId } = req.body;
-
-      if (!payTokenId || !asset) {
-        return res.status(400).json({ error: 'Missing required fields: payTokenId, asset' });
+      if (chain !== 'base' && chain !== 'solana') {
+        return res.status(400).json({ error: 'Invalid chain. Use base or solana' });
       }
 
-      if (asset !== 'USDC' && asset !== 'ETH') {
-        return res.status(400).json({ error: 'Invalid asset. Use USDC or ETH' });
+      if (chain === 'base' && !cryptoPayments.isCryptoPaymentsEnabled()) {
+        return res.status(400).json({ error: 'Base crypto payments are disabled' });
+      }
+
+      if (chain === 'solana' && !solanaPayments.isSolanaPaymentsEnabled()) {
+        return res.status(400).json({ error: 'Solana payments are disabled' });
+      }
+
+      if (chain === 'base' && asset !== 'USDC' && asset !== 'ETH') {
+        return res.status(400).json({ error: 'Invalid asset for Base. Use USDC or ETH' });
+      }
+
+      if (chain === 'solana' && asset !== 'USDC' && asset !== 'SOL') {
+        return res.status(400).json({ error: 'Invalid asset for Solana. Use USDC or SOL' });
       }
 
       const payToken = await storage.getPaidCallToken(payTokenId);
@@ -639,21 +666,37 @@ export async function registerRoutes(
       }
 
       const recipientWallet = policyStore.getWalletVerification(payToken.creatorAddress);
-      if (!recipientWallet || recipientWallet.wallet_type !== 'ethereum') {
-        return res.status(400).json({ error: 'Recipient has no verified EVM wallet' });
+      const requiredWalletType = chain === 'solana' ? 'solana' : 'ethereum';
+      
+      if (!recipientWallet || recipientWallet.wallet_type !== requiredWalletType) {
+        return res.status(400).json({ 
+          error: `Recipient has no verified ${chain === 'solana' ? 'Solana' : 'EVM'} wallet` 
+        });
       }
 
       const amountUsd = payToken.amountCents / 100;
       let amountAsset: string;
 
-      if (asset === 'USDC') {
-        amountAsset = cryptoPayments.calculateUsdcAmount(amountUsd);
-      } else {
-        const ethAmount = await cryptoPayments.calculateEthAmount(amountUsd);
-        if (!ethAmount) {
-          return res.status(400).json({ error: 'ETH price unavailable. Try USDC instead.' });
+      if (chain === 'base') {
+        if (asset === 'USDC') {
+          amountAsset = cryptoPayments.calculateUsdcAmount(amountUsd);
+        } else {
+          const ethAmount = await cryptoPayments.calculateEthAmount(amountUsd);
+          if (!ethAmount) {
+            return res.status(400).json({ error: 'ETH price unavailable. Try USDC instead.' });
+          }
+          amountAsset = ethAmount;
         }
-        amountAsset = ethAmount;
+      } else {
+        if (asset === 'USDC') {
+          amountAsset = solanaPayments.calculateSolanaUsdcAmount(amountUsd);
+        } else {
+          const solAmount = await solanaPayments.calculateSolAmount(amountUsd);
+          if (!solAmount) {
+            return res.status(400).json({ error: 'SOL price unavailable. Try USDC instead.' });
+          }
+          amountAsset = solAmount;
+        }
       }
 
       const invoice = await storage.createCryptoInvoice({
@@ -661,7 +704,7 @@ export async function registerRoutes(
         recipientCallId: payToken.creatorAddress,
         recipientWallet: recipientWallet.wallet_address,
         payerCallId: payerCallId || null,
-        chain: 'base',
+        chain,
         asset,
         amountUsd,
         amountAsset,
@@ -686,23 +729,31 @@ export async function registerRoutes(
 
   app.post('/api/crypto-invoice/confirm', async (req, res) => {
     try {
-      if (!cryptoPayments.isCryptoPaymentsEnabled()) {
-        return res.status(400).json({ error: 'Crypto payments are disabled' });
-      }
-
       const { invoiceId, txHash } = req.body;
 
       if (!invoiceId || !txHash) {
         return res.status(400).json({ error: 'Missing required fields: invoiceId, txHash' });
       }
 
-      if (!cryptoPayments.isValidTxHash(txHash)) {
-        return res.status(400).json({ error: 'Invalid transaction hash format' });
-      }
-
       const invoice = await storage.getCryptoInvoice(invoiceId);
       if (!invoice) {
         return res.status(404).json({ error: 'Invoice not found' });
+      }
+
+      if (invoice.chain === 'base' && !cryptoPayments.isCryptoPaymentsEnabled()) {
+        return res.status(400).json({ error: 'Base crypto payments are disabled' });
+      }
+
+      if (invoice.chain === 'solana' && !solanaPayments.isSolanaPaymentsEnabled()) {
+        return res.status(400).json({ error: 'Solana payments are disabled' });
+      }
+
+      if (invoice.chain === 'base' && !cryptoPayments.isValidTxHash(txHash)) {
+        return res.status(400).json({ error: 'Invalid transaction hash format' });
+      }
+
+      if (invoice.chain === 'solana' && !solanaPayments.isValidSolanaTxSignature(txHash)) {
+        return res.status(400).json({ error: 'Invalid Solana transaction signature format' });
       }
 
       if (invoice.status === 'paid') {
@@ -719,19 +770,36 @@ export async function registerRoutes(
         return res.status(400).json({ error: 'Transaction already used for another invoice' });
       }
 
-      let verification;
-      if (invoice.asset === 'ETH') {
-        verification = await cryptoPayments.verifyEthPayment(
-          txHash,
-          invoice.recipientWallet,
-          invoice.amountAsset
-        );
+      let verification: { success: boolean; error?: string };
+
+      if (invoice.chain === 'solana') {
+        if (invoice.asset === 'SOL') {
+          verification = await solanaPayments.verifySolPayment(
+            txHash,
+            invoice.recipientWallet,
+            invoice.amountAsset
+          );
+        } else {
+          verification = await solanaPayments.verifySolanaUsdcPayment(
+            txHash,
+            invoice.recipientWallet,
+            invoice.amountAsset
+          );
+        }
       } else {
-        verification = await cryptoPayments.verifyUsdcPayment(
-          txHash,
-          invoice.recipientWallet,
-          invoice.amountAsset
-        );
+        if (invoice.asset === 'ETH') {
+          verification = await cryptoPayments.verifyEthPayment(
+            txHash,
+            invoice.recipientWallet,
+            invoice.amountAsset
+          );
+        } else {
+          verification = await cryptoPayments.verifyUsdcPayment(
+            txHash,
+            invoice.recipientWallet,
+            invoice.amountAsset
+          );
+        }
       }
 
       if (!verification.success) {
@@ -749,7 +817,7 @@ export async function registerRoutes(
       if (payToken) {
         await storage.updatePaidCallToken(payToken.id, {
           status: 'paid',
-          paymentIntentId: `crypto:${txHash}`,
+          paymentIntentId: `crypto:${invoice.chain}:${txHash}`,
         });
       }
 
@@ -786,13 +854,34 @@ export async function registerRoutes(
 
   app.get('/api/crypto/recipient-wallet/:address', async (req, res) => {
     try {
+      const { chain } = req.query;
       const wallet = policyStore.getWalletVerification(req.params.address);
+      
+      if (chain === 'solana') {
+        if (!wallet || wallet.wallet_type !== 'solana') {
+          return res.json({ hasWallet: false });
+        }
+        return res.json({ hasWallet: true, walletAddress: wallet.wallet_address, walletType: 'solana' });
+      }
+      
       if (!wallet || wallet.wallet_type !== 'ethereum') {
         return res.json({ hasWallet: false });
       }
-      res.json({ hasWallet: true, walletAddress: wallet.wallet_address });
+      res.json({ hasWallet: true, walletAddress: wallet.wallet_address, walletType: 'ethereum' });
     } catch (error) {
       res.status(500).json({ error: 'Failed to check wallet' });
+    }
+  });
+
+  app.get('/api/crypto/recipient-wallets/:address', async (req, res) => {
+    try {
+      const evmWallet = policyStore.getWalletVerification(req.params.address);
+      res.json({
+        evm: evmWallet?.wallet_type === 'ethereum' ? evmWallet.wallet_address : null,
+        solana: evmWallet?.wallet_type === 'solana' ? evmWallet.wallet_address : null,
+      });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to check wallets' });
     }
   });
 
