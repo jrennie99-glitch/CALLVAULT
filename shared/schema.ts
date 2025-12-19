@@ -318,8 +318,8 @@ export const cryptoInvoices = pgTable("crypto_invoices", {
   recipientCallId: text("recipient_call_id").notNull(),
   recipientWallet: text("recipient_wallet").notNull(), // EVM address
   payerCallId: text("payer_call_id"),
-  chain: text("chain").notNull().default("base"), // 'base'
-  asset: text("asset").notNull(), // 'USDC' | 'ETH'
+  chain: text("chain").notNull().default("base"), // 'base' | 'solana'
+  asset: text("asset").notNull(), // 'USDC' | 'ETH' | 'SOL'
   amountUsd: real("amount_usd").notNull(),
   amountAsset: text("amount_asset").notNull(), // exact amount in asset decimals
   status: text("status").notNull().default("pending"), // 'pending' | 'paid' | 'expired' | 'failed'
