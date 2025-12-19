@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { User, Shield, Wifi, ChevronDown, ChevronUp, Copy, RefreshCw, Fingerprint, Eye, EyeOff, MessageSquare, CheckCheck, Clock, Phone, Ban, Bot, Wallet, ChevronRight, Ticket, Briefcase, BarChart3, Crown, Lock, Sparkles, CreditCard, ExternalLink } from 'lucide-react';
+import { User, Shield, Wifi, ChevronDown, ChevronUp, Copy, RefreshCw, Fingerprint, Eye, EyeOff, MessageSquare, CheckCheck, Clock, Phone, Ban, Bot, Wallet, ChevronRight, Ticket, Briefcase, BarChart3, Crown, Lock, Sparkles, CreditCard, ExternalLink, Snowflake } from 'lucide-react';
+import { FreezeModeSetupModal } from '@/components/FreezeModeSetupModal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -46,10 +47,26 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
     trialEndAt?: string;
   } | null>(null);
   const [isUpgrading, setIsUpgrading] = useState(false);
+  const [freezeMode, setFreezeMode] = useState(false);
+  const [freezeModeSetupCompleted, setFreezeModeSetupCompleted] = useState(false);
+  const [showFreezeModeSetup, setShowFreezeModeSetup] = useState(false);
+  const [isTogglingFreezeMode, setIsTogglingFreezeMode] = useState(false);
 
   useEffect(() => {
     isPlatformAuthenticatorAvailable().then(setBiometricAvailable);
   }, []);
+
+  useEffect(() => {
+    if (identity?.address) {
+      fetch(`/api/freeze-mode/${identity.address}`)
+        .then(res => res.json())
+        .then(data => {
+          setFreezeMode(data.enabled || false);
+          setFreezeModeSetupCompleted(data.setupCompleted || false);
+        })
+        .catch(() => {});
+    }
+  }, [identity?.address]);
 
   useEffect(() => {
     if (identity?.address) {
@@ -134,6 +151,61 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
       }
     } catch (error) {
       toast.error('Failed to open billing portal');
+    }
+  };
+
+  const handleFreezeModeToggle = async (enabled: boolean) => {
+    if (!identity?.address) return;
+    
+    if (enabled && !freezeModeSetupCompleted) {
+      setShowFreezeModeSetup(true);
+      return;
+    }
+    
+    setIsTogglingFreezeMode(true);
+    try {
+      const res = await fetch(`/api/freeze-mode/${identity.address}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled })
+      });
+      
+      if (!res.ok) {
+        throw new Error('Failed to update freeze mode');
+      }
+      
+      const data = await res.json();
+      setFreezeMode(data.freezeMode);
+      toast.success(enabled ? 'Freeze Mode enabled' : 'Freeze Mode disabled');
+    } catch (error) {
+      toast.error('Failed to update Freeze Mode');
+    } finally {
+      setIsTogglingFreezeMode(false);
+    }
+  };
+
+  const handleFreezeModeSetupComplete = async () => {
+    if (!identity?.address) return;
+    
+    try {
+      await fetch(`/api/freeze-mode/${identity.address}/setup-complete`, {
+        method: 'PUT'
+      });
+      setFreezeModeSetupCompleted(true);
+      
+      const res = await fetch(`/api/freeze-mode/${identity.address}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: true })
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        setFreezeMode(data.freezeMode);
+        toast.success('Freeze Mode enabled!');
+      }
+    } catch (error) {
+      toast.error('Failed to complete setup');
     }
   };
 
@@ -331,6 +403,33 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
+          <div className={`p-3 rounded-lg ${freezeMode ? 'bg-cyan-500/10 border border-cyan-500/30' : 'bg-slate-900/30'}`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Snowflake className={`w-5 h-5 ${freezeMode ? 'text-cyan-400' : 'text-slate-400'}`} />
+                <div>
+                  <p className="text-white font-medium flex items-center gap-2">
+                    Freeze Mode
+                    {freezeMode && (
+                      <Badge className="bg-cyan-500/20 text-cyan-400 text-xs">Active</Badge>
+                    )}
+                  </p>
+                  <p className="text-slate-500 text-sm">
+                    {freezeMode 
+                      ? 'Only approved contacts can reach you' 
+                      : 'Silence all unwanted calls'}
+                  </p>
+                </div>
+              </div>
+              <Switch
+                checked={freezeMode}
+                onCheckedChange={handleFreezeModeToggle}
+                disabled={isTogglingFreezeMode}
+                data-testid="switch-freeze-mode"
+              />
+            </div>
+          </div>
+
           <button
             onClick={() => onNavigate?.('call_permissions')}
             className="w-full flex items-center justify-between p-3 bg-slate-900/30 rounded-lg hover:bg-slate-900/50 transition-colors"
@@ -770,6 +869,12 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
           </div>
         </DialogContent>
       </Dialog>
+
+      <FreezeModeSetupModal
+        open={showFreezeModeSetup}
+        onClose={() => setShowFreezeModeSetup(false)}
+        onComplete={handleFreezeModeSetupComplete}
+      />
     </div>
   );
 }
