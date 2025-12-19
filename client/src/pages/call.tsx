@@ -22,6 +22,8 @@ import { EarningsDashboard } from '@/components/EarningsDashboard';
 import { AdminConsole } from '@/components/AdminConsole';
 import { ChatPage } from '@/pages/chat';
 import * as cryptoLib from '@/lib/crypto';
+import * as nacl from 'tweetnacl';
+import bs58 from 'bs58';
 import { getAppSettings, addCallRecord, getContactByAddress, getContacts } from '@/lib/storage';
 import { getLocalConversations, saveLocalConversation, getOrCreateDirectConvo, saveLocalMessage, incrementUnreadCount, getPrivacySettings } from '@/lib/messageStorage';
 import { addToLocalBlocklist, isCreatorAvailable, shouldRequirePayment, getCallPricingSettings } from '@/lib/policyStorage';
@@ -474,6 +476,11 @@ export default function CallPage() {
           isVideo={pendingPaidCall.video}
           isTestMode={true}
           callerAddress={identity.address}
+          signMessage={(message: string) => {
+            const messageBytes = new TextEncoder().encode(message);
+            const signature = nacl.sign.detached(messageBytes, identity.secretKey);
+            return bs58.encode(signature);
+          }}
           onPay={handlePayAndCall}
           onCancel={handleCancelPaidCall}
         />

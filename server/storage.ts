@@ -9,6 +9,7 @@ import {
   callDurationRecords, type CallDurationRecord, type InsertCallDurationRecord,
   creatorEarnings, type CreatorEarnings, type InsertCreatorEarnings,
   adminAuditLogs, type AdminAuditLog, type InsertAdminAuditLog,
+  trialNoncesTable,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, asc, sql, gte, lte, ilike, or } from "drizzle-orm";
@@ -74,6 +75,11 @@ export interface IStorage {
   // Audit logs
   createAuditLog(log: InsertAdminAuditLog): Promise<AdminAuditLog>;
   getAuditLogs(options?: { actorAddress?: string; targetAddress?: string; limit?: number }): Promise<AdminAuditLog[]>;
+  
+  // Trial nonces (replay protection)
+  isTrialNonceUsed(address: string, nonce: string): Promise<boolean>;
+  markTrialNonceUsed(address: string, nonce: string): Promise<boolean>;
+  cleanupOldTrialNonces(): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -470,6 +476,34 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(adminAuditLogs)
       .orderBy(desc(adminAuditLogs.createdAt))
       .limit(limit);
+  }
+
+  // Trial nonces (replay protection) - atomic check-and-insert
+  async isTrialNonceUsed(address: string, nonce: string): Promise<boolean> {
+    const [existing] = await db.select().from(trialNoncesTable)
+      .where(and(
+        eq(trialNoncesTable.address, address),
+        eq(trialNoncesTable.nonce, nonce)
+      ));
+    return !!existing;
+  }
+
+  async markTrialNonceUsed(address: string, nonce: string): Promise<boolean> {
+    try {
+      await db.insert(trialNoncesTable).values({ address, nonce });
+      return true;
+    } catch (error: any) {
+      // Unique constraint violation means nonce was already used (race condition)
+      if (error.code === '23505') {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  async cleanupOldTrialNonces(): Promise<void> {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    await db.delete(trialNoncesTable).where(lte(trialNoncesTable.usedAt, oneHourAgo));
   }
 }
 

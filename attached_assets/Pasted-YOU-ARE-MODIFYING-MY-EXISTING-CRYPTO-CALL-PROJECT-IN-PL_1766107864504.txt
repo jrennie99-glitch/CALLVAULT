@@ -1,0 +1,148 @@
+YOU ARE MODIFYING MY EXISTING “CRYPTO CALL” PROJECT IN-PLACE.
+ABSOLUTE RULES (NON-NEGOTIABLE):
+- DO NOT remove, rename, or break ANY existing feature or functionality.
+- DO NOT rewrite core calling (WebRTC), messaging, permissions, passes, wallet verification, biometric lock, or PWA.
+- Only ADD new files/modules and minimal glue code.
+- Keep current UI theme and navigation; only add new routes/screens where required.
+- No “Replit agent” branding anywhere in the UI.
+
+GOAL:
+Implement monetization + growth foundation inside the same app:
+1) Public Landing + Pricing pages
+2) Pricing tiers (Free / Pro / Business) + hybrid billing hooks
+3) Trials (days + minutes) with admin control
+4) Admin area with user management + audit logs + impersonation
+5) Influencer onboarding links (invite + trial grant links)
+
+PRICING (USE THESE NUMBERS EXACTLY):
+- FREE:
+  - unlimited contacts + chats + voice/video calls (subject to existing permission rules)
+  - NO paid-call monetization features
+- PRO CREATOR: $9/month or $99/year
+  - enable paid calls + paid call links
+  - includes 30 “trial minutes” for testing features (not revenue)
+  - platform fee: 15% of paid call revenue
+- BUSINESS: $29/month or $299/year
+  - queue + business hours + priority routing + lower platform fee
+  - platform fee: 8% of paid call revenue
+- ENTERPRISE: contact sales (no self-serve)
+
+TRIAL MODEL (IMPLEMENT BOTH):
+- Default trial offer: 7 days AND 30 trial minutes (whichever ends first)
+- Admin can grant custom: X days and/or X minutes
+- Trials bypass paywall for Pro features ONLY while active or minutes remain
+- When trial ends: paid features require subscription OR pay-per-call token (existing Phase 4 flow)
+
+IMPLEMENTATION REQUIREMENTS
+
+A) DATABASE CHANGES (do not break existing storage)
+- Use the project’s current DB if present; otherwise add SQLite (fast) with a clean migration.
+- Add tables/collections:
+  users (id, email/handle optional, call_address/public_key reference, role, plan, created_at, last_seen)
+  entitlements (user_id, trial_status, trial_start_at, trial_end_at, trial_minutes_remaining, plan_status, plan_renewal_at)
+  admin_audit_logs (id, actor_user_id, action_type, target_user_id, metadata_json, created_at)
+  invite_links (id, created_by_user_id, type, trial_days, trial_minutes, max_uses, uses, expires_at, created_at)
+- DO NOT store biometric data. Never.
+
+B) AUTH + ROLES (RBAC)
+Roles: founder, admin, user
+- founder: full access, can create admins, can impersonate users
+- admin: can manage trials/users but cannot create other admins
+- user: normal app
+Add server-side guards for /admin routes: return 403 if not authorized.
+
+Founder bootstrap:
+- Add env var FOUNDER_CALL_ID (or FOUNDER_PUBLIC_KEY). On startup, if no founder exists, assign founder role to matching user identity.
+- Provide safe fallback: if no user exists yet, show “Founder not initialized” with instructions in server logs.
+
+C) ADMIN CONSOLE (NEW ROUTE)
+Add Settings → “Admin Console” entry that is visible ONLY to founder/admin.
+Route: /admin
+Screens:
+1) Admin Dashboard
+   - total users
+   - active trials
+   - paid plans count
+   - paid calls count (if tracked)
+2) Users Table
+   - search by handle/call id
+   - columns: role, plan, trial status, trial minutes, created date, last seen
+   - actions: view, disable/enable, grant trial, change plan, role change (founder-only for admin)
+3) User Details
+   - full entitlement editor (trial days/minutes)
+   - set plan: FREE/PRO/BUSINESS
+   - disable/enable
+4) Invite Links
+   - create influencer link: grants trial + optional free Pro for X days
+   - set max uses + expiry
+   - copy link button
+5) Audit Logs
+   - show last 100 actions
+
+Impersonation (founder-only):
+- “View as user” button in User Details
+- Must log to admin_audit_logs with action_type=IMPERSONATE_START/STOP
+
+D) PUBLIC PAGES (INSIDE SAME APP)
+Add routes (public):
+- "/" Landing page (mobile-first, premium)
+  Headline: “Calls only happen with your permission.”
+  Subheadline: “Get paid for your time. No phone numbers. No spam.”
+  CTA buttons: “Get Started” and “View Pricing”
+  Sections: How it works (3 steps), For creators/business, Privacy, FAQ
+- "/pricing" Pricing page
+  Show the tiers and exact prices above, include platform fee explanation, include “7 days + 30 minutes trial”
+- Add “Install App” section for PWA.
+
+E) PAYWALL + ENTITLEMENTS (MUST NOT BREAK EXISTING CALLS)
+- Implement an entitlement check helper (server + client):
+  canUseProFeatures(user) -> true if plan in (PRO,BUSINESS) OR trial active OR trial_minutes_remaining > 0
+  canUseBusinessFeatures(user) -> true if plan == BUSINESS OR (trial active and admin granted business trial)
+- Gate ONLY paid-call/business-only screens:
+  - create paid call link
+  - business hours
+  - queue management
+  - earnings dashboard (if present)
+- DO NOT block basic voice/video calls and chats for Free users (unless your existing permission policies block them). Keep current behavior.
+
+Trial minutes usage:
+- Only decrement trial minutes when user uses “paid call features” (e.g., starting a paid call session).
+- Do not meter free calls.
+
+F) STRIPE MODE SWITCH (SAFE)
+- Keep PAYMENTS_TEST_MODE support.
+- Add plan subscription scaffolding:
+  - If STRIPE keys exist and LIVE mode later, can create checkout sessions for subscriptions.
+  - For now, allow “Manual Plan Set” via admin console so I can operate without Stripe verification.
+- Ensure secrets remain server-side only.
+
+G) INFLUENCER ONBOARDING KIT (IN APP + COPY)
+- In Admin → Invite Links: create “Influencer Trial Link”
+- Public route: /invite/<id>
+  - Shows: “You’ve been invited to Crypto Call Pro (trial).”
+  - Button: “Activate Trial”
+  - After activation: redirects into app and marks entitlement
+- Add a “DM Scripts” page in Admin (or a downloadable text block) containing:
+  3 short outreach scripts + 3 follow-ups + 1 “free pro access” pitch
+  Keep it concise, mobile-friendly.
+
+H) QUALITY + SAFETY
+- Add server-side validation for trial days/minutes ranges
+- Add rate limits on invite activation
+- Ensure admin routes cannot be accessed by normal users even if they guess URLs
+- No console errors, keep UI consistent
+
+DELIVERABLES
+- Implement everything above in THIS project.
+- Provide a short “Founder Setup” section:
+  - which env vars to set (FOUNDER_CALL_ID, PAYMENTS_TEST_MODE)
+  - how to open /admin
+- Provide a short “How to test” checklist:
+  - create user
+  - grant trial
+  - activate invite link
+  - confirm pro features unlocked
+  - expire trial -> paywall returns
+  - verify free calls/video still work
+
+NOW IMPLEMENT ALL OF THIS WITHOUT BREAKING EXISTING FEATURES.

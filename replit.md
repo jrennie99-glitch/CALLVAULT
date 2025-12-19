@@ -187,3 +187,66 @@ Preferred communication style: Simple, everyday language.
 - `server/routes.ts`: All Phase 5 API endpoints
 - `client/src/components/EarningsDashboard.tsx`: Earnings stats UI
 - `client/src/components/tabs/SettingsTab.tsx`: Earnings Dashboard navigation
+
+## Phase 6: Admin Console (Implemented)
+
+### RBAC (Role-Based Access Control)
+- Three roles: `founder`, `admin`, `user`
+- Founder can create admins, admins can manage users
+- Role stored on crypto_identities table
+- Founder seeding via `FOUNDER_ADDRESS` environment variable
+
+### Admin Console UI
+- **Dashboard**: Key stats (total users, active trials, disabled users, admins)
+- **Users Tab**: Search, filter, and manage all users
+- **Trials Tab**: View active and expired trials
+- **Audit Logs Tab**: View all admin actions
+
+### User Management Features
+- Enable/disable user accounts
+- Assign roles (founder-only for admin promotion)
+- View user status, creation date, call count
+
+### Free Trial System
+- Trial fields: `trial_status`, `trial_start_at`, `trial_end_at`, `trial_minutes_remaining`
+- Grant trials by days or minutes
+- Trial bypass on paid call screen
+- Authenticated trial consumption with Ed25519 signature verification
+- Per-address nonce tracking with database persistence for replay protection
+- Atomic nonce insertion with UNIQUE constraint to prevent race conditions
+- 60-second timestamp freshness window
+
+### Impersonation (Founder-only)
+- "View as user" capability for support testing
+- All impersonation actions logged to audit trail
+
+### Audit Logs
+- Stored in `admin_audit_logs` table
+- Tracks: GRANT_TRIAL, DISABLE_USER, ENABLE_USER, ROLE_CHANGE, IMPERSONATE_START, IMPERSONATE_END
+
+### API Route Protection
+- Admin middleware with Ed25519 signature verification
+- 5-minute timestamp freshness for admin requests
+- 403 returned for non-admin access attempts
+
+### Admin API Routes
+- `GET /api/admin/stats` - Dashboard statistics
+- `GET /api/admin/users` - List all users with search/pagination
+- `GET /api/admin/users/:address` - User details with call stats
+- `PUT /api/admin/users/:address/role` - Update user role
+- `PUT /api/admin/users/:address/status` - Enable/disable user
+- `POST /api/admin/users/:address/trial` - Grant trial access
+- `POST /api/admin/impersonate/:address` - Start impersonation (founder-only)
+- `GET /api/admin/audit-logs` - View audit trail
+- `GET /api/trial/check/:address` - Check trial access (public)
+- `POST /api/trial/consume` - Consume trial minutes (authenticated)
+- `GET /api/identity/:address/role` - Get user role (public)
+- `POST /api/identity/register` - Register identity with auto-founder promotion
+
+### Files Added/Modified (Phase 6)
+- `shared/schema.ts`: Added role, trial fields to crypto_identities + admin_audit_logs + trial_nonces tables
+- `server/storage.ts`: Admin CRUD methods (getAllIdentities, updateIdentityRole, grantTrial, trial nonce management, etc.)
+- `server/routes.ts`: All Phase 6 admin API endpoints with auth middleware
+- `client/src/components/AdminConsole.tsx`: Full admin console UI
+- `client/src/components/tabs/SettingsTab.tsx`: Admin console navigation (visible to admins/founders)
+- `client/src/components/PaymentRequiredScreen.tsx`: Trial access bypass integration with signed consumption

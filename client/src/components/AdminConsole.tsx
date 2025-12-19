@@ -49,17 +49,16 @@ interface AdminConsoleProps {
   identity: {
     address: string;
     publicKeyBase58: string;
-    privateKeyBase58: string;
+    secretKey: Uint8Array;
   };
   onBack: () => void;
 }
 
-function generateAdminHeaders(identity: { address: string; privateKeyBase58: string }) {
+function generateAdminHeaders(identity: { address: string; secretKey: Uint8Array }) {
   const timestamp = Date.now();
   const message = `admin:${identity.address}:${timestamp}`;
   const messageBytes = new TextEncoder().encode(message);
-  const secretKey = bs58.decode(identity.privateKeyBase58);
-  const signature = nacl.sign.detached(messageBytes, secretKey);
+  const signature = nacl.sign.detached(messageBytes, identity.secretKey);
   
   return {
     'x-admin-address': identity.address,

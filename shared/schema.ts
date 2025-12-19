@@ -255,3 +255,15 @@ export const insertAdminAuditLogSchema = createInsertSchema(adminAuditLogs).omit
 });
 export type InsertAdminAuditLog = z.infer<typeof insertAdminAuditLogSchema>;
 export type AdminAuditLog = typeof adminAuditLogs.$inferSelect;
+
+// Trial Nonces (for replay protection)
+export const trialNoncesTable = pgTable("trial_nonces", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  address: text("address").notNull(),
+  nonce: text("nonce").notNull(),
+  usedAt: timestamp("used_at").defaultNow().notNull(),
+}, (table) => ({
+  addressNonceUnique: sql`UNIQUE (${table.address}, ${table.nonce})`,
+}));
+
+export type TrialNonce = typeof trialNoncesTable.$inferSelect;

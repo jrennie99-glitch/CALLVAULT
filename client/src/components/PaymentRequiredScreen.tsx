@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { DollarSign, Phone, Video, AlertCircle, CreditCard, Zap, Loader2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { DollarSign, Phone, Video, AlertCircle, CreditCard, Zap, Loader2, Gift } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar } from '@/components/Avatar';
 import { formatPrice } from '@/lib/policyStorage';
@@ -13,6 +13,7 @@ interface PaymentRequiredScreenProps {
   isVideo: boolean;
   isTestMode?: boolean;
   callerAddress?: string;
+  signMessage?: (message: string) => string;
   onPay: (token?: string) => void;
   onCancel: () => void;
 }
@@ -24,10 +25,27 @@ export function PaymentRequiredScreen({
   isVideo, 
   isTestMode = false,
   callerAddress,
+  signMessage,
   onPay,
   onCancel
 }: PaymentRequiredScreenProps) {
   const [loading, setLoading] = useState(false);
+  const [hasTrialAccess, setHasTrialAccess] = useState(false);
+  const [checkingTrial, setCheckingTrial] = useState(true);
+
+  useEffect(() => {
+    if (callerAddress) {
+      fetch(`/api/trial/check/${callerAddress}`)
+        .then(res => res.json())
+        .then(data => {
+          setHasTrialAccess(data.hasAccess || false);
+        })
+        .catch(() => {})
+        .finally(() => setCheckingTrial(false));
+    } else {
+      setCheckingTrial(false);
+    }
+  }, [callerAddress]);
   const displayName = recipientName || recipientAddress.slice(0, 16) + '...';
   
   const getPriceDisplay = () => {
@@ -138,6 +156,64 @@ export function PaymentRequiredScreen({
           <div className="flex items-center gap-2 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg mb-4">
             <AlertCircle className="w-5 h-5 text-emerald-400 flex-shrink-0" />
             <p className="text-emerald-400 text-sm">First call is free for new contacts!</p>
+          </div>
+        )}
+
+        {!checkingTrial && hasTrialAccess && (
+          <div className="mb-4">
+            <div className="flex items-center gap-2 p-3 bg-green-500/10 border border-green-500/20 rounded-lg mb-3">
+              <Gift className="w-5 h-5 text-green-400 flex-shrink-0" />
+              <div>
+                <p className="text-green-400 text-sm font-medium">Trial Access Active</p>
+                <p className="text-green-400/70 text-xs">You can use your free trial for this call</p>
+              </div>
+            </div>
+            <Button
+              onClick={async () => {
+                if (!callerAddress || !signMessage) {
+                  toast.error('Unable to use trial access');
+                  return;
+                }
+                setLoading(true);
+                try {
+                  const minutes = pricing.mode === 'per_session' ? (pricing.session_duration_minutes || 30) : (pricing.minimum_minutes || 1);
+                  const timestamp = Date.now();
+                  const nonce = Math.random().toString(36).substring(2, 15);
+                  const message = `trial:${callerAddress}:${minutes}:${timestamp}:${nonce}`;
+                  const signature = signMessage(message);
+                  
+                  const response = await fetch('/api/trial/consume', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                      address: callerAddress,
+                      minutes,
+                      signature,
+                      timestamp,
+                      nonce
+                    }),
+                  });
+                  
+                  if (!response.ok) {
+                    const data = await response.json();
+                    throw new Error(data.error || 'Failed to use trial access');
+                  }
+                  
+                  toast.success('Using trial access');
+                  onPay('trial');
+                } catch (error: any) {
+                  toast.error(error.message || 'Failed to use trial access');
+                } finally {
+                  setLoading(false);
+                }
+              }}
+              className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700"
+              disabled={loading || !signMessage}
+              data-testid="button-use-trial"
+            >
+              {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Gift className="w-4 h-4 mr-2" />}
+              {loading ? 'Processing...' : 'Use Trial Access'}
+            </Button>
           </div>
         )}
 

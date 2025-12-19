@@ -18,6 +18,7 @@ interface ClientConnection {
 
 const connections = new Map<string, ClientConnection>();
 const recentNonces = new Map<string, number>();
+// Trial nonces are now persisted in database (trialNoncesTable) for replay protection across restarts
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 
 const NONCE_EXPIRY = 5 * 60 * 1000;
@@ -963,6 +964,82 @@ export async function registerRoutes(
     } catch (error) {
       console.error('Error checking trial access:', error);
       res.status(500).json({ error: 'Failed to check trial access' });
+    }
+  });
+
+  // Consume trial minutes for a call (authenticated with replay protection)
+  app.post('/api/trial/consume', async (req, res) => {
+    try {
+      const { address, minutes, signature, timestamp, nonce } = req.body;
+      
+      if (!address || !minutes) {
+        return res.status(400).json({ error: 'Missing address or minutes' });
+      }
+      
+      // Require authentication to prevent abuse
+      if (!signature || !timestamp || !nonce) {
+        return res.status(401).json({ error: 'Authentication required' });
+      }
+      
+      // Check timestamp freshness (60 second window)
+      if (Math.abs(Date.now() - timestamp) > 60 * 1000) {
+        return res.status(401).json({ error: 'Request expired' });
+      }
+      
+      // Check for nonce replay (database-persisted per-address tracking)
+      const nonceUsed = await storage.isTrialNonceUsed(address, nonce);
+      if (nonceUsed) {
+        return res.status(401).json({ error: 'Nonce already used' });
+      }
+      
+      // Get identity to verify signature
+      const identity = await storage.getIdentity(address);
+      if (!identity) {
+        return res.status(404).json({ error: 'Identity not found' });
+      }
+      
+      // Verify signature - only the holder of the secret key can sign this message
+      try {
+        const message = `trial:${address}:${minutes}:${timestamp}:${nonce}`;
+        const messageBytes = new TextEncoder().encode(message);
+        const signatureBytes = bs58.decode(signature);
+        const publicKeyBytes = bs58.decode(identity.publicKeyBase58);
+        
+        const valid = nacl.sign.detached.verify(messageBytes, signatureBytes, publicKeyBytes);
+        if (!valid) {
+          return res.status(401).json({ error: 'Invalid signature' });
+        }
+      } catch (error) {
+        return res.status(401).json({ error: 'Signature verification failed' });
+      }
+      
+      // Atomically mark nonce as used in database (after successful signature verification)
+      // Returns false if nonce was already used (race condition with unique constraint)
+      const nonceMarked = await storage.markTrialNonceUsed(address, nonce);
+      if (!nonceMarked) {
+        return res.status(401).json({ error: 'Nonce already used' });
+      }
+      
+      // Check if trial is still valid
+      const access = await storage.checkTrialAccess(address);
+      if (!access.hasAccess) {
+        return res.status(403).json({ error: access.reason || 'No trial access' });
+      }
+      
+      // Consume the minutes
+      const updated = await storage.consumeTrialMinutes(address, minutes);
+      if (!updated) {
+        return res.status(404).json({ error: 'Failed to consume trial minutes' });
+      }
+      
+      res.json({ 
+        success: true, 
+        remainingMinutes: updated.trialMinutesRemaining,
+        trialStatus: updated.trialStatus
+      });
+    } catch (error) {
+      console.error('Error consuming trial:', error);
+      res.status(500).json({ error: 'Failed to consume trial minutes' });
     }
   });
 
