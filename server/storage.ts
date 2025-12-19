@@ -8,9 +8,10 @@ import {
   creatorProfiles, type CreatorProfile, type InsertCreatorProfile,
   callDurationRecords, type CallDurationRecord, type InsertCallDurationRecord,
   creatorEarnings, type CreatorEarnings, type InsertCreatorEarnings,
+  adminAuditLogs, type AdminAuditLog, type InsertAdminAuditLog,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, asc, sql, gte, lte } from "drizzle-orm";
+import { eq, and, desc, asc, sql, gte, lte, ilike, or } from "drizzle-orm";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -60,6 +61,19 @@ export interface IStorage {
     totalEarnings: number;
     paidCalls: number;
   }>;
+
+  // Admin methods
+  getAllIdentities(options?: { search?: string; limit?: number; offset?: number }): Promise<CryptoIdentityRecord[]>;
+  countIdentities(): Promise<number>;
+  updateIdentityRole(address: string, role: string, actorAddress: string): Promise<CryptoIdentityRecord | undefined>;
+  setIdentityDisabled(address: string, disabled: boolean, actorAddress: string): Promise<CryptoIdentityRecord | undefined>;
+  grantTrial(address: string, trialDays?: number, trialMinutes?: number, actorAddress?: string): Promise<CryptoIdentityRecord | undefined>;
+  consumeTrialMinutes(address: string, minutes: number): Promise<CryptoIdentityRecord | undefined>;
+  checkTrialAccess(address: string): Promise<{ hasAccess: boolean; reason?: string }>;
+  
+  // Audit logs
+  createAuditLog(log: InsertAdminAuditLog): Promise<AdminAuditLog>;
+  getAuditLogs(options?: { actorAddress?: string; targetAddress?: string; limit?: number }): Promise<AdminAuditLog[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -270,6 +284,192 @@ export class DatabaseStorage implements IStorage {
     const totalEarnings = sessions.reduce((sum, s) => sum + (s.amountPaid || 0), 0);
 
     return { totalCalls, totalMinutes: Math.round(totalMinutes), totalEarnings, paidCalls };
+  }
+
+  // Admin methods
+  async getAllIdentities(options?: { search?: string; limit?: number; offset?: number }): Promise<CryptoIdentityRecord[]> {
+    const limit = options?.limit ?? 50;
+    const offset = options?.offset ?? 0;
+    
+    if (options?.search) {
+      return db.select().from(cryptoIdentities)
+        .where(or(
+          ilike(cryptoIdentities.address, `%${options.search}%`),
+          ilike(cryptoIdentities.displayName, `%${options.search}%`)
+        ))
+        .orderBy(desc(cryptoIdentities.createdAt))
+        .limit(limit)
+        .offset(offset);
+    }
+    
+    return db.select().from(cryptoIdentities)
+      .orderBy(desc(cryptoIdentities.createdAt))
+      .limit(limit)
+      .offset(offset);
+  }
+
+  async countIdentities(): Promise<number> {
+    const result = await db.select({ count: sql<number>`count(*)` }).from(cryptoIdentities);
+    return Number(result[0]?.count ?? 0);
+  }
+
+  async updateIdentityRole(address: string, role: string, actorAddress: string): Promise<CryptoIdentityRecord | undefined> {
+    const [updated] = await db.update(cryptoIdentities)
+      .set({ role })
+      .where(eq(cryptoIdentities.address, address))
+      .returning();
+    
+    if (updated) {
+      await this.createAuditLog({
+        actorAddress,
+        targetAddress: address,
+        actionType: 'ROLE_CHANGE',
+        metadata: { newRole: role }
+      });
+    }
+    
+    return updated || undefined;
+  }
+
+  async setIdentityDisabled(address: string, disabled: boolean, actorAddress: string): Promise<CryptoIdentityRecord | undefined> {
+    const [updated] = await db.update(cryptoIdentities)
+      .set({ isDisabled: disabled })
+      .where(eq(cryptoIdentities.address, address))
+      .returning();
+    
+    if (updated) {
+      await this.createAuditLog({
+        actorAddress,
+        targetAddress: address,
+        actionType: disabled ? 'DISABLE_USER' : 'ENABLE_USER',
+        metadata: {}
+      });
+    }
+    
+    return updated || undefined;
+  }
+
+  async grantTrial(address: string, trialDays?: number, trialMinutes?: number, actorAddress?: string): Promise<CryptoIdentityRecord | undefined> {
+    const now = new Date();
+    const updates: Partial<CryptoIdentityRecord> = {
+      trialStatus: 'active',
+      trialStartAt: now,
+    };
+
+    if (trialDays) {
+      const endDate = new Date(now);
+      endDate.setDate(endDate.getDate() + trialDays);
+      updates.trialEndAt = endDate;
+    }
+
+    if (trialMinutes) {
+      updates.trialMinutesRemaining = trialMinutes;
+    }
+
+    const [updated] = await db.update(cryptoIdentities)
+      .set(updates)
+      .where(eq(cryptoIdentities.address, address))
+      .returning();
+    
+    if (updated && actorAddress) {
+      await this.createAuditLog({
+        actorAddress,
+        targetAddress: address,
+        actionType: 'GRANT_TRIAL',
+        metadata: { trialDays, trialMinutes }
+      });
+    }
+    
+    return updated || undefined;
+  }
+
+  async consumeTrialMinutes(address: string, minutes: number): Promise<CryptoIdentityRecord | undefined> {
+    const identity = await this.getIdentity(address);
+    if (!identity || !identity.trialMinutesRemaining) return undefined;
+
+    const remaining = Math.max(0, identity.trialMinutesRemaining - minutes);
+    const updates: Partial<CryptoIdentityRecord> = {
+      trialMinutesRemaining: remaining,
+    };
+
+    if (remaining === 0) {
+      updates.trialStatus = 'expired';
+    }
+
+    const [updated] = await db.update(cryptoIdentities)
+      .set(updates)
+      .where(eq(cryptoIdentities.address, address))
+      .returning();
+    
+    return updated || undefined;
+  }
+
+  async checkTrialAccess(address: string): Promise<{ hasAccess: boolean; reason?: string }> {
+    const identity = await this.getIdentity(address);
+    if (!identity) return { hasAccess: false, reason: 'User not found' };
+
+    if (identity.trialStatus !== 'active') {
+      return { hasAccess: false, reason: 'No active trial' };
+    }
+
+    // Check date-based trial
+    if (identity.trialEndAt) {
+      if (new Date() > identity.trialEndAt) {
+        await db.update(cryptoIdentities)
+          .set({ trialStatus: 'expired' })
+          .where(eq(cryptoIdentities.address, address));
+        return { hasAccess: false, reason: 'Trial expired' };
+      }
+      return { hasAccess: true };
+    }
+
+    // Check minute-based trial
+    if (identity.trialMinutesRemaining !== null && identity.trialMinutesRemaining !== undefined) {
+      if (identity.trialMinutesRemaining <= 0) {
+        return { hasAccess: false, reason: 'No trial minutes remaining' };
+      }
+      return { hasAccess: true };
+    }
+
+    return { hasAccess: false, reason: 'Invalid trial configuration' };
+  }
+
+  // Audit logs
+  async createAuditLog(log: InsertAdminAuditLog): Promise<AdminAuditLog> {
+    const [created] = await db.insert(adminAuditLogs).values(log).returning();
+    return created;
+  }
+
+  async getAuditLogs(options?: { actorAddress?: string; targetAddress?: string; limit?: number }): Promise<AdminAuditLog[]> {
+    const limit = options?.limit ?? 100;
+    
+    if (options?.actorAddress && options?.targetAddress) {
+      return db.select().from(adminAuditLogs)
+        .where(and(
+          eq(adminAuditLogs.actorAddress, options.actorAddress),
+          eq(adminAuditLogs.targetAddress, options.targetAddress)
+        ))
+        .orderBy(desc(adminAuditLogs.createdAt))
+        .limit(limit);
+    }
+    
+    if (options?.actorAddress) {
+      return db.select().from(adminAuditLogs)
+        .where(eq(adminAuditLogs.actorAddress, options.actorAddress))
+        .orderBy(desc(adminAuditLogs.createdAt))
+        .limit(limit);
+    }
+    
+    if (options?.targetAddress) {
+      return db.select().from(adminAuditLogs)
+        .where(eq(adminAuditLogs.targetAddress, options.targetAddress))
+        .orderBy(desc(adminAuditLogs.createdAt))
+        .limit(limit);
+    }
+    
+    return db.select().from(adminAuditLogs)
+      .orderBy(desc(adminAuditLogs.createdAt))
+      .limit(limit);
   }
 }
 

@@ -23,6 +23,15 @@ export const cryptoIdentities = pgTable("crypto_identities", {
   publicKeyBase58: text("public_key_base58").notNull(),
   displayName: text("display_name"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  // RBAC fields
+  role: text("role").notNull().default("user"), // 'founder' | 'admin' | 'user'
+  isDisabled: boolean("is_disabled").default(false),
+  lastLoginAt: timestamp("last_login_at"),
+  // Trial fields
+  trialStatus: text("trial_status").default("none"), // 'none' | 'active' | 'expired'
+  trialStartAt: timestamp("trial_start_at"),
+  trialEndAt: timestamp("trial_end_at"),
+  trialMinutesRemaining: integer("trial_minutes_remaining"),
 });
 
 export const insertCryptoIdentitySchema = createInsertSchema(cryptoIdentities).omit({
@@ -229,3 +238,20 @@ export const callDurationRecordsRelations = relations(callDurationRecords, ({ on
     references: [callSessions.id],
   }),
 }));
+
+// Admin Audit Logs
+export const adminAuditLogs = pgTable("admin_audit_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  actorAddress: text("actor_address").notNull(),
+  targetAddress: text("target_address"),
+  actionType: text("action_type").notNull(), // 'GRANT_TRIAL' | 'DISABLE_USER' | 'ENABLE_USER' | 'ROLE_CHANGE' | 'IMPERSONATE_START' | 'IMPERSONATE_END' | 'CREATE_USER'
+  metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertAdminAuditLogSchema = createInsertSchema(adminAuditLogs).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertAdminAuditLog = z.infer<typeof insertAdminAuditLogSchema>;
+export type AdminAuditLog = typeof adminAuditLogs.$inferSelect;

@@ -1,0 +1,77 @@
+Add a Founder/Admin area (Admin Console) to the existing Crypto Call app.
+
+GOAL:
+I (the founder) must have full access to manage users, trials, billing access, and system settings.
+
+HARD RULES:
+- Do NOT remove or change any existing feature or UI unless necessary
+- Keep the current dark/crypto styling
+- Add this as an additive module
+- No mock security: protect admin routes properly
+
+REQUIREMENTS:
+
+1) Authentication + Roles
+- Add RBAC with roles: "founder", "admin", "user"
+- Only "founder" can create other admins
+- Store role on the user record (DB)
+
+2) Admin Console UI (new tab or Settings → Admin)
+Create pages:
+- Dashboard (key stats)
+- Users (table with search/sort/filter)
+- User Details (view + edit)
+- Trials & Access
+- System Settings (feature flags)
+
+3) User Management Features
+From Admin Console I can:
+- Create a user (email/username or wallet-id based on how app works)
+- Reset user access (disable/enable account)
+- Assign role (user/admin) — founder-only can assign admin
+- View user status: created date, last login, plan/trial status, calls count
+
+4) Free Trial System
+- Add trial fields on user:
+  - trial_status: none | active | expired
+  - trial_start_at, trial_end_at
+  - trial_minutes_remaining (optional if we meter calls)
+- Admin can grant:
+  - X days free trial (e.g. 7/14/30)
+  - OR X minutes free access for paid calls (e.g. 30 minutes)
+- Trial should bypass paywall ONLY for the features you specify:
+  - Paid calls access allowed when trial is active or minutes remain
+  - After trial expiration, paid call requires Stripe payment again
+
+5) Safe “Impersonate User” (Founder-only)
+- Add “View as user” / impersonation for support testing
+- Must be auditable: log who impersonated whom and when
+
+6) Audit Logs (basic but real)
+- Store admin actions in DB:
+  - action_type, actor_user_id, target_user_id, timestamp, metadata
+Examples: "GRANT_TRIAL", "DISABLE_USER", "ROLE_CHANGE", "IMPERSONATE_START"
+
+7) API + Route Protection
+- Protect admin endpoints server-side (not just client)
+- Return 403 for non-admins
+- Add middleware/guard that checks session + role
+
+8) Seed Founder Access
+- Ensure the initial account (my account) is "founder"
+- Provide a safe way to set founder in env var for first boot:
+  - FOUNDER_EMAIL or FOUNDER_USER_ID
+- On startup, if no founder exists, promote the configured account
+
+DELIVERABLES:
+- Working Admin Console UI
+- DB migrations/updates
+- Secure server-side authorization
+- A short checklist to test:
+  - create user
+  - grant trial
+  - trial bypass paywall
+  - trial expires → payment required
+  - non-admin cannot access /admin
+
+DO NOT rename the project or mention Replit agent branding in-app.
