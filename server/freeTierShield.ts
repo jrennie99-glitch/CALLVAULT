@@ -125,12 +125,22 @@ export class FreeTierShield {
       };
     }
 
-    // A.3) Max total call seconds per month: 1800 (30 minutes)
+    // A.3) Max total call seconds per month
     if ((counter.secondsUsedMonth || 0) >= FREE_TIER_LIMITS.MAX_SECONDS_PER_MONTH) {
       return {
         allowed: false,
         errorCode: 'LIMIT_MONTHLY_MINUTES',
-        message: 'You\'ve used your 30 free minutes this month. Upgrade for unlimited calling.'
+        message: 'You\'ve used your monthly call minutes. Upgrade for unlimited calling.'
+      };
+    }
+
+    // Concurrent call check: only 1 call at a time for free users
+    const activeCalls = await storage.getActiveCallsForUser(callerAddress);
+    if (activeCalls.length >= FREE_TIER_LIMITS.MAX_CONCURRENT_CALLS) {
+      return {
+        allowed: false,
+        errorCode: 'LIMIT_DAILY_CALLS',
+        message: 'Free accounts can only have one call at a time. End your current call or upgrade.'
       };
     }
 
@@ -429,7 +439,7 @@ export class FreeTierShield {
 
     return {
       tier,
-      callsRemainingToday: Math.max(0, FREE_TIER_LIMITS.MAX_CALLS_PER_DAY - (counter.callsStartedToday || 0)),
+      callsRemainingToday: Math.max(0, FREE_TIER_LIMITS.MAX_OUTBOUND_CALLS_PER_DAY - (counter.callsStartedToday || 0)),
       minutesRemainingMonth: Math.max(0, Math.floor((FREE_TIER_LIMITS.MAX_SECONDS_PER_MONTH - (counter.secondsUsedMonth || 0)) / 60)),
       attemptsRemainingHour: Math.max(0, FREE_TIER_LIMITS.MAX_CALL_ATTEMPTS_PER_HOUR - (counter.callAttemptsHour || 0)),
       hasRelayPenalty,
