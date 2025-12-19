@@ -1,0 +1,136 @@
+IMPORTANT RULES (DO NOT VIOLATE):
+- DO NOT remove, rename, refactor, or break ANY existing feature, UI, route, component, or logic.
+- ONLY ADD new functionality in an additive, backward-compatible way.
+- DO NOT introduce mock data for payments.
+- DO NOT add crypto, wallets, Web3, Solana, Ethereum, or blockchain of any kind.
+- Stripe ONLY.
+
+GOAL:
+Upgrade the existing Crypto Call app into a monetized, admin-controlled SaaS using STRIPE ONLY.
+
+========================
+PHASE A — ADMIN SYSTEM
+========================
+
+Add a secure Admin system with the following:
+
+1) Admin Role
+- Add a role-based access system: admin, user
+- Admin access is restricted by email whitelist (ADMIN_EMAILS env variable)
+- Admins can access /admin dashboard
+
+2) Admin Dashboard (/admin)
+Admin must be able to:
+- View all users
+- View user status (trial, active, expired, banned)
+- Grant or revoke access
+- Start or extend free trials
+- Override payments (manual comp / free access)
+- View Stripe subscription status per user
+
+========================
+PHASE B — FREE TRIALS
+========================
+
+Add Free Trial logic:
+- Default trial length: 7 days
+- Trial starts on first login
+- Trial status stored server-side (not client-only)
+- When trial expires:
+  - Calls, chats, and paid features are blocked
+  - User sees a "Trial expired — subscribe to continue" screen
+
+Admin can:
+- Manually start, extend, or reset trials
+
+========================
+PHASE C — STRIPE PAYMENTS (ONLY)
+========================
+
+Stripe integration requirements:
+- Stripe Checkout (subscriptions)
+- Monthly plan (configurable price ID)
+- Optional yearly plan (discounted)
+- Webhook-based verification (do NOT trust client state)
+
+Flow:
+1) User clicks "Upgrade"
+2) Redirect to Stripe Checkout
+3) On success:
+   - Webhook marks user as ACTIVE
+4) On cancel/failure:
+   - User remains locked
+
+Required Stripe states:
+- trialing
+- active
+- past_due
+- canceled
+
+Block access if status is not ACTIVE.
+
+========================
+PHASE D — ACCESS GATING
+========================
+
+Gate ALL premium features behind access checks:
+- Voice calls
+- Video calls
+- Business/Creator mode
+- Paid call links
+- Scheduling
+
+If user is:
+- Trial active → allow
+- Paid active → allow
+- Expired / unpaid → block with upgrade screen
+
+========================
+PHASE E — UI ADDITIONS (NON-DESTRUCTIVE)
+========================
+
+Add UI ONLY if it does not remove existing UI:
+
+- Settings → Subscription
+  - Trial status
+  - Days remaining
+  - Upgrade button
+
+- Admin badge for admins
+- Clean upgrade modal (Stripe)
+
+DO NOT change existing navigation or tabs.
+
+========================
+ENV VARIABLES REQUIRED
+========================
+
+Add support for these env vars (do not hardcode):
+
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+STRIPE_PRICE_MONTHLY=
+STRIPE_PRICE_YEARLY=
+ADMIN_EMAILS=comma,separated,emails
+APP_BASE_URL=
+
+========================
+SECURITY REQUIREMENTS
+========================
+
+- All access checks must be server-side enforced
+- Do not trust frontend flags
+- Protect admin routes
+- Validate Stripe webhooks with signature verification
+
+========================
+FINAL CHECK
+========================
+
+Before finishing:
+- Verify no existing feature was altered or removed
+- Verify app still runs
+- Verify trial → expired → paid flow works
+- Verify admin override works
+
+This is a PRODUCTION monetization upgrade. Treat it as such.
