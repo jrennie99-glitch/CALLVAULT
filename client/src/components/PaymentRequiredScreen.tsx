@@ -1,10 +1,21 @@
 import { useState, useEffect } from 'react';
-import { DollarSign, Phone, Video, AlertCircle, CreditCard, Zap, Loader2, Gift } from 'lucide-react';
+import { DollarSign, Phone, Video, AlertCircle, CreditCard, Zap, Loader2, Gift, Wallet, Copy, CheckCircle, Clock, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Avatar } from '@/components/Avatar';
 import { formatPrice } from '@/lib/policyStorage';
 import { toast } from 'sonner';
 import type { CallPricing } from '@shared/types';
+
+interface CryptoInvoice {
+  invoiceId: string;
+  recipientWallet: string;
+  chain: string;
+  asset: 'USDC' | 'ETH';
+  amountAsset: string;
+  amountUsd: number;
+  expiresAt: string;
+}
 
 interface PaymentRequiredScreenProps {
   recipientAddress: string;
@@ -32,6 +43,34 @@ export function PaymentRequiredScreen({
   const [loading, setLoading] = useState(false);
   const [hasTrialAccess, setHasTrialAccess] = useState(false);
   const [checkingTrial, setCheckingTrial] = useState(true);
+  
+  const [showCryptoPayment, setShowCryptoPayment] = useState(false);
+  const [cryptoEnabled, setCryptoEnabled] = useState(false);
+  const [recipientHasWallet, setRecipientHasWallet] = useState(false);
+  const [selectedAsset, setSelectedAsset] = useState<'USDC' | 'ETH'>('USDC');
+  const [cryptoInvoice, setCryptoInvoice] = useState<CryptoInvoice | null>(null);
+  const [txHash, setTxHash] = useState('');
+  const [verifying, setVerifying] = useState(false);
+  const [paymentVerified, setPaymentVerified] = useState(false);
+  const [ethPriceAvailable, setEthPriceAvailable] = useState(true);
+  const [creatingInvoice, setCreatingInvoice] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/crypto/enabled')
+      .then(res => res.json())
+      .then(data => setCryptoEnabled(data.enabled || false))
+      .catch(() => {});
+    
+    fetch(`/api/crypto/recipient-wallet/${recipientAddress}`)
+      .then(res => res.json())
+      .then(data => setRecipientHasWallet(data.hasWallet || false))
+      .catch(() => {});
+    
+    fetch('/api/crypto/eth-price')
+      .then(res => res.json())
+      .then(data => setEthPriceAvailable(data.available || false))
+      .catch(() => setEthPriceAvailable(false));
+  }, [recipientAddress]);
 
   useEffect(() => {
     if (callerAddress) {
@@ -66,6 +105,86 @@ export function PaymentRequiredScreen({
   };
 
   const priceInfo = getPriceDisplay();
+
+  const handleCreateCryptoInvoice = async (asset: 'USDC' | 'ETH') => {
+    setCreatingInvoice(true);
+    try {
+      const tokenRes = await fetch('/api/checkout/paid-call', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          creatorAddress: recipientAddress,
+          callerAddress: callerAddress,
+          amountCents: priceInfo.amountCents,
+          callType: isVideo ? 'video' : 'audio',
+          pricingType: priceInfo.pricingType,
+        }),
+      });
+
+      if (!tokenRes.ok) throw new Error('Failed to create payment token');
+      const { token } = await tokenRes.json();
+
+      const invoiceRes = await fetch('/api/crypto-invoice/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          payTokenId: token,
+          asset,
+          payerCallId: callerAddress,
+        }),
+      });
+
+      if (!invoiceRes.ok) {
+        const error = await invoiceRes.json();
+        throw new Error(error.error || 'Failed to create invoice');
+      }
+
+      const invoice = await invoiceRes.json();
+      setCryptoInvoice(invoice);
+      setSelectedAsset(asset);
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to create crypto invoice');
+    } finally {
+      setCreatingInvoice(false);
+    }
+  };
+
+  const handleVerifyCryptoPayment = async () => {
+    if (!cryptoInvoice || !txHash.trim()) {
+      toast.error('Please enter the transaction hash');
+      return;
+    }
+
+    setVerifying(true);
+    try {
+      const res = await fetch('/api/crypto-invoice/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          invoiceId: cryptoInvoice.invoiceId,
+          txHash: txHash.trim(),
+        }),
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || 'Verification failed');
+      }
+
+      setPaymentVerified(true);
+      toast.success('Payment verified!');
+      setTimeout(() => onPay(cryptoInvoice.invoiceId), 1500);
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to verify payment');
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success(`${label} copied!`);
+  };
 
   const handlePayment = async () => {
     if (isTestMode) {
@@ -217,30 +336,181 @@ export function PaymentRequiredScreen({
           </div>
         )}
 
-        <div className="flex gap-3">
-          <Button
-            onClick={onCancel}
-            variant="outline"
-            className="flex-1 border-slate-600"
-            disabled={loading}
-            data-testid="button-cancel-payment"
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={handlePayment}
-            className="flex-1 bg-gradient-to-r from-purple-500 to-pink-600 hover:from-purple-600 hover:to-pink-700"
-            disabled={loading}
-            data-testid="button-pay-and-call"
-          >
-            {loading ? (
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-            ) : (
-              <CreditCard className="w-4 h-4 mr-2" />
+        {!showCryptoPayment ? (
+          <>
+            <div className="flex gap-3 mb-3">
+              <Button
+                onClick={onCancel}
+                variant="outline"
+                className="flex-1 border-slate-600"
+                disabled={loading}
+                data-testid="button-cancel-payment"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handlePayment}
+                className="flex-1 bg-gradient-to-r from-purple-500 to-pink-600 hover:from-purple-600 hover:to-pink-700"
+                disabled={loading}
+                data-testid="button-pay-and-call"
+              >
+                {loading ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <CreditCard className="w-4 h-4 mr-2" />
+                )}
+                {loading ? 'Processing...' : 'Pay with Card'}
+              </Button>
+            </div>
+            
+            {cryptoEnabled && recipientHasWallet && (
+              <Button
+                onClick={() => setShowCryptoPayment(true)}
+                variant="outline"
+                className="w-full border-orange-500/30 text-orange-400 hover:bg-orange-500/10"
+                disabled={loading}
+                data-testid="button-pay-crypto"
+              >
+                <Wallet className="w-4 h-4 mr-2" />
+                Pay with Crypto (Advanced)
+              </Button>
             )}
-            {loading ? 'Processing...' : 'Pay & Call'}
-          </Button>
-        </div>
+          </>
+        ) : !cryptoInvoice ? (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 p-3 bg-orange-500/10 border border-orange-500/20 rounded-lg">
+              <AlertCircle className="w-5 h-5 text-orange-400 flex-shrink-0" />
+              <p className="text-orange-400 text-xs">Crypto payments are final. Send exact amount on Base network.</p>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                onClick={() => handleCreateCryptoInvoice('USDC')}
+                className="bg-blue-600 hover:bg-blue-700"
+                disabled={creatingInvoice}
+                data-testid="button-pay-usdc"
+              >
+                {creatingInvoice && selectedAsset === 'USDC' ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <span className="mr-2">💲</span>
+                )}
+                USDC (Base)
+              </Button>
+              <Button
+                onClick={() => handleCreateCryptoInvoice('ETH')}
+                className="bg-indigo-600 hover:bg-indigo-700"
+                disabled={creatingInvoice || !ethPriceAvailable}
+                data-testid="button-pay-eth"
+              >
+                {creatingInvoice && selectedAsset === 'ETH' ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <span className="mr-2">Ξ</span>
+                )}
+                {ethPriceAvailable ? 'ETH (Base)' : 'ETH N/A'}
+              </Button>
+            </div>
+            
+            <Button
+              onClick={() => setShowCryptoPayment(false)}
+              variant="outline"
+              className="w-full border-slate-600"
+              data-testid="button-back-to-card"
+            >
+              Back to Card Payment
+            </Button>
+          </div>
+        ) : paymentVerified ? (
+          <div className="text-center py-4">
+            <CheckCircle className="w-12 h-12 text-green-400 mx-auto mb-3" />
+            <p className="text-green-400 font-medium">Payment Verified!</p>
+            <p className="text-slate-400 text-sm">Connecting your call...</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="bg-slate-900/50 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-slate-400 text-sm">Network</span>
+                <span className="text-white font-medium">Base</span>
+              </div>
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-slate-400 text-sm">Asset</span>
+                <span className="text-white font-medium">{cryptoInvoice.asset}</span>
+              </div>
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-slate-400 text-sm">Amount</span>
+                <span className="text-white font-bold text-lg">
+                  {cryptoInvoice.amountAsset} {cryptoInvoice.asset}
+                </span>
+              </div>
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-slate-400 text-sm">Send to</span>
+                <button
+                  onClick={() => copyToClipboard(cryptoInvoice.recipientWallet, 'Address')}
+                  className="flex items-center gap-1 text-blue-400 hover:text-blue-300 text-xs"
+                  data-testid="button-copy-wallet"
+                >
+                  {cryptoInvoice.recipientWallet.slice(0, 8)}...{cryptoInvoice.recipientWallet.slice(-6)}
+                  <Copy className="w-3 h-3" />
+                </button>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 text-sm">Expires</span>
+                <span className="text-orange-400 text-sm flex items-center gap-1">
+                  <Clock className="w-3 h-3" />
+                  {new Date(cryptoInvoice.expiresAt).toLocaleTimeString()}
+                </span>
+              </div>
+            </div>
+            
+            <div>
+              <label className="text-slate-400 text-sm mb-1 block">Transaction Hash</label>
+              <Input
+                value={txHash}
+                onChange={(e) => setTxHash(e.target.value)}
+                placeholder="0x..."
+                className="bg-slate-900/50 border-slate-600 text-white"
+                data-testid="input-tx-hash"
+              />
+            </div>
+            
+            <Button
+              onClick={handleVerifyCryptoPayment}
+              className="w-full bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700"
+              disabled={verifying || !txHash.trim()}
+              data-testid="button-verify-payment"
+            >
+              {verifying ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <CheckCircle className="w-4 h-4 mr-2" />
+              )}
+              {verifying ? 'Verifying...' : "I've Paid - Verify"}
+            </Button>
+            
+            <Button
+              onClick={() => {
+                setCryptoInvoice(null);
+                setTxHash('');
+              }}
+              variant="outline"
+              className="w-full border-slate-600"
+              data-testid="button-different-asset"
+            >
+              Use Different Asset
+            </Button>
+            
+            <a
+              href="https://basescan.org"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-1 text-blue-400 hover:text-blue-300 text-sm"
+            >
+              View on BaseScan <ExternalLink className="w-3 h-3" />
+            </a>
+          </div>
+        )}
       </div>
     </div>
   );
