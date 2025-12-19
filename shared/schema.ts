@@ -41,6 +41,9 @@ export const cryptoIdentities = pgTable("crypto_identities", {
   trialEndAt: timestamp("trial_end_at"),
   trialMinutesRemaining: integer("trial_minutes_remaining"),
   trialPlan: text("trial_plan").default("pro"), // which plan trial grants access to: 'pro' | 'business'
+  // Freeze Mode fields
+  freezeMode: boolean("freeze_mode").default(false),
+  freezeModeSetupCompleted: boolean("freeze_mode_setup_completed").default(false),
 });
 
 export const insertCryptoIdentitySchema = createInsertSchema(cryptoIdentities).omit({
@@ -57,6 +60,7 @@ export const contacts = pgTable("contacts", {
   name: text("name"),
   notes: text("notes"),
   isFavorite: boolean("is_favorite").default(false),
+  alwaysAllowed: boolean("always_allowed").default(false), // Emergency bypass for Freeze Mode
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
