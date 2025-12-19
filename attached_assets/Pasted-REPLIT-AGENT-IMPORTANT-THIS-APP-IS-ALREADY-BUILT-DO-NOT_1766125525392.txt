@@ -1,0 +1,134 @@
+REPLIT AGENT — IMPORTANT: THIS APP IS ALREADY BUILT.
+DO NOT remove, rename, or break ANY existing feature, route, UI, styling, database tables, or functionality.
+ONLY ADD the requested features by inspecting the current repo code and integrating cleanly.
+
+PROJECT NAME: Call Vault (CV)
+
+GOAL
+Add production-ready SaaS monetization + admin controls + cost-protection so free users cannot create meaningful hosting/infra cost for me, while paid users can unlock premium features via Stripe.
+
+FIRST: DISCOVER THE CURRENT APP
+1) Inspect the repo structure (frontend, backend, DB, auth).
+2) List current routes/pages/components/APIs/features you find (brief).
+3) Identify how calls are implemented (WebRTC? vendor? TURN/STUN? any paid infra?) and where cost could occur.
+4) Identify existing auth/session system (JWT/cookies/NextAuth/etc). Reuse it.
+
+REQUIREMENTS TO ADD (NO BREAKING CHANGES)
+
+A) ADMIN AREA (Founder-only)
+Create an Admin area that only the OWNER can access:
+- Route: /admin
+- Protected by role: owner/admin (owner is configured via ENV: OWNER_EMAIL or OWNER_USER_ID)
+Admin features:
+1) User management:
+   - View users (email, plan, status, trial_end, created_at, last_seen)
+   - Grant/revoke: Free, Pro, Business
+   - Create “comped/free” accounts that never bill but still follow safety limits
+2) Trials:
+   - Create and issue trial codes OR grant trials directly to users
+   - Trial rules: trial has caps (minutes, concurrent sessions) and expires automatically
+3) Usage & abuse dashboard:
+   - See per-user usage: calls started, minutes, concurrent calls, failed attempts
+   - Flags for spam/abuse (rate-limit triggers)
+4) Creator/monetization controls (optional toggle):
+   - Enable “paid call links” (per-minute or session-based) ONLY for Pro/Business
+   - Set creator rate (if that feature exists already, keep it; otherwise add minimal)
+
+B) STRIPE ONLY (NO CRYPTO, NO BASE, NO HELIUS)
+Implement Stripe subscriptions:
+- Plans:
+  - Free (limited)
+  - Pro (monthly)
+  - Business (monthly)
+- Use Stripe Checkout + Webhooks to activate plan changes.
+- Add Stripe Customer Portal for upgrades/cancellations.
+- Store subscription status in DB.
+- ENV needed:
+  STRIPE_SECRET_KEY
+  STRIPE_WEBHOOK_SECRET
+  STRIPE_PRICE_PRO_MONTHLY
+  STRIPE_PRICE_BUSINESS_MONTHLY
+  APP_URL
+
+C) “FREE USERS CAN’T AFFECT ME” (COST PROTECTION)
+This is critical. Implement layered protections so free usage cannot generate meaningful infra cost:
+
+1) Make Free tier “Invite/Contacts only”:
+   - Free users can ONLY receive calls from approved contacts/invites (already conceptually “Private Mode”).
+   - No public inbound calling.
+2) Hard caps for Free tier:
+   - Max call duration: 10 minutes per call
+   - Max total minutes per month: 60 minutes
+   - Max concurrent calls: 1
+   - Max call attempts per hour: 10
+3) TURN/Relay Cost Avoidance (if WebRTC is used):
+   - If the app uses a TURN provider (Twilio/Nimbler/whatever), DO NOT use TURN for Free users.
+   - Free users default to STUN-only; if NAT traversal fails, show message: “Upgrade for reliable connectivity.”
+   - Paid tiers can use TURN/relay if configured.
+4) Rate limiting + bot protection:
+   - Add server-side rate limits on call setup endpoints + invite/QR endpoints.
+   - Add basic device/session fingerprint + IP throttling.
+5) Abuse controls:
+   - Blocklist suspicious users/IPs.
+   - Require verified email for any outbound calling.
+   - Soft-launch: require invite code for new signups (toggle via ENV).
+6) Costs reporting:
+   - Add a simple “estimated cost” dashboard widget for owner (even if estimated = $0 unless TURN enabled).
+
+D) PRICING PAGE FIX (So people actually upgrade)
+Right now “Free = unlimited” makes no sense. Keep the page design, but adjust copy and limits WITHOUT breaking layout.
+Update tiers to:
+
+FREE — $0
+- Private Mode (approved contacts only)
+- Limited voice/video (60 min/month, 10 min/call)
+- Basic contact management
+- Basic call invites/QR
+(Anything that implies “unlimited” must be removed)
+
+PRO — $9/month (Most Popular)
+- Everything in Free
+- Higher limits (600 min/month, 60 min/call)
+- Paid call links (if enabled)
+- Scheduling + availability (if already present, keep; if not, add minimal)
+- Email support
+
+BUSINESS — $29/month
+- Everything in Pro
+- Highest limits (Unlimited* with fair-use, or 3,000 min/month)
+- Team features (optional if already present; if not, show “Coming soon” but do NOT fake functionality)
+- Priority support
+- Custom branding (optional)
+
+*If “Unlimited” is shown anywhere, implement fair-use rules + throttles so it’s not abusable.
+
+E) IMPLEMENTATION DETAILS (PRODUCTION READY)
+1) DB schema additions (use existing DB tech):
+   - users: role, plan, trial_end, monthly_minutes_used, monthly_reset_at, is_comped
+   - subscriptions: stripe_customer_id, stripe_subscription_id, status, price_id
+   - usage_events: user_id, type, minutes, created_at, meta
+2) Webhooks:
+   - Handle subscription created/updated/canceled
+   - Update local DB plan/status
+3) Middleware/guards:
+   - Central “requirePlan(minPlan)” + “enforceUsageCaps(user)” used by call start/join endpoints.
+4) Monthly reset job:
+   - Cron or scheduled job to reset monthly minutes.
+5) Tests / verification:
+   - Add a basic test script or checklist to confirm:
+     - Free caps enforced
+     - Pro/Business unlock
+     - Stripe webhook updates
+     - Admin only access works
+
+OUTPUT FORMAT REQUIRED
+- Provide the exact files changed/added and where they live.
+- Provide any migrations and how to run them.
+- Provide ENV variable list for Replit Secrets.
+- Provide a quick “smoke test” checklist.
+- Do NOT invent fake integrations; if something is missing in the current codebase, implement it properly.
+
+START NOW:
+1) Scan the repo and confirm stack.
+2) Implement A–E with minimal, clean code.
+3) Keep the current UI theme and navigation intact.
