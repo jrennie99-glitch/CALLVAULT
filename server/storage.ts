@@ -74,6 +74,9 @@ export interface IStorage {
   grantTrial(address: string, trialDays?: number, trialMinutes?: number, actorAddress?: string): Promise<CryptoIdentityRecord | undefined>;
   consumeTrialMinutes(address: string, minutes: number): Promise<CryptoIdentityRecord | undefined>;
   checkTrialAccess(address: string): Promise<{ hasAccess: boolean; reason?: string }>;
+  checkPremiumAccess(address: string): Promise<{ hasAccess: boolean; accessType: 'subscription' | 'trial' | 'none'; reason?: string; daysRemaining?: number }>;
+  updateSubscriptionStatus(address: string, status: string, stripeSubscriptionId?: string): Promise<CryptoIdentityRecord | undefined>;
+  updateStripeCustomer(address: string, stripeCustomerId: string): Promise<CryptoIdentityRecord | undefined>;
   
   // Audit logs
   createAuditLog(log: InsertAdminAuditLog): Promise<AdminAuditLog>;
@@ -477,6 +480,78 @@ export class DatabaseStorage implements IStorage {
     }
 
     return { hasAccess: false, reason: 'Invalid trial configuration' };
+  }
+
+  async checkPremiumAccess(address: string): Promise<{ hasAccess: boolean; accessType: 'subscription' | 'trial' | 'none'; reason?: string; daysRemaining?: number }> {
+    const identity = await this.getIdentity(address);
+    if (!identity) return { hasAccess: false, accessType: 'none', reason: 'User not found' };
+
+    // Check subscription status first
+    if (identity.planStatus === 'active' && identity.plan !== 'free') {
+      const daysRemaining = identity.planRenewalAt 
+        ? Math.ceil((new Date(identity.planRenewalAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+        : undefined;
+      return { hasAccess: true, accessType: 'subscription', daysRemaining };
+    }
+
+    // Check trial status
+    if (identity.trialStatus === 'active') {
+      // Check date-based trial
+      if (identity.trialEndAt) {
+        if (new Date() > identity.trialEndAt) {
+          await db.update(cryptoIdentities)
+            .set({ trialStatus: 'expired' })
+            .where(eq(cryptoIdentities.address, address));
+          return { hasAccess: false, accessType: 'none', reason: 'Trial expired' };
+        }
+        const daysRemaining = Math.ceil((new Date(identity.trialEndAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+        return { hasAccess: true, accessType: 'trial', daysRemaining };
+      }
+
+      // Check minute-based trial
+      if (identity.trialMinutesRemaining !== null && identity.trialMinutesRemaining !== undefined) {
+        if (identity.trialMinutesRemaining <= 0) {
+          return { hasAccess: false, accessType: 'none', reason: 'No trial minutes remaining' };
+        }
+        return { hasAccess: true, accessType: 'trial' };
+      }
+    }
+
+    return { hasAccess: false, accessType: 'none', reason: 'No active subscription or trial' };
+  }
+
+  async updateSubscriptionStatus(address: string, status: string, stripeSubscriptionId?: string): Promise<CryptoIdentityRecord | undefined> {
+    const updates: Partial<CryptoIdentityRecord> = {
+      planStatus: status as any,
+    };
+    
+    if (stripeSubscriptionId) {
+      updates.stripeSubscriptionId = stripeSubscriptionId;
+    }
+
+    // Update plan based on status
+    if (status === 'active') {
+      updates.plan = 'pro';
+      updates.planRenewalAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    } else if (status === 'canceled' || status === 'past_due') {
+      // Keep plan but mark status
+    }
+
+    const [updated] = await db.update(cryptoIdentities)
+      .set(updates)
+      .where(eq(cryptoIdentities.address, address))
+      .returning();
+    
+    return updated || undefined;
+  }
+
+  async updateStripeCustomer(address: string, stripeCustomerId: string): Promise<CryptoIdentityRecord | undefined> {
+    const [updated] = await db.update(cryptoIdentities)
+      .set({ stripeCustomerId })
+      .where(eq(cryptoIdentities.address, address))
+      .returning();
+    
+    return updated || undefined;
   }
 
   // Audit logs

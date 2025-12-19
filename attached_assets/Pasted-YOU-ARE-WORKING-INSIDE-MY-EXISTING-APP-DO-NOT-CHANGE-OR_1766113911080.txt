@@ -1,0 +1,108 @@
+YOU ARE WORKING INSIDE MY EXISTING APP. DO NOT CHANGE OR REMOVE ANY EXISTING FEATURE OR FUNCTIONALITY.
+ONLY ADD server-side “Free Tier Cost Shield” enforcement + minimal glue code.
+
+GOAL:
+Make FREE users unable to generate meaningful cost or abuse. Paid/admin users unaffected.
+
+DEFINITIONS:
+- user.tier ∈ { "free", "paid", "admin" }
+- If tier unknown -> treat as "free"
+- All enforcement must be SERVER-SIDE (never trust frontend).
+
+FREE TIER COST SHIELD RULES (ENFORCE ALL)
+
+A) HARD USAGE LIMITS
+1) Max call duration per call: 10 minutes (600 seconds)
+   - Server must terminate call at 600s even if client doesn’t.
+2) Max calls per day (UTC): 2 successful call starts
+3) Max total call seconds per month (UTC): 1800 seconds (30 minutes)
+4) Max call attempts per hour: 5 (including failed attempts)
+5) Max failed call starts per day: 10
+
+B) CONTACT + ACCESS RESTRICTIONS
+1) Free users may ONLY call mutually approved contacts.
+2) Free users cannot call strangers / unknown call IDs.
+3) Free users cannot join group calls / rooms.
+4) Free users cannot use external “call links” / “paid call links”.
+5) Free users cannot receive inbound calls unless caller is a mutually approved contact.
+
+C) COSTLY FEATURES OFF FOR FREE
+Disable for free users (server-enforced):
+- call recording
+- transcription
+- media uploads above small cap (if present)
+- analytics exports
+- background call persistence beyond idle rules below
+
+D) IDLE + BACKGROUND AUTO-END (FREE ONLY)
+Auto-end call if ANY of these are true:
+- App/tab backgrounded > 60 seconds (if detectable)
+- No RTP/media activity > 90 seconds (or no “keepalive” pings)
+- Mic muted continuously > 120 seconds
+- No user interaction signals > 120 seconds
+If your stack can’t detect some signals, implement a conservative server “heartbeat”:
+- client sends /call/heartbeat every 15s while active
+- if heartbeat missing for 45s -> terminate call
+
+E) TURN / RELAY COST PROTECTION (FREE ONLY)
+If your app uses TURN/relay detection:
+- Track “relay_used” per call (true/false).
+- If a free user uses relay in 2+ calls in a rolling 24h window:
+  - reduce max call duration for that free user to 5 minutes for 7 days
+  - show upgrade message “Upgrade for better connectivity”
+If relay detection is not available, add a placeholder metric and log it; do not break calls.
+
+F) RATE LIMITS + ABUSE GUARDS
+Add per-user and per-IP rate limits for:
+- call start
+- call accept
+- call link open
+- heartbeat
+- payment endpoints (even if Stripe only)
+Reject with 429 and a clean error message.
+
+G) STORAGE
+Persist usage counters server-side:
+- calls_started_today
+- failed_starts_today
+- seconds_used_month
+- relay_calls_24h
+- last_reset_day, last_reset_month
+Use existing DB if present; if not, add a lightweight table/collection:
+usage_counters(user_id, day_key, month_key, calls_started, failed_starts, seconds_used, relay_calls, updated_at)
+Keep writes minimal (batch update at call end, not every second).
+
+H) ENFORCEMENT POINTS (MUST IMPLEMENT)
+Enforce checks at:
+1) BEFORE call start (block if over limits or not approved contact)
+2) ON call connect (start timer + counters)
+3) DURING call (server timer/heartbeat enforcement)
+4) ON reconnect (re-check limits)
+5) ON call end (update monthly seconds + day counters)
+
+I) USER EXPERIENCE
+When blocked, return structured error codes:
+- LIMIT_DAILY_CALLS
+- LIMIT_MONTHLY_MINUTES
+- LIMIT_CALL_DURATION
+- NOT_APPROVED_CONTACT
+- GROUP_CALLS_NOT_ALLOWED
+- EXTERNAL_LINKS_NOT_ALLOWED
+- RATE_LIMITED
+Frontend should show a simple upgrade prompt, but DO NOT redesign existing UI—just hook into existing toast/modal if it exists.
+
+J) ADMIN OVERRIDES
+Admins can set a user tier to paid/admin to bypass limits.
+Add minimal admin-only endpoint (protected) to update tier:
+POST /admin/users/:id/tier { tier: "free"|"paid"|"admin" }
+
+DELIVERABLES
+- Add the Free Tier Cost Shield in code.
+- Print a short “How to test” checklist:
+  1) free user starts 3rd call today -> blocked
+  2) free user reaches 10 minutes -> call auto-ends
+  3) free user reaches 30 min/month -> blocked
+  4) free user calls stranger -> blocked
+  5) paid user bypasses limits
+
+DO THIS WITHOUT BREAKING ANY EXISTING FEATURE OR FUNCTIONALITY.
