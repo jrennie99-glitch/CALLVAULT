@@ -36,6 +36,17 @@ Preferred communication style: Simple, everyday language.
     - **Solana Network**: USDC and SOL payments. Requires verified Solana wallet. Uses @solana/web3.js for verification. Controlled via `ENABLE_SOLANA_PAYMENTS` env var. Supports mainnet-beta and devnet clusters via `SOLANA_CLUSTER` env var.
     - **Common**: 20-minute invoice expiration, on-chain transaction verification, chain-specific explorer links (BaseScan/Solscan), price fetching from CoinGecko with 5-minute cache.
     - **Limitation**: Users can only have one verified wallet at a time (either EVM or Solana, not both).
+- **Free Tier Cost Shield (Phase 10)**: Server-side enforcement to prevent abuse and manage costs for free users:
+    - **Three Tier System**: `free` (limited), `paid` (Pro/Business/active trial - no limits), `admin` (founders/admins bypass all limits).
+    - **Usage Limits**: 2 calls/day, 30 minutes/month, 5 attempts/hour for free tier users.
+    - **Call Duration**: 10-minute max per call (5-minute if relay penalty active).
+    - **Mutual Contact Requirement**: Free users can only call/receive calls from mutually approved contacts.
+    - **Server-side Monitoring**: 15-second heartbeat intervals, automatic termination of stale calls after 45 seconds.
+    - **Relay Usage Penalty**: 7-day duration reduction (10→5 min) after 2 relay calls in 24h.
+    - **Feature Restrictions**: Free users cannot use: recording, transcription, media upload, analytics export, background persistence, group calls, external links.
+    - **Admin Tier Management**: Endpoint to override user tiers via `/api/admin/users/:address/tier`.
+    - **Database Tables**: `usage_counters` for tracking limits, `active_calls` for real-time monitoring.
+    - **Key Files**: `server/freeTierShield.ts` (enforcement logic), integrated into WebSocket call flow in `server/routes.ts`.
 
 ### Security Measures
 - Ed25519 signature verification for call initiation and admin actions.
