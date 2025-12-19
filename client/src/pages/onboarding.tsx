@@ -1,14 +1,14 @@
-import { useState } from 'react';
+import { useState, type ElementType } from 'react';
 import { useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { 
   Shield, Snowflake, Link2, UserCheck, CheckCircle2,
-  ArrowRight, ArrowLeft, Lightbulb, AlertCircle
+  ArrowRight, ArrowLeft, Lightbulb, AlertCircle, type LucideIcon
 } from 'lucide-react';
 
 interface OnboardingStep {
-  icon: React.ElementType;
+  icon: LucideIcon;
   iconColor: string;
   bgColor: string;
   title: string;
