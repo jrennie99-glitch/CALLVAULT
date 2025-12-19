@@ -32,6 +32,14 @@ interface CryptoIdentity {
   stripeCustomerId: string | null;
   stripeSubscriptionId: string | null;
   planRenewalAt: string | null;
+  isComped: boolean | null;
+}
+
+interface UserUsageStats {
+  userAddress: string;
+  callsStartedToday: number;
+  secondsUsedMonth: number;
+  relayCalls24h: number;
 }
 
 interface AdminStats {
@@ -189,6 +197,31 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
     },
   });
 
+  interface UsageStatsResponse {
+    usageCounters: UserUsageStats[];
+    activeCalls: Array<{ callSessionId: string; callerAddress: string; calleeAddress: string; startedAt: string }>;
+    summary: {
+      totalActiveUsers: number;
+      totalActiveCalls: number;
+      totalCallsToday: number;
+      totalMinutesThisMonth: number;
+      totalRelayCallsToday: number;
+      turnEnabled: boolean;
+      estimatedTurnCostCents: number;
+    };
+  }
+
+  const { data: usageStats, isLoading: usageLoading, refetch: refetchUsage } = useQuery<UsageStatsResponse>({
+    queryKey: ['admin-usage-stats'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/usage-stats', {
+        headers: generateAdminHeaders(identity),
+      });
+      if (!res.ok) throw new Error('Failed to fetch usage stats');
+      return res.json();
+    },
+  });
+
   const isFounder = roleData?.isFounder ?? false;
 
   const toggleUserStatusMutation = useMutation({
@@ -309,6 +342,27 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
     },
   });
 
+  const setCompedMutation = useMutation({
+    mutationFn: async ({ address, isComped }: { address: string; isComped: boolean }) => {
+      const res = await fetch(`/api/admin/users/${address}/comped`, {
+        method: 'POST',
+        headers: generateAdminHeaders(identity),
+        body: JSON.stringify({ isComped }),
+      });
+      if (!res.ok) throw new Error('Failed to update comped status');
+      return res.json();
+    },
+    onSuccess: (_, { isComped }) => {
+      queryClient.invalidateQueries({ queryKey: ['admin-users'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-audit-logs'] });
+      toast.success(isComped ? 'User granted perpetual Pro access' : 'Comped status removed');
+    },
+    onError: () => {
+      toast.error('Failed to update comped status');
+    },
+  });
+
   const copyInviteLink = (code: string) => {
     const inviteUrl = `${window.location.origin}/invite/${code}`;
     navigator.clipboard.writeText(inviteUrl);
@@ -417,9 +471,12 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="p-4">
-        <TabsList className="grid w-full grid-cols-6 bg-slate-800">
+        <TabsList className="grid w-full grid-cols-7 bg-slate-800">
           <TabsTrigger value="dashboard" data-testid="tab-admin-dashboard">
             <Activity className="w-4 h-4 mr-1" /> Stats
+          </TabsTrigger>
+          <TabsTrigger value="usage" data-testid="tab-admin-usage">
+            <Clock className="w-4 h-4 mr-1" /> Usage
           </TabsTrigger>
           <TabsTrigger value="users" data-testid="tab-admin-users">
             <Users className="w-4 h-4 mr-1" /> Users
@@ -512,6 +569,139 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
           )}
         </TabsContent>
 
+        <TabsContent value="usage" className="mt-4 space-y-4">
+          <div className="flex justify-between items-center">
+            <h2 className="text-lg font-semibold">Usage Dashboard</h2>
+            <Button variant="ghost" size="sm" onClick={() => refetchUsage()} data-testid="button-refresh-usage">
+              <RefreshCw className="w-4 h-4 mr-1" /> Refresh
+            </Button>
+          </div>
+          
+          {usageLoading ? (
+            <div className="text-center py-8 text-slate-400">Loading usage stats...</div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <Card className="bg-slate-800 border-slate-700">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm text-slate-400">Active Calls</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-3xl font-bold text-green-400" data-testid="text-active-calls">
+                      {usageStats?.summary?.totalActiveCalls ?? 0}
+                    </div>
+                  </CardContent>
+                </Card>
+                
+                <Card className="bg-slate-800 border-slate-700">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm text-slate-400">Calls Today</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-3xl font-bold text-blue-400" data-testid="text-calls-today">
+                      {usageStats?.summary?.totalCallsToday ?? 0}
+                    </div>
+                  </CardContent>
+                </Card>
+                
+                <Card className="bg-slate-800 border-slate-700">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm text-slate-400">Minutes This Month</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-3xl font-bold text-purple-400" data-testid="text-minutes-month">
+                      {usageStats?.summary?.totalMinutesThisMonth ?? 0}
+                    </div>
+                  </CardContent>
+                </Card>
+                
+                <Card className="bg-slate-800 border-slate-700">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm text-slate-400">Relay Calls (24h)</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-3xl font-bold text-orange-400" data-testid="text-relay-calls">
+                      {usageStats?.summary?.totalRelayCallsToday ?? 0}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card className="bg-slate-800 border-slate-700">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    Estimated Costs
+                    {usageStats?.summary?.turnEnabled ? (
+                      <Badge className="bg-green-600">TURN Enabled</Badge>
+                    ) : (
+                      <Badge variant="outline">TURN Disabled</Badge>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-amber-400" data-testid="text-estimated-cost">
+                    ${((usageStats?.summary?.estimatedTurnCostCents ?? 0) / 100).toFixed(2)}
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Based on ~$0.02 per relay call. Actual costs may vary.
+                  </p>
+                </CardContent>
+              </Card>
+
+              {usageStats?.activeCalls && usageStats.activeCalls.length > 0 && (
+                <Card className="bg-slate-800 border-slate-700">
+                  <CardHeader>
+                    <CardTitle className="text-sm">Active Calls Right Now</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {usageStats.activeCalls.map((call) => (
+                      <div key={call.callSessionId} className="flex items-center gap-2 text-sm p-2 bg-slate-700 rounded">
+                        <Activity className="w-4 h-4 text-green-400 animate-pulse" />
+                        <span className="font-mono text-xs">{truncateAddress(call.callerAddress)}</span>
+                        <span className="text-slate-400">→</span>
+                        <span className="font-mono text-xs">{truncateAddress(call.calleeAddress)}</span>
+                        <span className="ml-auto text-slate-400 text-xs">{formatDate(call.startedAt)}</span>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
+
+              {usageStats?.usageCounters && usageStats.usageCounters.length > 0 && (
+                <Card className="bg-slate-800 border-slate-700">
+                  <CardHeader>
+                    <CardTitle className="text-sm">Recent User Activity</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-slate-400 border-b border-slate-700">
+                            <th className="text-left py-2">User</th>
+                            <th className="text-right py-2">Calls Today</th>
+                            <th className="text-right py-2">Min This Mo</th>
+                            <th className="text-right py-2">Relay 24h</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {usageStats.usageCounters.slice(0, 20).map((counter) => (
+                            <tr key={counter.userAddress} className="border-b border-slate-700/50">
+                              <td className="py-2 font-mono text-xs">{truncateAddress(counter.userAddress)}</td>
+                              <td className="text-right py-2">{counter.callsStartedToday}</td>
+                              <td className="text-right py-2">{Math.floor((counter.secondsUsedMonth || 0) / 60)}</td>
+                              <td className="text-right py-2">{counter.relayCalls24h}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </>
+          )}
+        </TabsContent>
+
         <TabsContent value="users" className="mt-4 space-y-4">
           <div className="flex gap-2">
             <div className="relative flex-1">
@@ -545,6 +735,7 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
                           {getRoleBadge(user.role)}
                           {getPlanBadge(user)}
                           {getTrialBadge(user)}
+                          {user.isComped && <Badge className="bg-emerald-600">Comped</Badge>}
                           {user.isDisabled && <Badge variant="destructive"><UserX className="w-3 h-3 mr-1" /> Disabled</Badge>}
                         </div>
                         {user.displayName && (
@@ -629,6 +820,19 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
                             </div>
                           </DialogContent>
                         </Dialog>
+
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setCompedMutation.mutate({ 
+                            address: user.address, 
+                            isComped: !user.isComped 
+                          })}
+                          title={user.isComped ? 'Remove perpetual Pro access' : 'Grant perpetual Pro access'}
+                          data-testid={`button-toggle-comped-${user.address.slice(0, 8)}`}
+                        >
+                          <Crown className={`w-4 h-4 ${user.isComped ? 'text-emerald-400' : 'text-slate-400'}`} />
+                        </Button>
 
                         {isFounder && user.role !== 'founder' && (
                           <Select

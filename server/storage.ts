@@ -147,6 +147,8 @@ export interface IStorage {
   // User tier management
   getUserTier(address: string): Promise<'free' | 'paid' | 'admin'>;
   setUserTier(address: string, tier: 'free' | 'paid' | 'admin', actorAddress: string): Promise<CryptoIdentityRecord | undefined>;
+  setCompedStatus(address: string, isComped: boolean, actorAddress: string): Promise<CryptoIdentityRecord | undefined>;
+  getAllUsageCounters(limit?: number): Promise<UsageCounter[]>;
 
   // Freeze Mode
   getAlwaysAllowedContacts(ownerAddress: string): Promise<Contact[]>;
@@ -1108,6 +1110,11 @@ export class DatabaseStorage implements IStorage {
       return 'admin';
     }
     
+    // Comped account = paid tier (perpetual Pro without billing)
+    if (identity.isComped) {
+      return 'paid';
+    }
+    
     // Active subscription = paid tier
     if ((identity.plan === 'pro' || identity.plan === 'business' || identity.plan === 'enterprise') && 
         identity.planStatus === 'active') {
@@ -1125,6 +1132,28 @@ export class DatabaseStorage implements IStorage {
     }
     
     return 'free';
+  }
+
+  // Set/unset comped status
+  async setCompedStatus(address: string, isComped: boolean, actorAddress: string): Promise<CryptoIdentityRecord | undefined> {
+    const identity = await this.getIdentity(address);
+    if (!identity) return undefined;
+
+    const updated = await this.updateIdentity(address, { isComped } as any);
+    
+    await this.createAuditLog({
+      actorAddress,
+      targetAddress: address,
+      actionType: isComped ? 'GRANT_COMPED' : 'REVOKE_COMPED',
+      metadata: { isComped }
+    });
+    
+    return updated;
+  }
+
+  // Get all usage counters for admin dashboard
+  async getAllUsageCounters(limit: number = 100): Promise<UsageCounter[]> {
+    return db.select().from(usageCounters).limit(limit).orderBy(sql`${usageCounters.updatedAt} DESC NULLS LAST`);
   }
 
   async setUserTier(address: string, tier: 'free' | 'paid' | 'admin', actorAddress: string): Promise<CryptoIdentityRecord | undefined> {

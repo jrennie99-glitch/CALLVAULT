@@ -44,6 +44,8 @@ export const cryptoIdentities = pgTable("crypto_identities", {
   // Freeze Mode fields
   freezeMode: boolean("freeze_mode").default(false),
   freezeModeSetupCompleted: boolean("freeze_mode_setup_completed").default(false),
+  // Comped account (perpetual Pro without billing)
+  isComped: boolean("is_comped").default(false),
 });
 
 export const insertCryptoIdentitySchema = createInsertSchema(cryptoIdentities).omit({

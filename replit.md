@@ -23,6 +23,8 @@ Preferred communication style: Simple, everyday language.
     - **Subscription Tiers**: Free, Pro ($9/mo), Business ($29/mo) with feature gating.
     - **Invite Links**: Admin-generated codes for influencer onboarding with trial access.
 - **Admin Console**: Role-Based Access Control (RBAC) for `founder`, `admin`, `user` roles, user management (enable/disable, roles), free trial system (time-based/usage-based), audit logs, impersonation, crypto invoice monitoring.
+    - **Comped Accounts**: Toggle `isComped` flag for perpetual Pro access without billing (useful for friends, family, or VIPs).
+    - **Usage Dashboard**: Real-time view of active calls, calls today, minutes this month, relay calls 24h, estimated TURN costs, and per-user activity table.
 - **Stripe Subscriptions (Phase 9)**: Full subscription management integration:
     - **Checkout Flow**: Stripe Checkout sessions for Pro ($9/mo) and Business ($29/mo) plans.
     - **Customer Portal**: Users can manage billing, update payment methods, and cancel subscriptions.

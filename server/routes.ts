@@ -1435,6 +1435,59 @@ export async function registerRoutes(
     }
   });
 
+  // Admin endpoint to set comped status (perpetual Pro without billing)
+  app.post('/api/admin/users/:address/comped', requireAdmin, async (req: any, res) => {
+    try {
+      const { address } = req.params;
+      const { isComped } = req.body;
+      const actorAddress = req.adminIdentity.address;
+      
+      if (typeof isComped !== 'boolean') {
+        return res.status(400).json({ error: 'isComped must be a boolean' });
+      }
+      
+      const updated = await storage.setCompedStatus(address, isComped, actorAddress);
+      if (!updated) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      res.json({ success: true, isComped, address });
+    } catch (error) {
+      console.error('Error setting comped status:', error);
+      res.status(500).json({ error: 'Failed to set comped status' });
+    }
+  });
+
+  // Admin endpoint to get all usage stats
+  app.get('/api/admin/usage-stats', requireAdmin, async (_req, res) => {
+    try {
+      const usageCounters = await storage.getAllUsageCounters(200);
+      const activeCalls = await storage.getAllActiveCalls();
+      
+      // Calculate estimated costs (TURN usage if enabled)
+      const turnEnabled = !!process.env.TURN_URL;
+      const relayCallsToday = usageCounters.reduce((sum, c) => sum + (c.relayCalls24h || 0), 0);
+      const estimatedTurnCostCents = turnEnabled ? relayCallsToday * 2 : 0; // ~$0.02 per relay call estimate
+      
+      res.json({
+        usageCounters,
+        activeCalls,
+        summary: {
+          totalActiveUsers: usageCounters.length,
+          totalActiveCalls: activeCalls.length,
+          totalCallsToday: usageCounters.reduce((sum, c) => sum + (c.callsStartedToday || 0), 0),
+          totalMinutesThisMonth: Math.floor(usageCounters.reduce((sum, c) => sum + (c.secondsUsedMonth || 0), 0) / 60),
+          totalRelayCallsToday: relayCallsToday,
+          turnEnabled,
+          estimatedTurnCostCents,
+        }
+      });
+    } catch (error) {
+      console.error('Error fetching usage stats:', error);
+      res.status(500).json({ error: 'Failed to fetch usage stats' });
+    }
+  });
+
   // Get user's free tier remaining limits
   app.get('/api/free-tier/limits/:address', async (req, res) => {
     try {
