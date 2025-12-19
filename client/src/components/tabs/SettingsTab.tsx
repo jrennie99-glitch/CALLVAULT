@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { User, Shield, Wifi, ChevronDown, ChevronUp, Copy, RefreshCw, Fingerprint, Eye, EyeOff, MessageSquare, CheckCheck, Clock, Phone, Ban, Bot, Wallet, ChevronRight, Ticket, Briefcase, BarChart3 } from 'lucide-react';
+import { User, Shield, Wifi, ChevronDown, ChevronUp, Copy, RefreshCw, Fingerprint, Eye, EyeOff, MessageSquare, CheckCheck, Clock, Phone, Ban, Bot, Wallet, ChevronRight, Ticket, Briefcase, BarChart3, Crown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,7 +11,7 @@ import { enrollBiometric, disableBiometric, isPlatformAuthenticatorAvailable } f
 import { toast } from 'sonner';
 import type { CryptoIdentity } from '@shared/types';
 
-type SettingsScreen = 'main' | 'call_permissions' | 'blocklist' | 'ai_guardian' | 'wallet' | 'passes' | 'creator_mode' | 'earnings_dashboard';
+type SettingsScreen = 'main' | 'call_permissions' | 'blocklist' | 'ai_guardian' | 'wallet' | 'passes' | 'creator_mode' | 'earnings_dashboard' | 'admin_console';
 
 interface SettingsTabProps {
   identity: CryptoIdentity | null;
@@ -28,10 +28,24 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [isEnrolling, setIsEnrolling] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [isFounder, setIsFounder] = useState(false);
 
   useEffect(() => {
     isPlatformAuthenticatorAvailable().then(setBiometricAvailable);
   }, []);
+
+  useEffect(() => {
+    if (identity?.address) {
+      fetch(`/api/identity/${identity.address}/role`)
+        .then(res => res.json())
+        .then(data => {
+          setIsAdmin(data.isAdmin || false);
+          setIsFounder(data.isFounder || false);
+        })
+        .catch(() => {});
+    }
+  }, [identity?.address]);
 
   const updatePrivacy = (updates: Partial<PrivacySettings>) => {
     const newPrivacy = { ...privacy, ...updates };
@@ -431,6 +445,36 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
           </CardContent>
         )}
       </Card>
+      {isAdmin && (
+        <Card className="bg-gradient-to-r from-yellow-500/10 to-orange-500/10 border border-yellow-500/20">
+          <CardHeader>
+            <CardTitle className="text-white flex items-center gap-2">
+              <Crown className="w-5 h-5 text-yellow-400" />
+              Administration
+            </CardTitle>
+            <CardDescription className="text-slate-400">
+              {isFounder ? 'Founder access' : 'Admin access'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <button
+              onClick={() => onNavigate?.('admin_console')}
+              className="w-full flex items-center justify-between p-3 bg-slate-900/30 rounded-lg hover:bg-slate-900/50 transition-colors"
+              data-testid="button-admin-console"
+            >
+              <div className="flex items-center gap-3">
+                <Shield className="w-5 h-5 text-yellow-400" />
+                <div className="text-left">
+                  <p className="text-white font-medium">Admin Console</p>
+                  <p className="text-slate-500 text-sm">Manage users, trials, and system settings</p>
+                </div>
+              </div>
+              <ChevronRight className="w-5 h-5 text-slate-400" />
+            </button>
+          </CardContent>
+        </Card>
+      )}
+
       <Card className="bg-slate-800/50 border-slate-700">
         <CardHeader>
           <CardTitle className="text-white">About</CardTitle>

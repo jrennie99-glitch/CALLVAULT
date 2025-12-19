@@ -19,6 +19,7 @@ import { WalletVerification } from '@/components/WalletVerification';
 import { InvitePassManager } from '@/components/InvitePassManager';
 import { CreatorModeSettings } from '@/components/CreatorModeSettings';
 import { EarningsDashboard } from '@/components/EarningsDashboard';
+import { AdminConsole } from '@/components/AdminConsole';
 import { ChatPage } from '@/pages/chat';
 import * as cryptoLib from '@/lib/crypto';
 import { getAppSettings, addCallRecord, getContactByAddress, getContacts } from '@/lib/storage';
@@ -27,7 +28,7 @@ import { addToLocalBlocklist, isCreatorAvailable, shouldRequirePayment, getCallP
 import { PaymentRequiredScreen } from '@/components/PaymentRequiredScreen';
 import type { CryptoIdentity, WSMessage, Conversation, Message, CallRequest, CallPricing } from '@shared/types';
 
-type SettingsScreen = 'main' | 'call_permissions' | 'blocklist' | 'ai_guardian' | 'wallet' | 'passes' | 'creator_mode' | 'earnings_dashboard';
+type SettingsScreen = 'main' | 'call_permissions' | 'blocklist' | 'ai_guardian' | 'wallet' | 'passes' | 'creator_mode' | 'earnings_dashboard' | 'admin_console';
 
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -637,6 +638,12 @@ export default function CallPage() {
         {activeTab === 'settings' && settingsScreen === 'earnings_dashboard' && identity && (
           <EarningsDashboard
             creatorAddress={identity.address}
+            onBack={() => setSettingsScreen('main')}
+          />
+        )}
+        {activeTab === 'settings' && settingsScreen === 'admin_console' && identity && (
+          <AdminConsole
+            identity={identity}
             onBack={() => setSettingsScreen('main')}
           />
         )}
