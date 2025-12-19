@@ -1099,6 +1099,254 @@ export async function registerRoutes(
     }
   });
 
+  // Get user entitlements (public)
+  app.get('/api/entitlements/:address', async (req, res) => {
+    try {
+      const { address } = req.params;
+      const identity = await storage.getIdentity(address);
+      
+      if (!identity) {
+        return res.json({ 
+          canUseProFeatures: false, 
+          canUseBusinessFeatures: false,
+          plan: 'free',
+          trialStatus: 'none'
+        });
+      }
+      
+      const canUsePro = await storage.canUseProFeatures(address);
+      const canUseBusiness = await storage.canUseBusinessFeatures(address);
+      
+      res.json({
+        canUseProFeatures: canUsePro,
+        canUseBusinessFeatures: canUseBusiness,
+        plan: identity.plan,
+        planStatus: identity.planStatus,
+        trialStatus: identity.trialStatus,
+        trialEndAt: identity.trialEndAt,
+        trialMinutesRemaining: identity.trialMinutesRemaining,
+        trialPlan: identity.trialPlan,
+      });
+    } catch (error) {
+      console.error('Error fetching entitlements:', error);
+      res.status(500).json({ error: 'Failed to fetch entitlements' });
+    }
+  });
+
+  // Admin: Update user plan (admin/founder only)
+  app.put('/api/admin/users/:address/plan', async (req, res) => {
+    try {
+      const { address } = req.params;
+      const { plan, actorAddress, signature, timestamp } = req.body;
+      
+      // Verify admin signature
+      if (!actorAddress || !signature || !timestamp) {
+        return res.status(401).json({ error: 'Admin authentication required' });
+      }
+      
+      // Check timestamp freshness (5 minute window for admin requests)
+      if (Math.abs(Date.now() - timestamp) > 5 * 60 * 1000) {
+        return res.status(401).json({ error: 'Request expired' });
+      }
+      
+      // Verify actor is admin
+      const actorIdentity = await storage.getIdentity(actorAddress);
+      if (!actorIdentity || (actorIdentity.role !== 'admin' && actorIdentity.role !== 'founder')) {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+      
+      // Verify signature
+      try {
+        const message = `admin:plan:${address}:${plan}:${timestamp}`;
+        const messageBytes = new TextEncoder().encode(message);
+        const signatureBytes = bs58.decode(signature);
+        const publicKeyBytes = bs58.decode(actorIdentity.publicKeyBase58);
+        
+        const valid = nacl.sign.detached.verify(messageBytes, signatureBytes, publicKeyBytes);
+        if (!valid) {
+          return res.status(401).json({ error: 'Invalid signature' });
+        }
+      } catch (error) {
+        return res.status(401).json({ error: 'Signature verification failed' });
+      }
+      
+      const validPlans = ['free', 'pro', 'business', 'enterprise'];
+      if (!validPlans.includes(plan)) {
+        return res.status(400).json({ error: 'Invalid plan' });
+      }
+      
+      const updated = await storage.updatePlan(address, plan, actorAddress);
+      if (!updated) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      res.json(updated);
+    } catch (error) {
+      console.error('Error updating plan:', error);
+      res.status(500).json({ error: 'Failed to update plan' });
+    }
+  });
+
+  // Admin stats endpoint
+  app.get('/api/admin/stats', async (req, res) => {
+    try {
+      const stats = await storage.getAdminStats();
+      res.json(stats);
+    } catch (error) {
+      console.error('Error fetching admin stats:', error);
+      res.status(500).json({ error: 'Failed to fetch admin stats' });
+    }
+  });
+
+  // Invite Links API
+  
+  // Get all invite links (admin only)
+  app.get('/api/admin/invite-links', async (req, res) => {
+    try {
+      const links = await storage.getAllInviteLinks();
+      res.json(links);
+    } catch (error) {
+      console.error('Error fetching invite links:', error);
+      res.status(500).json({ error: 'Failed to fetch invite links' });
+    }
+  });
+
+  // Create invite link (admin only)
+  app.post('/api/admin/invite-links', async (req, res) => {
+    try {
+      const { createdByAddress, type, trialDays, trialMinutes, grantPlan, maxUses, expiresAt, signature, timestamp } = req.body;
+      
+      // Verify admin signature
+      if (!createdByAddress || !signature || !timestamp) {
+        return res.status(401).json({ error: 'Admin authentication required' });
+      }
+      
+      // Check timestamp freshness
+      if (Math.abs(Date.now() - timestamp) > 5 * 60 * 1000) {
+        return res.status(401).json({ error: 'Request expired' });
+      }
+      
+      // Verify actor is admin
+      const actorIdentity = await storage.getIdentity(createdByAddress);
+      if (!actorIdentity || (actorIdentity.role !== 'admin' && actorIdentity.role !== 'founder')) {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+      
+      // Generate unique code
+      const code = Math.random().toString(36).substring(2, 10).toUpperCase();
+      
+      const link = await storage.createInviteLink({
+        code,
+        createdByAddress,
+        type: type || 'trial',
+        trialDays: trialDays ?? 7,
+        trialMinutes: trialMinutes ?? 30,
+        grantPlan: grantPlan || 'pro',
+        maxUses: maxUses || null,
+        expiresAt: expiresAt ? new Date(expiresAt) : null,
+        isActive: true,
+      });
+      
+      // Log the action
+      await storage.createAuditLog({
+        actorAddress: createdByAddress,
+        actionType: 'CREATE_INVITE_LINK',
+        metadata: { linkId: link.id, code: link.code, type: link.type }
+      });
+      
+      res.json(link);
+    } catch (error) {
+      console.error('Error creating invite link:', error);
+      res.status(500).json({ error: 'Failed to create invite link' });
+    }
+  });
+
+  // Delete/deactivate invite link (admin only)
+  app.delete('/api/admin/invite-links/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { actorAddress } = req.body;
+      
+      // Verify actor is admin
+      const actorIdentity = await storage.getIdentity(actorAddress);
+      if (!actorIdentity || (actorIdentity.role !== 'admin' && actorIdentity.role !== 'founder')) {
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+      
+      await storage.updateInviteLink(id, { isActive: false });
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error deleting invite link:', error);
+      res.status(500).json({ error: 'Failed to delete invite link' });
+    }
+  });
+
+  // Public: Get invite link info (for /invite/:code page)
+  app.get('/api/invite/:code', async (req, res) => {
+    try {
+      const { code } = req.params;
+      const link = await storage.getInviteLink(code);
+      
+      if (!link) {
+        return res.status(404).json({ error: 'Invite link not found' });
+      }
+      
+      if (!link.isActive) {
+        return res.status(410).json({ error: 'Invite link is no longer active' });
+      }
+      
+      if (link.expiresAt && new Date(link.expiresAt) < new Date()) {
+        return res.status(410).json({ error: 'Invite link has expired' });
+      }
+      
+      if (link.maxUses && link.uses !== null && link.uses >= link.maxUses) {
+        return res.status(410).json({ error: 'Invite link has reached maximum uses' });
+      }
+      
+      // Return public-safe info only
+      res.json({
+        code: link.code,
+        type: link.type,
+        trialDays: link.trialDays,
+        trialMinutes: link.trialMinutes,
+        grantPlan: link.grantPlan,
+        isValid: true,
+      });
+    } catch (error) {
+      console.error('Error fetching invite link:', error);
+      res.status(500).json({ error: 'Failed to fetch invite link' });
+    }
+  });
+
+  // Public: Redeem invite link
+  app.post('/api/invite/:code/redeem', async (req, res) => {
+    try {
+      const { code } = req.params;
+      const { redeemerAddress } = req.body;
+      
+      if (!redeemerAddress) {
+        return res.status(400).json({ error: 'Redeemer address required' });
+      }
+      
+      const result = await storage.redeemInviteLink(code, redeemerAddress);
+      
+      if (!result.success) {
+        return res.status(400).json({ error: result.error });
+      }
+      
+      res.json({ 
+        success: true, 
+        trialDays: result.link?.trialDays,
+        trialMinutes: result.link?.trialMinutes,
+        grantPlan: result.link?.grantPlan,
+      });
+    } catch (error) {
+      console.error('Error redeeming invite link:', error);
+      res.status(500).json({ error: 'Failed to redeem invite link' });
+    }
+  });
+
   const wss = new WebSocketServer({ 
     server: httpServer,
     path: '/ws'
