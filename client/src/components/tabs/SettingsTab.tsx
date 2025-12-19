@@ -1,14 +1,17 @@
 import { useState, useEffect } from 'react';
-import { User, Shield, Wifi, ChevronDown, ChevronUp, Copy, RefreshCw, Fingerprint, Eye, EyeOff, MessageSquare, CheckCheck, Clock, Phone, Ban, Bot, Wallet, ChevronRight, Ticket, Briefcase, BarChart3, Crown } from 'lucide-react';
+import { User, Shield, Wifi, ChevronDown, ChevronUp, Copy, RefreshCw, Fingerprint, Eye, EyeOff, MessageSquare, CheckCheck, Clock, Phone, Ban, Bot, Wallet, ChevronRight, Ticket, Briefcase, BarChart3, Crown, Lock, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
 import { getUserProfile, saveUserProfile, getAppSettings, saveAppSettings } from '@/lib/storage';
 import { getPrivacySettings, savePrivacySettings, type PrivacySettings } from '@/lib/messageStorage';
 import { enrollBiometric, disableBiometric, isPlatformAuthenticatorAvailable } from '@/lib/biometric';
 import { toast } from 'sonner';
+import { useEntitlements } from '@/hooks/useEntitlements';
 import type { CryptoIdentity } from '@shared/types';
 
 type SettingsScreen = 'main' | 'call_permissions' | 'blocklist' | 'ai_guardian' | 'wallet' | 'passes' | 'creator_mode' | 'earnings_dashboard' | 'admin_console';
@@ -30,6 +33,10 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
   const [isEnrolling, setIsEnrolling] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isFounder, setIsFounder] = useState(false);
+  const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
+  const [upgradeFeature, setUpgradeFeature] = useState<'business' | 'earnings'>('business');
+  
+  const { isPro, isBusiness, hasTrial, trialDaysRemaining, trialMinutesRemaining } = useEntitlements(identity?.address || null);
 
   useEffect(() => {
     isPlatformAuthenticatorAvailable().then(setBiometricAvailable);
@@ -93,6 +100,24 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
     if (identity) {
       navigator.clipboard.writeText(identity.publicKeyBase58);
       toast.success('Public key copied!');
+    }
+  };
+
+  const handleBusinessModeClick = () => {
+    if (isBusiness || isPro) {
+      onNavigate?.('creator_mode');
+    } else {
+      setUpgradeFeature('business');
+      setShowUpgradeDialog(true);
+    }
+  };
+
+  const handleEarningsDashboardClick = () => {
+    if (isBusiness || isPro) {
+      onNavigate?.('earnings_dashboard');
+    } else {
+      setUpgradeFeature('earnings');
+      setShowUpgradeDialog(true);
     }
   };
 
@@ -261,7 +286,7 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
           </button>
 
           <button
-            onClick={() => onNavigate?.('creator_mode')}
+            onClick={handleBusinessModeClick}
             className="w-full flex items-center justify-between p-3 bg-gradient-to-r from-purple-500/10 to-pink-500/10 border border-purple-500/20 rounded-lg hover:from-purple-500/20 hover:to-pink-500/20 transition-all"
             data-testid="button-creator-mode"
           >
@@ -270,16 +295,24 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
               <div className="text-left">
                 <p className="text-white font-medium flex items-center gap-2">
                   Business Mode
-                  <span className="text-xs bg-purple-500/20 text-purple-400 px-1.5 py-0.5 rounded">Pro</span>
+                  {isPro || isBusiness ? (
+                    <span className="text-xs bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded">Active</span>
+                  ) : (
+                    <span className="text-xs bg-purple-500/20 text-purple-400 px-1.5 py-0.5 rounded">Pro</span>
+                  )}
                 </p>
                 <p className="text-slate-500 text-sm">Accept paid calls & set hours</p>
               </div>
             </div>
-            <ChevronRight className="w-5 h-5 text-slate-400" />
+            {isPro || isBusiness ? (
+              <ChevronRight className="w-5 h-5 text-slate-400" />
+            ) : (
+              <Lock className="w-5 h-5 text-slate-500" />
+            )}
           </button>
 
           <button
-            onClick={() => onNavigate?.('earnings_dashboard')}
+            onClick={handleEarningsDashboardClick}
             className="w-full flex items-center justify-between p-3 bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-500/20 rounded-lg hover:from-green-500/20 hover:to-emerald-500/20 transition-all"
             data-testid="button-earnings-dashboard"
           >
@@ -288,12 +321,20 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
               <div className="text-left">
                 <p className="text-white font-medium flex items-center gap-2">
                   Earnings Dashboard
-                  <span className="text-xs bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded">Pro</span>
+                  {isPro || isBusiness ? (
+                    <span className="text-xs bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded">Active</span>
+                  ) : (
+                    <span className="text-xs bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded">Pro</span>
+                  )}
                 </p>
                 <p className="text-slate-500 text-sm">View your call stats & earnings</p>
               </div>
             </div>
-            <ChevronRight className="w-5 h-5 text-slate-400" />
+            {isPro || isBusiness ? (
+              <ChevronRight className="w-5 h-5 text-slate-400" />
+            ) : (
+              <Lock className="w-5 h-5 text-slate-500" />
+            )}
           </button>
         </CardContent>
       </Card>
@@ -488,6 +529,69 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
           </p>
         </CardContent>
       </Card>
+
+      <Dialog open={showUpgradeDialog} onOpenChange={setShowUpgradeDialog}>
+        <DialogContent className="bg-slate-800 border-slate-700 max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-purple-400" />
+              Upgrade to Pro
+            </DialogTitle>
+            <DialogDescription className="text-slate-400">
+              {upgradeFeature === 'business' 
+                ? 'Business Mode lets you accept paid calls, set business hours, and build your creator profile.'
+                : 'Earnings Dashboard shows your call statistics, revenue tracking, and payment history.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <div className="bg-slate-700/50 rounded-lg p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-white font-medium">Pro Plan</span>
+                <Badge className="bg-purple-500">$9/month</Badge>
+              </div>
+              <ul className="space-y-2 text-sm text-slate-300">
+                <li className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-purple-400" />
+                  Paid call links
+                </li>
+                <li className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-purple-400" />
+                  Business hours & scheduling
+                </li>
+                <li className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-purple-400" />
+                  Earnings dashboard
+                </li>
+              </ul>
+            </div>
+            
+            <div className="text-center text-sm text-slate-400">
+              <p>Try free for 7 days + 30 minutes</p>
+            </div>
+            
+            <div className="flex gap-3">
+              <Button 
+                variant="outline" 
+                className="flex-1" 
+                onClick={() => setShowUpgradeDialog(false)}
+                data-testid="button-cancel-upgrade"
+              >
+                Maybe Later
+              </Button>
+              <Button 
+                className="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600"
+                onClick={() => {
+                  setShowUpgradeDialog(false);
+                  window.location.href = '/pricing';
+                }}
+                data-testid="button-view-plans"
+              >
+                View Plans
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
