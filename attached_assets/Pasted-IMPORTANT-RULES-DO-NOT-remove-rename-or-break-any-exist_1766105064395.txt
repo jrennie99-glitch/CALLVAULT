@@ -1,0 +1,61 @@
+IMPORTANT RULES:
+- DO NOT remove, rename, or break any existing features or UI.
+- DO NOT refactor working code unless required for reliability.
+- ONLY complete and harden Phase 4 features.
+- App must remain production-ready at all times.
+
+PHASE 4 – FINALIZATION & HARDENING TASKS:
+
+1) Business / Creator Mode (FINALIZE)
+- Ensure Business Mode toggle is persistent (saved per user).
+- Creator Profile must include:
+  • display name
+  • bio
+  • category
+  • pricing model (per-call OR per-minute)
+- Validate all inputs and show inline errors if incomplete.
+
+2) Paid Calls Logic (UI + STATE)
+- When Business Mode is ON:
+  • Incoming calls must check pricing rules
+  • If payment is required, show a “Payment Required” screen
+- Ensure free calls still work for approved contacts.
+- Make sure paid vs free logic is clearly separated.
+
+3) Call Queue System
+- If creator is unavailable:
+  • Add caller to a visible queue
+  • Show caller their queue position
+  • Show creator a live queue list
+- Queue must auto-clear when calls end.
+
+4) Business Hours Enforcement
+- Enforce weekly availability rules:
+  • Block paid calls outside business hours
+  • Show a clear “Unavailable” state
+- Allow creator to override availability manually.
+
+5) UI POLISH (NO REDESIGN)
+- Ensure Calls, Contacts, Add, and Settings tabs are consistent.
+- Empty states must always show a clear CTA button.
+- Paid features should be labeled with subtle “Pro” badges.
+
+6) Stability & Safety
+- Add guards so failed payments never start a call.
+- Prevent duplicate call sessions.
+- Ensure refresh/reload does not break call state.
+
+7) DO NOT ADD:
+- No real Stripe charges yet (keep test mode only).
+- No database migrations unless strictly necessary.
+- No new tabs or navigation changes.
+
+FINAL CHECK:
+- App should behave like WhatsApp + Calendly + Paid Calling.
+- Everything must work on mobile, tablet, and desktop.
+- If anything breaks, auto-fix before stopping.
+
+Confirm completion with:
+- What was finalized
+- What is now production-safe
+- What is queued for Phase 5

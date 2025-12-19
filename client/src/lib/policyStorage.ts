@@ -268,3 +268,64 @@ export function formatPrice(cents: number, currency: string = 'usd'): string {
     currency: currency.toUpperCase()
   }).format(cents / 100);
 }
+
+// Business Hours Availability Check
+export function isCreatorAvailable(): { available: boolean; reason?: string } {
+  const profile = getCreatorProfile();
+  const hours = getBusinessHoursSettings();
+  
+  if (!profile || !profile.enabled) {
+    return { available: true }; // Not a business account, always available
+  }
+  
+  if (!hours) {
+    return { available: true }; // No hours configured, always available
+  }
+  
+  const now = new Date();
+  const dayOfWeek = now.getDay() as 0 | 1 | 2 | 3 | 4 | 5 | 6;
+  const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+  
+  const todaySlot = hours.slots.find(s => s.day === dayOfWeek);
+  
+  if (!todaySlot || !todaySlot.enabled) {
+    return { 
+      available: false, 
+      reason: 'Not available today. Check back during business hours.' 
+    };
+  }
+  
+  if (currentTime < todaySlot.start || currentTime > todaySlot.end) {
+    return { 
+      available: false, 
+      reason: `Available ${todaySlot.start} - ${todaySlot.end}. Try again during business hours.` 
+    };
+  }
+  
+  return { available: true };
+}
+
+// Check if a caller should pay for a call
+export function shouldRequirePayment(callerAddress: string): { required: boolean; pricing?: CallPricing } {
+  const profile = getCreatorProfile();
+  const pricing = getCallPricingSettings();
+  
+  if (!profile || !profile.enabled) {
+    return { required: false };
+  }
+  
+  if (!pricing || !pricing.enabled) {
+    return { required: false };
+  }
+  
+  // Check if caller is in friends & family list
+  if (pricing.friends_family_addresses.includes(callerAddress)) {
+    return { required: false };
+  }
+  
+  // Check if this is first call and free_first_call is enabled
+  // For now, always require payment if not in whitelist
+  // In production, you'd check call history
+  
+  return { required: true, pricing };
+}

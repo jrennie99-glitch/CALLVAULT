@@ -22,8 +22,9 @@ import { ChatPage } from '@/pages/chat';
 import * as cryptoLib from '@/lib/crypto';
 import { getAppSettings, addCallRecord, getContactByAddress, getContacts } from '@/lib/storage';
 import { getLocalConversations, saveLocalConversation, getOrCreateDirectConvo, saveLocalMessage, incrementUnreadCount, getPrivacySettings } from '@/lib/messageStorage';
-import { addToLocalBlocklist } from '@/lib/policyStorage';
-import type { CryptoIdentity, WSMessage, Conversation, Message, CallRequest } from '@shared/types';
+import { addToLocalBlocklist, isCreatorAvailable, shouldRequirePayment, getCallPricingSettings } from '@/lib/policyStorage';
+import { PaymentRequiredScreen } from '@/components/PaymentRequiredScreen';
+import type { CryptoIdentity, WSMessage, Conversation, Message, CallRequest, CallPricing } from '@shared/types';
 
 type SettingsScreen = 'main' | 'call_permissions' | 'blocklist' | 'ai_guardian' | 'wallet' | 'passes' | 'creator_mode';
 
@@ -60,6 +61,11 @@ export default function CallPage() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [settingsScreen, setSettingsScreen] = useState<SettingsScreen>('main');
   const [callRequests, setCallRequests] = useState<CallRequest[]>([]);
+  const [pendingPaidCall, setPendingPaidCall] = useState<{
+    address: string;
+    video: boolean;
+    pricing: CallPricing;
+  } | null>(null);
 
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -224,15 +230,82 @@ export default function CallPage() {
   }, [activeChat]);
 
   const handleStartCall = (address: string, video: boolean) => {
+    // Guard: Prevent duplicate calls
+    if (inCall) {
+      toast.error('Already in a call');
+      return;
+    }
+    if (!address || !address.startsWith('call:')) {
+      toast.error('Invalid call address');
+      return;
+    }
+    
+    // Note: For outbound calls, payment/availability enforcement happens on the recipient's end
+    // The recipient's signaling server will reject or queue the call based on their settings
+    
+    // Proceed with call initiation
     setCallDestination(address);
     setCallIsVideo(video);
     setCallIsInitiator(true);
     setInCall(true);
     pendingCallRef.current = { address, video };
   };
+  
+  const handlePayAndCall = () => {
+    if (!pendingPaidCall) return;
+    
+    // In test mode, simulate payment success
+    toast.success('Payment simulated (test mode)');
+    
+    setCallDestination(pendingPaidCall.address);
+    setCallIsVideo(pendingPaidCall.video);
+    setCallIsInitiator(true);
+    setInCall(true);
+    pendingCallRef.current = { address: pendingPaidCall.address, video: pendingPaidCall.video };
+    setPendingPaidCall(null);
+  };
+  
+  const handleCancelPaidCall = () => {
+    setPendingPaidCall(null);
+  };
 
   const handleAcceptCall = async () => {
     if (!incomingCall || !ws || !identity) return;
+    
+    // Guard: Prevent accepting if already in a call
+    if (inCall) {
+      toast.error('Already in a call');
+      setIncomingCall(null);
+      return;
+    }
+    
+    // Check if I (the creator) require payment from this caller
+    const paymentCheck = shouldRequirePayment(incomingCall.from_address);
+    if (paymentCheck.required && paymentCheck.pricing) {
+      // Reject the call and notify caller that payment is required
+      ws.send(JSON.stringify({
+        type: 'call:reject',
+        to_address: incomingCall.from_address,
+        reason: 'payment_required'
+      }));
+      toast.info('Call rejected - payment required. Share a paid call link with the caller.');
+      setIncomingCall(null);
+      return;
+    }
+    
+    // Check if I'm available during business hours
+    const availability = isCreatorAvailable();
+    if (!availability.available) {
+      // Reject the call and notify caller of unavailability
+      ws.send(JSON.stringify({
+        type: 'call:reject',
+        to_address: incomingCall.from_address,
+        reason: 'unavailable'
+      }));
+      toast.info(availability.reason || 'Call rejected - outside business hours.');
+      setIncomingCall(null);
+      return;
+    }
 
     remoteAddressRef.current = incomingCall.from_address;
     setCallDestination(incomingCall.from_address);
@@ -383,6 +456,18 @@ export default function CallPage() {
   return (
     <div className="min-h-screen bg-slate-900 text-white flex flex-col">
       <TopBar />
+      
+      {pendingPaidCall && (
+        <PaymentRequiredScreen
+          recipientAddress={pendingPaidCall.address}
+          recipientName={getContactByAddress(pendingPaidCall.address)?.name}
+          pricing={pendingPaidCall.pricing}
+          isVideo={pendingPaidCall.video}
+          isTestMode={true}
+          onPay={handlePayAndCall}
+          onCancel={handleCancelPaidCall}
+        />
+      )}
 
       <main className="flex-1 pb-20 overflow-y-auto">
         {activeTab === 'chats' && (

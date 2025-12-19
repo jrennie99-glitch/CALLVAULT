@@ -42,6 +42,7 @@ const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export function CreatorModeSettings({ identity, onBack }: CreatorModeSettingsProps) {
   const [activeSection, setActiveSection] = useState<'main' | 'hours' | 'pricing'>('main');
+  const [errors, setErrors] = useState<{ display_name?: string; bio?: string }>({});
   
   const [profile, setProfile] = useState<CreatorProfile>(() => {
     const stored = getCreatorProfile();
@@ -76,7 +77,30 @@ export function CreatorModeSettings({ identity, onBack }: CreatorModeSettingsPro
     return getDefaultCallPricing(identity.address);
   });
 
+  const validateProfile = (): boolean => {
+    const newErrors: { display_name?: string; bio?: string } = {};
+    
+    if (profile.enabled) {
+      if (!profile.display_name.trim()) {
+        newErrors.display_name = 'Display name is required';
+      } else if (profile.display_name.length < 2) {
+        newErrors.display_name = 'Display name must be at least 2 characters';
+      }
+      
+      if (profile.bio && profile.bio.length > 300) {
+        newErrors.bio = 'Bio must be under 300 characters';
+      }
+    }
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
   const saveProfile = () => {
+    if (!validateProfile()) {
+      toast.error('Please fix the errors before saving');
+      return;
+    }
     const updated = { ...profile, updated_at: Date.now() };
     saveCreatorProfile(updated);
     setProfile(updated);
@@ -353,24 +377,43 @@ export function CreatorModeSettings({ identity, onBack }: CreatorModeSettingsPro
           {profile.enabled && (
             <>
               <div className="space-y-2">
-                <Label className="text-slate-300">Display Name</Label>
+                <Label className="text-slate-300">Display Name *</Label>
                 <Input
                   value={profile.display_name}
-                  onChange={(e) => setProfile({ ...profile, display_name: e.target.value })}
+                  onChange={(e) => {
+                    setProfile({ ...profile, display_name: e.target.value });
+                    if (errors.display_name) setErrors({ ...errors, display_name: undefined });
+                  }}
                   placeholder="Your professional name"
-                  className="bg-slate-900/50 border-slate-600 text-white"
+                  className={`bg-slate-900/50 text-white ${errors.display_name ? 'border-red-500' : 'border-slate-600'}`}
                 />
+                {errors.display_name && (
+                  <p className="text-red-400 text-xs">{errors.display_name}</p>
+                )}
               </div>
 
               <div className="space-y-2">
                 <Label className="text-slate-300">Bio</Label>
                 <Textarea
                   value={profile.bio}
-                  onChange={(e) => setProfile({ ...profile, bio: e.target.value })}
+                  onChange={(e) => {
+                    setProfile({ ...profile, bio: e.target.value });
+                    if (errors.bio) setErrors({ ...errors, bio: undefined });
+                  }}
                   placeholder="Tell people what you do..."
-                  className="bg-slate-900/50 border-slate-600 text-white"
+                  className={`bg-slate-900/50 text-white ${errors.bio ? 'border-red-500' : 'border-slate-600'}`}
                   rows={3}
                 />
+                <div className="flex justify-between">
+                  {errors.bio ? (
+                    <p className="text-red-400 text-xs">{errors.bio}</p>
+                  ) : (
+                    <span />
+                  )}
+                  <span className={`text-xs ${profile.bio.length > 280 ? 'text-yellow-400' : 'text-slate-500'}`}>
+                    {profile.bio.length}/300
+                  </span>
+                </div>
               </div>
 
               <div className="space-y-2">
