@@ -1,0 +1,118 @@
+TASK: ADD FINAL PRICING + USAGE PROTECTION (NO FEATURE REMOVAL)
+
+RULES:
+- DO NOT remove or modify any existing feature, UI, routes, or logic
+- ONLY add pricing, limits, and access gating
+- All existing calls, video calls, encryption, contacts, queues, etc must remain intact
+
+==============================
+PRICING TIERS (FINAL)
+==============================
+
+FREE (default, $0 forever)
+Purpose: Privacy + spam protection only
+
+FREE USER RULES:
+- Allow unlimited INCOMING calls
+- Allow replying to incoming calls
+- Allow end-to-end encrypted voice & video calls
+- Allow cryptographic identity + invite-only calling
+- Allow contact allowlist (approved callers only)
+
+FREE USER HARD LIMITS (CRITICAL):
+- Outbound calls: MAX 5 per day
+- Call duration: MAX 15 minutes per call
+- Concurrency: 1 call at a time
+- NO call scheduling
+- NO paid call links
+- NO per-minute billing
+- NO public profile
+- NO business mode
+- NO call queues
+- NO team features
+- NO earnings dashboard
+
+Free users must NEVER create unlimited outbound usage or cost exposure.
+
+------------------------------
+
+PRO ($9 / month) — MOST POPULAR
+
+Everything in Free PLUS:
+- Unlimited outbound calls
+- Unlimited call duration
+- Unlimited daily calls
+- Call scheduling
+- Availability controls
+- Paid call links (monetize time)
+- Creator mode
+- Higher call priority
+- Remove all fair-use limits
+
+NO per-minute billing required (flat subscription).
+
+------------------------------
+
+BUSINESS ($29 / month)
+
+Everything in Pro PLUS:
+- Public profile page
+- Call queue management
+- Earnings dashboard
+- Business mode
+- Priority routing
+- Custom branding
+- Admin controls
+- Future team / assistant support
+
+==============================
+ACCESS GATING LOGIC
+==============================
+
+On every outbound call attempt:
+IF user.plan == "FREE":
+  - Check daily_outbound_calls < 5
+  - Enforce max_call_duration = 15 minutes
+  - Block scheduling, queues, paid links
+  - If limits exceeded → show upgrade modal
+
+IF user.plan == "PRO":
+  - Allow unlimited outbound + duration
+  - Enable paid call links
+  - Enable scheduling
+
+IF user.plan == "BUSINESS":
+  - Enable all Pro features
+  - Enable queues, public profile, dashboard
+
+==============================
+BILLING
+==============================
+
+- Stripe ONLY
+- Monthly subscription billing
+- No crypto, no wallets, no blockchain payments
+- Trials allowed for Pro & Business
+- Free tier requires NO payment method
+
+==============================
+UI UPDATES (ADD ONLY)
+==============================
+
+- Update /pricing page to reflect new tiers and limits
+- Mark PRO as "Most Popular"
+- Add subtle note on Free plan:
+  "Designed for privacy & spam protection. Outbound limits apply."
+
+- When Free limits are hit:
+  Show upgrade modal → Pro $9 / Business $29
+
+==============================
+NON-NEGOTIABLE
+==============================
+
+- Free users must NEVER cause unbounded infrastructure cost
+- Free tier must solve spam/privacy but push power users to upgrade
+- All existing features must continue working exactly as before
+
+END TASK

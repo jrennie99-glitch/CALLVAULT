@@ -3,11 +3,13 @@ import type { UsageCounter, ActiveCall } from '@shared/schema';
 
 // Free tier limits
 export const FREE_TIER_LIMITS = {
-  MAX_CALL_DURATION_SECONDS: 600, // 10 minutes
-  MAX_CALLS_PER_DAY: 2,
-  MAX_SECONDS_PER_MONTH: 1800, // 30 minutes
-  MAX_CALL_ATTEMPTS_PER_HOUR: 5,
-  MAX_FAILED_STARTS_PER_DAY: 10,
+  MAX_CALL_DURATION_SECONDS: 900, // 15 minutes
+  MAX_OUTBOUND_CALLS_PER_DAY: 5, // Outbound only - incoming unlimited
+  MAX_CALLS_PER_DAY: 5, // Kept for backward compatibility
+  MAX_SECONDS_PER_MONTH: 3600, // 60 minutes (generous for privacy use case)
+  MAX_CALL_ATTEMPTS_PER_HOUR: 10,
+  MAX_FAILED_STARTS_PER_DAY: 15,
+  MAX_CONCURRENT_CALLS: 1, // Only 1 call at a time
   HEARTBEAT_INTERVAL_SECONDS: 15,
   HEARTBEAT_TIMEOUT_SECONDS: 45,
   IDLE_BACKGROUND_TIMEOUT_SECONDS: 60,
@@ -114,12 +116,12 @@ export class FreeTierShield {
       };
     }
 
-    // A.2) Max calls per day: 2 successful call starts
-    if ((counter.callsStartedToday || 0) >= FREE_TIER_LIMITS.MAX_CALLS_PER_DAY) {
+    // A.2) Max outbound calls per day: 5 successful call starts
+    if ((counter.callsStartedToday || 0) >= FREE_TIER_LIMITS.MAX_OUTBOUND_CALLS_PER_DAY) {
       return {
         allowed: false,
         errorCode: 'LIMIT_DAILY_CALLS',
-        message: 'You\'ve used your 2 free calls for today. Upgrade for unlimited calls.'
+        message: 'You\'ve used your 5 free outbound calls for today. Upgrade for unlimited calls.'
       };
     }
 
