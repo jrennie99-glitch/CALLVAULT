@@ -66,12 +66,12 @@ export function CallsTab({ onStartCall, onNavigateToAdd, onNavigateToContacts, o
         </p>
         <div className="flex flex-col gap-3 w-full max-w-xs">
           <Button
-            onClick={onNavigateToSettings}
-            className="bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700"
-            data-testid="button-create-invite-empty"
+            onClick={onNavigateToContacts}
+            className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700"
+            data-testid="button-start-video-call-empty"
           >
-            <Ticket className="w-4 h-4 mr-2" />
-            Create Call Invite
+            <Video className="w-4 h-4 mr-2" />
+            Start Video Call
           </Button>
           <Button
             onClick={onNavigateToAdd}
