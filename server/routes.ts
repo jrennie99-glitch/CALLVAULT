@@ -661,6 +661,367 @@ export async function registerRoutes(
     }
   });
 
+  // ============================================
+  // ADMIN CONSOLE API ROUTES (Phase 6)
+  // ============================================
+
+  // Founder seeding on startup
+  const FOUNDER_ADDRESS = process.env.FOUNDER_ADDRESS;
+  
+  async function seedFounder() {
+    if (!FOUNDER_ADDRESS) return;
+    
+    const identity = await storage.getIdentity(FOUNDER_ADDRESS);
+    if (identity && identity.role !== 'founder') {
+      await storage.updateIdentity(FOUNDER_ADDRESS, { role: 'founder' } as any);
+      console.log(`Promoted ${FOUNDER_ADDRESS} to founder role`);
+    } else if (!identity) {
+      console.log(`Founder address ${FOUNDER_ADDRESS} not found in database yet - will be promoted on first registration`);
+    }
+  }
+  
+  seedFounder().catch(console.error);
+
+  // Admin auth middleware
+  async function requireAdmin(req: any, res: any, next: any) {
+    const actorAddress = req.headers['x-admin-address'] as string;
+    const signature = req.headers['x-admin-signature'] as string;
+    const timestamp = parseInt(req.headers['x-admin-timestamp'] as string);
+    
+    if (!actorAddress || !signature || !timestamp) {
+      return res.status(401).json({ error: 'Missing admin authentication headers' });
+    }
+    
+    // Check timestamp freshness (5 minute window for admin actions)
+    if (Math.abs(Date.now() - timestamp) > 5 * 60 * 1000) {
+      return res.status(401).json({ error: 'Admin request expired' });
+    }
+    
+    const identity = await storage.getIdentity(actorAddress);
+    if (!identity) {
+      return res.status(403).json({ error: 'Identity not found' });
+    }
+    
+    if (identity.isDisabled) {
+      return res.status(403).json({ error: 'Account is disabled' });
+    }
+    
+    if (identity.role !== 'admin' && identity.role !== 'founder') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    // Verify signature
+    try {
+      const message = `admin:${actorAddress}:${timestamp}`;
+      const messageBytes = new TextEncoder().encode(message);
+      const signatureBytes = bs58.decode(signature);
+      const publicKeyBytes = bs58.decode(identity.publicKeyBase58);
+      
+      const valid = nacl.sign.detached.verify(messageBytes, signatureBytes, publicKeyBytes);
+      if (!valid) {
+        return res.status(401).json({ error: 'Invalid admin signature' });
+      }
+    } catch (error) {
+      return res.status(401).json({ error: 'Signature verification failed' });
+    }
+    
+    req.adminIdentity = identity;
+    next();
+  }
+
+  async function requireFounder(req: any, res: any, next: any) {
+    await requireAdmin(req, res, () => {
+      if (req.adminIdentity?.role !== 'founder') {
+        return res.status(403).json({ error: 'Founder access required' });
+      }
+      next();
+    });
+  }
+
+  // Admin Dashboard Stats
+  app.get('/api/admin/stats', requireAdmin, async (_req, res) => {
+    try {
+      const totalUsers = await storage.countIdentities();
+      const allIdentities = await storage.getAllIdentities({ limit: 10000 });
+      const activeTrials = allIdentities.filter(i => i.trialStatus === 'active').length;
+      const disabledUsers = allIdentities.filter(i => i.isDisabled).length;
+      
+      res.json({
+        totalUsers,
+        activeTrials,
+        disabledUsers,
+        admins: allIdentities.filter(i => i.role === 'admin' || i.role === 'founder').length,
+      });
+    } catch (error) {
+      console.error('Error fetching admin stats:', error);
+      res.status(500).json({ error: 'Failed to fetch admin stats' });
+    }
+  });
+
+  // List all users
+  app.get('/api/admin/users', requireAdmin, async (req, res) => {
+    try {
+      const search = req.query.search as string | undefined;
+      const limit = parseInt(req.query.limit as string) || 50;
+      const offset = parseInt(req.query.offset as string) || 0;
+      
+      const users = await storage.getAllIdentities({ search, limit, offset });
+      const total = await storage.countIdentities();
+      
+      res.json({ users, total, limit, offset });
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      res.status(500).json({ error: 'Failed to fetch users' });
+    }
+  });
+
+  // Get single user details
+  app.get('/api/admin/users/:address', requireAdmin, async (req, res) => {
+    try {
+      const { address } = req.params;
+      const identity = await storage.getIdentity(address);
+      
+      if (!identity) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      // Get call stats
+      const callHistory = await storage.getCallHistory(address, 100);
+      const callCount = callHistory.length;
+      
+      res.json({ 
+        user: identity, 
+        stats: { callCount }
+      });
+    } catch (error) {
+      console.error('Error fetching user details:', error);
+      res.status(500).json({ error: 'Failed to fetch user details' });
+    }
+  });
+
+  // Update user role (founder only for promoting to admin)
+  app.put('/api/admin/users/:address/role', async (req, res) => {
+    const actorAddress = req.headers['x-admin-address'] as string;
+    const { role } = req.body;
+    const { address } = req.params;
+    
+    // Only founder can assign admin role
+    if (role === 'admin') {
+      await requireFounder(req, res, async () => {
+        try {
+          const updated = await storage.updateIdentityRole(address, role, actorAddress);
+          if (!updated) {
+            return res.status(404).json({ error: 'User not found' });
+          }
+          res.json(updated);
+        } catch (error) {
+          console.error('Error updating user role:', error);
+          res.status(500).json({ error: 'Failed to update user role' });
+        }
+      });
+    } else {
+      await requireAdmin(req, res, async () => {
+        try {
+          const updated = await storage.updateIdentityRole(address, role, actorAddress);
+          if (!updated) {
+            return res.status(404).json({ error: 'User not found' });
+          }
+          res.json(updated);
+        } catch (error) {
+          console.error('Error updating user role:', error);
+          res.status(500).json({ error: 'Failed to update user role' });
+        }
+      });
+    }
+  });
+
+  // Enable/disable user
+  app.put('/api/admin/users/:address/status', requireAdmin, async (req: any, res) => {
+    try {
+      const { address } = req.params;
+      const { disabled } = req.body;
+      const actorAddress = req.adminIdentity.address;
+      
+      const updated = await storage.setIdentityDisabled(address, disabled, actorAddress);
+      if (!updated) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      res.json(updated);
+    } catch (error) {
+      console.error('Error updating user status:', error);
+      res.status(500).json({ error: 'Failed to update user status' });
+    }
+  });
+
+  // Grant trial to user
+  app.post('/api/admin/users/:address/trial', requireAdmin, async (req: any, res) => {
+    try {
+      const { address } = req.params;
+      const { trialDays, trialMinutes } = req.body;
+      const actorAddress = req.adminIdentity.address;
+      
+      if (!trialDays && !trialMinutes) {
+        return res.status(400).json({ error: 'Must specify trialDays or trialMinutes' });
+      }
+      
+      const updated = await storage.grantTrial(address, trialDays, trialMinutes, actorAddress);
+      if (!updated) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      res.json(updated);
+    } catch (error) {
+      console.error('Error granting trial:', error);
+      res.status(500).json({ error: 'Failed to grant trial' });
+    }
+  });
+
+  // Check trial access for a user
+  app.get('/api/admin/users/:address/trial', requireAdmin, async (req, res) => {
+    try {
+      const { address } = req.params;
+      const access = await storage.checkTrialAccess(address);
+      res.json(access);
+    } catch (error) {
+      console.error('Error checking trial access:', error);
+      res.status(500).json({ error: 'Failed to check trial access' });
+    }
+  });
+
+  // Impersonation start (founder only)
+  app.post('/api/admin/impersonate/:address', requireFounder, async (req: any, res) => {
+    try {
+      const { address } = req.params;
+      const actorAddress = req.adminIdentity.address;
+      
+      const target = await storage.getIdentity(address);
+      if (!target) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      await storage.createAuditLog({
+        actorAddress,
+        targetAddress: address,
+        actionType: 'IMPERSONATE_START',
+        metadata: {}
+      });
+      
+      // Return target identity data for impersonation
+      res.json({ 
+        success: true, 
+        impersonating: target,
+        message: 'Impersonation started - use this identity data client-side'
+      });
+    } catch (error) {
+      console.error('Error starting impersonation:', error);
+      res.status(500).json({ error: 'Failed to start impersonation' });
+    }
+  });
+
+  // Impersonation end (founder only)
+  app.post('/api/admin/impersonate/:address/end', requireFounder, async (req: any, res) => {
+    try {
+      const { address } = req.params;
+      const actorAddress = req.adminIdentity.address;
+      
+      await storage.createAuditLog({
+        actorAddress,
+        targetAddress: address,
+        actionType: 'IMPERSONATE_END',
+        metadata: {}
+      });
+      
+      res.json({ success: true, message: 'Impersonation ended' });
+    } catch (error) {
+      console.error('Error ending impersonation:', error);
+      res.status(500).json({ error: 'Failed to end impersonation' });
+    }
+  });
+
+  // Get audit logs
+  app.get('/api/admin/audit-logs', requireAdmin, async (req, res) => {
+    try {
+      const actorAddress = req.query.actor as string | undefined;
+      const targetAddress = req.query.target as string | undefined;
+      const limit = parseInt(req.query.limit as string) || 100;
+      
+      const logs = await storage.getAuditLogs({ actorAddress, targetAddress, limit });
+      res.json(logs);
+    } catch (error) {
+      console.error('Error fetching audit logs:', error);
+      res.status(500).json({ error: 'Failed to fetch audit logs' });
+    }
+  });
+
+  // Public endpoint to check trial access (for paywall bypass)
+  app.get('/api/trial/check/:address', async (req, res) => {
+    try {
+      const { address } = req.params;
+      const access = await storage.checkTrialAccess(address);
+      res.json(access);
+    } catch (error) {
+      console.error('Error checking trial access:', error);
+      res.status(500).json({ error: 'Failed to check trial access' });
+    }
+  });
+
+  // Public endpoint to get user role (for admin UI access check)
+  app.get('/api/identity/:address/role', async (req, res) => {
+    try {
+      const { address } = req.params;
+      const identity = await storage.getIdentity(address);
+      
+      if (!identity) {
+        return res.json({ role: 'user', isAdmin: false, isFounder: false });
+      }
+      
+      res.json({ 
+        role: identity.role,
+        isAdmin: identity.role === 'admin' || identity.role === 'founder',
+        isFounder: identity.role === 'founder',
+        isDisabled: identity.isDisabled
+      });
+    } catch (error) {
+      console.error('Error fetching identity role:', error);
+      res.status(500).json({ error: 'Failed to fetch identity role' });
+    }
+  });
+
+  // Auto-promote founder on identity creation/registration
+  app.post('/api/identity/register', async (req, res) => {
+    try {
+      const { address, publicKeyBase58, displayName } = req.body;
+      
+      // Check if identity already exists
+      let identity = await storage.getIdentity(address);
+      
+      if (identity) {
+        // Update last login
+        await storage.updateIdentity(address, { lastLoginAt: new Date() } as any);
+        return res.json(identity);
+      }
+      
+      // Create new identity
+      identity = await storage.createIdentity({
+        address,
+        publicKeyBase58,
+        displayName,
+      });
+      
+      // Check if this is the founder address
+      if (FOUNDER_ADDRESS && address === FOUNDER_ADDRESS) {
+        identity = await storage.updateIdentity(address, { role: 'founder' } as any) || identity;
+        console.log(`New user ${address} promoted to founder role`);
+      }
+      
+      res.json(identity);
+    } catch (error) {
+      console.error('Error registering identity:', error);
+      res.status(500).json({ error: 'Failed to register identity' });
+    }
+  });
+
   const wss = new WebSocketServer({ 
     server: httpServer,
     path: '/ws'
