@@ -10,11 +10,16 @@ import type { CallPricing } from '@shared/types';
 interface CryptoInvoice {
   invoiceId: string;
   recipientWallet: string;
-  chain: string;
-  asset: 'USDC' | 'ETH';
+  chain: 'base' | 'solana';
+  asset: 'USDC' | 'ETH' | 'SOL';
   amountAsset: string;
   amountUsd: number;
   expiresAt: string;
+}
+
+interface CryptoAvailability {
+  base: { enabled: boolean; assets: string[] };
+  solana: { enabled: boolean; cluster: string; assets: string[] };
 }
 
 interface PaymentRequiredScreenProps {
@@ -45,31 +50,42 @@ export function PaymentRequiredScreen({
   const [checkingTrial, setCheckingTrial] = useState(true);
   
   const [showCryptoPayment, setShowCryptoPayment] = useState(false);
-  const [cryptoEnabled, setCryptoEnabled] = useState(false);
-  const [recipientHasWallet, setRecipientHasWallet] = useState(false);
-  const [selectedAsset, setSelectedAsset] = useState<'USDC' | 'ETH'>('USDC');
+  const [cryptoAvailability, setCryptoAvailability] = useState<CryptoAvailability | null>(null);
+  const [recipientWallets, setRecipientWallets] = useState<{ evm: string | null; solana: string | null }>({ evm: null, solana: null });
+  const [selectedChain, setSelectedChain] = useState<'base' | 'solana'>('base');
+  const [selectedAsset, setSelectedAsset] = useState<'USDC' | 'ETH' | 'SOL'>('USDC');
   const [cryptoInvoice, setCryptoInvoice] = useState<CryptoInvoice | null>(null);
   const [txHash, setTxHash] = useState('');
   const [verifying, setVerifying] = useState(false);
   const [paymentVerified, setPaymentVerified] = useState(false);
   const [ethPriceAvailable, setEthPriceAvailable] = useState(true);
+  const [solPriceAvailable, setSolPriceAvailable] = useState(true);
   const [creatingInvoice, setCreatingInvoice] = useState(false);
+
+  const cryptoEnabled = cryptoAvailability?.base?.enabled || cryptoAvailability?.solana?.enabled;
+  const recipientHasWallet = (selectedChain === 'base' && recipientWallets.evm) || (selectedChain === 'solana' && recipientWallets.solana);
+  const anyCryptoWallet = recipientWallets.evm || recipientWallets.solana;
 
   useEffect(() => {
     fetch('/api/crypto/enabled')
       .then(res => res.json())
-      .then(data => setCryptoEnabled(data.enabled || false))
+      .then(data => setCryptoAvailability(data))
       .catch(() => {});
     
-    fetch(`/api/crypto/recipient-wallet/${recipientAddress}`)
+    fetch(`/api/crypto/recipient-wallets/${recipientAddress}`)
       .then(res => res.json())
-      .then(data => setRecipientHasWallet(data.hasWallet || false))
+      .then(data => setRecipientWallets(data))
       .catch(() => {});
     
     fetch('/api/crypto/eth-price')
       .then(res => res.json())
       .then(data => setEthPriceAvailable(data.available || false))
       .catch(() => setEthPriceAvailable(false));
+    
+    fetch('/api/crypto/sol-price')
+      .then(res => res.json())
+      .then(data => setSolPriceAvailable(data.available || false))
+      .catch(() => setSolPriceAvailable(false));
   }, [recipientAddress]);
 
   useEffect(() => {
@@ -106,7 +122,7 @@ export function PaymentRequiredScreen({
 
   const priceInfo = getPriceDisplay();
 
-  const handleCreateCryptoInvoice = async (asset: 'USDC' | 'ETH') => {
+  const handleCreateCryptoInvoice = async (chain: 'base' | 'solana', asset: 'USDC' | 'ETH' | 'SOL') => {
     setCreatingInvoice(true);
     try {
       const tokenRes = await fetch('/api/checkout/paid-call', {
@@ -129,6 +145,7 @@ export function PaymentRequiredScreen({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           payTokenId: token,
+          chain,
           asset,
           payerCallId: callerAddress,
         }),
@@ -141,6 +158,7 @@ export function PaymentRequiredScreen({
 
       const invoice = await invoiceRes.json();
       setCryptoInvoice(invoice);
+      setSelectedChain(chain);
       setSelectedAsset(asset);
     } catch (error: any) {
       toast.error(error.message || 'Failed to create crypto invoice');
@@ -363,7 +381,7 @@ export function PaymentRequiredScreen({
               </Button>
             </div>
             
-            {cryptoEnabled && recipientHasWallet && (
+            {cryptoEnabled && anyCryptoWallet && (
               <Button
                 onClick={() => setShowCryptoPayment(true)}
                 variant="outline"
@@ -380,37 +398,99 @@ export function PaymentRequiredScreen({
           <div className="space-y-4">
             <div className="flex items-center gap-2 p-3 bg-orange-500/10 border border-orange-500/20 rounded-lg">
               <AlertCircle className="w-5 h-5 text-orange-400 flex-shrink-0" />
-              <p className="text-orange-400 text-xs">Crypto payments are final. Send exact amount on Base network.</p>
+              <p className="text-orange-400 text-xs">Crypto payments are final. Send exact amount to recipient wallet.</p>
             </div>
             
-            <div className="grid grid-cols-2 gap-2">
-              <Button
-                onClick={() => handleCreateCryptoInvoice('USDC')}
-                className="bg-blue-600 hover:bg-blue-700"
-                disabled={creatingInvoice}
-                data-testid="button-pay-usdc"
-              >
-                {creatingInvoice && selectedAsset === 'USDC' ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <span className="mr-2">💲</span>
-                )}
-                USDC (Base)
-              </Button>
-              <Button
-                onClick={() => handleCreateCryptoInvoice('ETH')}
-                className="bg-indigo-600 hover:bg-indigo-700"
-                disabled={creatingInvoice || !ethPriceAvailable}
-                data-testid="button-pay-eth"
-              >
-                {creatingInvoice && selectedAsset === 'ETH' ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <span className="mr-2">Ξ</span>
-                )}
-                {ethPriceAvailable ? 'ETH (Base)' : 'ETH N/A'}
-              </Button>
+            <div className="flex gap-2 mb-2">
+              {cryptoAvailability?.base?.enabled && recipientWallets.evm && (
+                <Button
+                  onClick={() => setSelectedChain('base')}
+                  variant={selectedChain === 'base' ? 'default' : 'outline'}
+                  className={selectedChain === 'base' ? 'flex-1 bg-blue-600' : 'flex-1 border-slate-600'}
+                  data-testid="button-chain-base"
+                >
+                  Base
+                </Button>
+              )}
+              {cryptoAvailability?.solana?.enabled && recipientWallets.solana && (
+                <Button
+                  onClick={() => setSelectedChain('solana')}
+                  variant={selectedChain === 'solana' ? 'default' : 'outline'}
+                  className={selectedChain === 'solana' ? 'flex-1 bg-purple-600' : 'flex-1 border-slate-600'}
+                  data-testid="button-chain-solana"
+                >
+                  Solana
+                </Button>
+              )}
             </div>
+            
+            {selectedChain === 'base' && recipientWallets.evm && (
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  onClick={() => handleCreateCryptoInvoice('base', 'USDC')}
+                  className="bg-blue-600 hover:bg-blue-700"
+                  disabled={creatingInvoice}
+                  data-testid="button-pay-usdc-base"
+                >
+                  {creatingInvoice && selectedAsset === 'USDC' && selectedChain === 'base' ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <span className="mr-2">💲</span>
+                  )}
+                  USDC
+                </Button>
+                <Button
+                  onClick={() => handleCreateCryptoInvoice('base', 'ETH')}
+                  className="bg-indigo-600 hover:bg-indigo-700"
+                  disabled={creatingInvoice || !ethPriceAvailable}
+                  data-testid="button-pay-eth"
+                >
+                  {creatingInvoice && selectedAsset === 'ETH' ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <span className="mr-2">Ξ</span>
+                  )}
+                  {ethPriceAvailable ? 'ETH' : 'ETH N/A'}
+                </Button>
+              </div>
+            )}
+            
+            {selectedChain === 'solana' && recipientWallets.solana && (
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  onClick={() => handleCreateCryptoInvoice('solana', 'USDC')}
+                  className="bg-green-600 hover:bg-green-700"
+                  disabled={creatingInvoice}
+                  data-testid="button-pay-usdc-solana"
+                >
+                  {creatingInvoice && selectedAsset === 'USDC' && selectedChain === 'solana' ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <span className="mr-2">💲</span>
+                  )}
+                  USDC
+                </Button>
+                <Button
+                  onClick={() => handleCreateCryptoInvoice('solana', 'SOL')}
+                  className="bg-purple-600 hover:bg-purple-700"
+                  disabled={creatingInvoice || !solPriceAvailable}
+                  data-testid="button-pay-sol"
+                >
+                  {creatingInvoice && selectedAsset === 'SOL' ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <span className="mr-2">◎</span>
+                  )}
+                  {solPriceAvailable ? 'SOL' : 'SOL N/A'}
+                </Button>
+              </div>
+            )}
+            
+            {!recipientHasWallet && (
+              <div className="text-center text-slate-400 text-sm py-2">
+                Recipient doesn't have a verified {selectedChain === 'solana' ? 'Solana' : 'EVM'} wallet
+              </div>
+            )}
             
             <Button
               onClick={() => setShowCryptoPayment(false)}
@@ -432,7 +512,7 @@ export function PaymentRequiredScreen({
             <div className="bg-slate-900/50 rounded-xl p-4">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-slate-400 text-sm">Network</span>
-                <span className="text-white font-medium">Base</span>
+                <span className="text-white font-medium capitalize">{cryptoInvoice.chain}</span>
               </div>
               <div className="flex items-center justify-between mb-3">
                 <span className="text-slate-400 text-sm">Asset</span>
@@ -465,11 +545,13 @@ export function PaymentRequiredScreen({
             </div>
             
             <div>
-              <label className="text-slate-400 text-sm mb-1 block">Transaction Hash</label>
+              <label className="text-slate-400 text-sm mb-1 block">
+                Transaction {cryptoInvoice.chain === 'solana' ? 'Signature' : 'Hash'}
+              </label>
               <Input
                 value={txHash}
                 onChange={(e) => setTxHash(e.target.value)}
-                placeholder="0x..."
+                placeholder={cryptoInvoice.chain === 'solana' ? 'Enter Solana tx signature...' : '0x...'}
                 className="bg-slate-900/50 border-slate-600 text-white"
                 data-testid="input-tx-hash"
               />
@@ -502,12 +584,12 @@ export function PaymentRequiredScreen({
             </Button>
             
             <a
-              href="https://basescan.org"
+              href={cryptoInvoice.chain === 'solana' ? 'https://solscan.io' : 'https://basescan.org'}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center justify-center gap-1 text-blue-400 hover:text-blue-300 text-sm"
             >
-              View on BaseScan <ExternalLink className="w-3 h-3" />
+              View on {cryptoInvoice.chain === 'solana' ? 'Solscan' : 'BaseScan'} <ExternalLink className="w-3 h-3" />
             </a>
           </div>
         )}
