@@ -23,6 +23,14 @@ Preferred communication style: Simple, everyday language.
     - **Subscription Tiers**: Free, Pro ($9/mo), Business ($29/mo) with feature gating.
     - **Invite Links**: Admin-generated codes for influencer onboarding with trial access.
 - **Admin Console**: Role-Based Access Control (RBAC) for `founder`, `admin`, `user` roles, user management (enable/disable, roles), free trial system (time-based/usage-based), audit logs, impersonation, crypto invoice monitoring.
+- **Stripe Subscriptions (Phase 9)**: Full subscription management integration:
+    - **Checkout Flow**: Stripe Checkout sessions for Pro ($9/mo) and Business ($29/mo) plans.
+    - **Customer Portal**: Users can manage billing, update payment methods, and cancel subscriptions.
+    - **Webhook Handling**: Automatic status updates via stripe-replit-sync with signature verification.
+    - **Premium Access Gating**: `checkPremiumAccess()` checks subscription status first, then trial access.
+    - **UI Integration**: Settings page shows current plan, trial status, and upgrade/billing management buttons.
+    - **Admin Visibility**: Plan badges displayed in Admin Console for each user.
+    - **Price IDs**: Configured via `STRIPE_PRO_PRICE_ID` and `STRIPE_BUSINESS_PRICE_ID` environment variables.
 - **Crypto Payments (Phase 8)**: Optional alternative payment methods supporting multiple blockchains:
     - **Base Network**: USDC and ETH payments. Requires verified EVM wallet. Uses ethers.js for verification. Controlled via `ENABLE_CRYPTO_PAYMENTS` env var.
     - **Solana Network**: USDC and SOL payments. Requires verified Solana wallet. Uses @solana/web3.js for verification. Controlled via `ENABLE_SOLANA_PAYMENTS` env var. Supports mainnet-beta and devnet clusters via `SOLANA_CLUSTER` env var.

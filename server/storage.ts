@@ -486,16 +486,32 @@ export class DatabaseStorage implements IStorage {
     const identity = await this.getIdentity(address);
     if (!identity) return { hasAccess: false, accessType: 'none', reason: 'User not found' };
 
-    // Check subscription status first
+    // Check if subscription was cancelled - no access even if trial exists
+    if (identity.planStatus === 'cancelled' || identity.planStatus === 'none') {
+      // If there's a cancelled subscription, don't fall through to trial
+      if (identity.stripeSubscriptionId && identity.planStatus === 'cancelled') {
+        return { hasAccess: false, accessType: 'none', reason: 'Subscription cancelled' };
+      }
+    }
+
+    // Check active subscription status first
     if (identity.planStatus === 'active' && identity.plan !== 'free') {
       const daysRemaining = identity.planRenewalAt 
         ? Math.ceil((new Date(identity.planRenewalAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
         : undefined;
       return { hasAccess: true, accessType: 'subscription', daysRemaining };
     }
+    
+    // Check past_due subscription - still grant access but warn
+    if (identity.planStatus === 'past_due' && identity.plan !== 'free') {
+      const daysRemaining = identity.planRenewalAt 
+        ? Math.ceil((new Date(identity.planRenewalAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+        : undefined;
+      return { hasAccess: true, accessType: 'subscription', daysRemaining, reason: 'Payment past due' };
+    }
 
-    // Check trial status
-    if (identity.trialStatus === 'active') {
+    // Only check trial if no subscription exists
+    if (!identity.stripeSubscriptionId && identity.trialStatus === 'active') {
       // Check date-based trial
       if (identity.trialEndAt) {
         if (new Date() > identity.trialEndAt) {

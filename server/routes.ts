@@ -963,6 +963,144 @@ export async function registerRoutes(
     }
   });
 
+  // Stripe Subscription Checkout
+  app.post('/api/stripe/create-checkout-session', async (req, res) => {
+    try {
+      const { userAddress, priceId, successUrl, cancelUrl } = req.body;
+      
+      if (!userAddress || !priceId) {
+        return res.status(400).json({ error: 'Missing required parameters' });
+      }
+
+      const identity = await storage.getIdentity(userAddress);
+      if (!identity) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      const stripe = await getUncachableStripeClient();
+      
+      // Get or create customer
+      let customerId = identity.stripeCustomerId;
+      if (!customerId) {
+        const customer = await stripe.customers.create({
+          email: identity.email || undefined,
+          metadata: { cryptoAddress: userAddress }
+        });
+        customerId = customer.id;
+        await storage.updateStripeCustomer(userAddress, customerId);
+      }
+
+      // Get host from request or use default
+      const host = req.get('host') || 'localhost:5000';
+      const protocol = req.get('x-forwarded-proto') || 'http';
+      const baseUrl = `${protocol}://${host}`;
+
+      const session = await stripe.checkout.sessions.create({
+        customer: customerId,
+        payment_method_types: ['card'],
+        line_items: [{ price: priceId, quantity: 1 }],
+        mode: 'subscription',
+        success_url: successUrl || `${baseUrl}/settings?success=true`,
+        cancel_url: cancelUrl || `${baseUrl}/settings?canceled=true`,
+        metadata: { userAddress }
+      });
+
+      res.json({ sessionId: session.id, url: session.url });
+    } catch (error) {
+      console.error('Error creating checkout session:', error);
+      res.status(500).json({ error: 'Failed to create checkout session' });
+    }
+  });
+
+  // Create Stripe Customer Portal Session
+  app.post('/api/stripe/create-portal-session', async (req, res) => {
+    try {
+      const { userAddress, returnUrl } = req.body;
+      
+      if (!userAddress) {
+        return res.status(400).json({ error: 'Missing user address' });
+      }
+
+      const identity = await storage.getIdentity(userAddress);
+      if (!identity || !identity.stripeCustomerId) {
+        return res.status(404).json({ error: 'No Stripe customer found for this user' });
+      }
+
+      const stripe = await getUncachableStripeClient();
+      
+      const host = req.get('host') || 'localhost:5000';
+      const protocol = req.get('x-forwarded-proto') || 'http';
+      const baseUrl = `${protocol}://${host}`;
+
+      const session = await stripe.billingPortal.sessions.create({
+        customer: identity.stripeCustomerId,
+        return_url: returnUrl || `${baseUrl}/settings`
+      });
+
+      res.json({ url: session.url });
+    } catch (error) {
+      console.error('Error creating portal session:', error);
+      res.status(500).json({ error: 'Failed to create portal session' });
+    }
+  });
+
+  // Get Premium Access Status
+  app.get('/api/premium-access/:address', async (req, res) => {
+    try {
+      const { address } = req.params;
+      const accessStatus = await storage.checkPremiumAccess(address);
+      const identity = await storage.getIdentity(address);
+      
+      res.json({
+        ...accessStatus,
+        plan: identity?.plan || 'free',
+        planStatus: identity?.planStatus || 'none',
+        trialStatus: identity?.trialStatus || 'none',
+        trialEndAt: identity?.trialEndAt,
+        trialMinutesRemaining: identity?.trialMinutesRemaining
+      });
+    } catch (error) {
+      console.error('Error checking premium access:', error);
+      res.status(500).json({ error: 'Failed to check premium access' });
+    }
+  });
+
+  // Get Subscription Plans (hardcoded for now, can be synced from Stripe later)
+  app.get('/api/stripe/plans', async (_req, res) => {
+    try {
+      res.json({
+        plans: [
+          {
+            id: 'free',
+            name: 'Free',
+            price: 0,
+            interval: 'month',
+            features: ['Basic video calls', 'Up to 5 contacts', 'Standard quality']
+          },
+          {
+            id: 'pro',
+            name: 'Pro',
+            price: 900,
+            interval: 'month',
+            priceId: process.env.STRIPE_PRO_PRICE_ID || 'price_pro_monthly',
+            features: ['Unlimited video calls', 'Unlimited contacts', 'HD quality', 'Creator profile', 'Accept paid calls', 'Priority support']
+          },
+          {
+            id: 'business',
+            name: 'Business',
+            price: 2900,
+            interval: 'month',
+            priceId: process.env.STRIPE_BUSINESS_PRICE_ID || 'price_business_monthly',
+            features: ['Everything in Pro', 'Team management', 'Analytics dashboard', 'Custom branding', 'API access', 'Dedicated support']
+          }
+        ]
+      });
+    } catch (error) {
+      console.error('Error fetching plans:', error);
+      res.status(500).json({ error: 'Failed to fetch plans' });
+    }
+  });
+
   // ============================================
   // ADMIN CONSOLE API ROUTES (Phase 6)
   // ============================================

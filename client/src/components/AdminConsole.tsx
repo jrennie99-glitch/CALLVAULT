@@ -27,6 +27,11 @@ interface CryptoIdentity {
   trialMinutesRemaining: number | null;
   createdAt: string;
   lastLoginAt: string | null;
+  plan: string | null;
+  planStatus: string | null;
+  stripeCustomerId: string | null;
+  stripeSubscriptionId: string | null;
+  planRenewalAt: string | null;
 }
 
 interface AdminStats {
@@ -377,6 +382,29 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
     return null;
   };
 
+  const getPlanBadge = (user: CryptoIdentity) => {
+    if (!user.plan || user.plan === 'free') return null;
+    
+    const planColors: Record<string, string> = {
+      pro: 'bg-purple-500',
+      business: 'bg-orange-500',
+      enterprise: 'bg-amber-500'
+    };
+    
+    const statusIcons: Record<string, string> = {
+      active: '',
+      past_due: ' (!)' ,
+      cancelled: ' (X)'
+    };
+    
+    return (
+      <Badge className={planColors[user.plan] || 'bg-slate-500'}>
+        {user.plan.charAt(0).toUpperCase() + user.plan.slice(1)}
+        {user.planStatus && statusIcons[user.planStatus]}
+      </Badge>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-slate-900 text-white">
       <div className="border-b border-slate-700 px-4 py-3 flex items-center gap-3">
@@ -515,6 +543,7 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
                             {truncateAddress(user.address)}
                           </span>
                           {getRoleBadge(user.role)}
+                          {getPlanBadge(user)}
                           {getTrialBadge(user)}
                           {user.isDisabled && <Badge variant="destructive"><UserX className="w-3 h-3 mr-1" /> Disabled</Badge>}
                         </div>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { User, Shield, Wifi, ChevronDown, ChevronUp, Copy, RefreshCw, Fingerprint, Eye, EyeOff, MessageSquare, CheckCheck, Clock, Phone, Ban, Bot, Wallet, ChevronRight, Ticket, Briefcase, BarChart3, Crown, Lock, Sparkles } from 'lucide-react';
+import { User, Shield, Wifi, ChevronDown, ChevronUp, Copy, RefreshCw, Fingerprint, Eye, EyeOff, MessageSquare, CheckCheck, Clock, Phone, Ban, Bot, Wallet, ChevronRight, Ticket, Briefcase, BarChart3, Crown, Lock, Sparkles, CreditCard, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -37,6 +37,15 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
   const [upgradeFeature, setUpgradeFeature] = useState<'business' | 'earnings'>('business');
   
   const { isPro, isBusiness, hasTrial, trialDaysRemaining, trialMinutesRemaining } = useEntitlements(identity?.address || null);
+  const [premiumAccess, setPremiumAccess] = useState<{
+    hasAccess: boolean;
+    accessType: 'subscription' | 'trial' | 'none';
+    daysRemaining?: number;
+    plan?: string;
+    planStatus?: string;
+    trialEndAt?: string;
+  } | null>(null);
+  const [isUpgrading, setIsUpgrading] = useState(false);
 
   useEffect(() => {
     isPlatformAuthenticatorAvailable().then(setBiometricAvailable);
@@ -51,8 +60,82 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
           setIsFounder(data.isFounder || false);
         })
         .catch(() => {});
+      
+      fetch(`/api/premium-access/${identity.address}`)
+        .then(res => res.json())
+        .then(data => setPremiumAccess(data))
+        .catch(() => {});
     }
   }, [identity?.address]);
+
+  const handleUpgradeToPro = async () => {
+    if (!identity?.address) return;
+    setIsUpgrading(true);
+    try {
+      const plansRes = await fetch('/api/stripe/plans');
+      if (!plansRes.ok) {
+        toast.error('Unable to load subscription plans. Please try again later.');
+        return;
+      }
+      const plansData = await plansRes.json();
+      const proPlan = plansData.plans?.find((p: any) => p.id === 'pro');
+      
+      if (!proPlan?.priceId || proPlan.priceId.startsWith('price_')) {
+        // priceId is a placeholder, show contact message
+        if (!proPlan?.priceId || proPlan.priceId === 'price_pro_monthly') {
+          toast.error('Subscriptions coming soon! Contact support for early access.');
+          return;
+        }
+      }
+      
+      const res = await fetch('/api/stripe/create-checkout-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userAddress: identity.address,
+          priceId: proPlan.priceId
+        })
+      });
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        toast.error(errorData.error || 'Failed to create checkout session');
+        return;
+      }
+      
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        toast.error('Failed to create checkout session');
+      }
+    } catch (error) {
+      console.error('Upgrade error:', error);
+      toast.error('Unable to start upgrade. Please try again later.');
+    } finally {
+      setIsUpgrading(false);
+    }
+  };
+
+  const handleManageBilling = async () => {
+    if (!identity?.address) return;
+    try {
+      const res = await fetch('/api/stripe/create-portal-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userAddress: identity.address })
+      });
+      
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        toast.error('No billing account found');
+      }
+    } catch (error) {
+      toast.error('Failed to open billing portal');
+    }
+  };
 
   const updatePrivacy = (updates: Partial<PrivacySettings>) => {
     const newPrivacy = { ...privacy, ...updates };
@@ -140,6 +223,100 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
               data-testid="input-display-name"
             />
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-purple-500/20">
+        <CardHeader>
+          <CardTitle className="text-white flex items-center gap-2">
+            <CreditCard className="w-5 h-5 text-purple-400" />
+            Subscription & Billing
+          </CardTitle>
+          <CardDescription className="text-slate-400">
+            {premiumAccess?.hasAccess 
+              ? premiumAccess.accessType === 'subscription' 
+                ? 'Active subscription'
+                : 'Trial access'
+              : 'Free plan'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="bg-slate-800/50 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-slate-300">Current Plan</span>
+              <Badge className={
+                premiumAccess?.plan === 'business' ? 'bg-orange-500' :
+                premiumAccess?.plan === 'pro' ? 'bg-purple-500' :
+                premiumAccess?.accessType === 'trial' ? 'bg-green-500' :
+                'bg-slate-600'
+              }>
+                {premiumAccess?.plan === 'business' ? 'Business' :
+                 premiumAccess?.plan === 'pro' ? 'Pro' :
+                 premiumAccess?.accessType === 'trial' ? 'Trial' :
+                 'Free'}
+              </Badge>
+            </div>
+            
+            {premiumAccess?.accessType === 'subscription' && premiumAccess.planStatus === 'active' && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-500">Status</span>
+                <span className="text-green-400 flex items-center gap-1">
+                  <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                  Active
+                </span>
+              </div>
+            )}
+            
+            {premiumAccess?.accessType === 'subscription' && premiumAccess.planStatus === 'past_due' && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-500">Status</span>
+                <span className="text-yellow-400">Payment Past Due</span>
+              </div>
+            )}
+            
+            {premiumAccess?.daysRemaining && premiumAccess.daysRemaining > 0 && (
+              <div className="flex items-center justify-between text-sm mt-1">
+                <span className="text-slate-500">
+                  {premiumAccess.accessType === 'trial' ? 'Trial ends in' : 'Renews in'}
+                </span>
+                <span className="text-slate-300">{premiumAccess.daysRemaining} days</span>
+              </div>
+            )}
+            
+            {hasTrial && trialMinutesRemaining !== null && trialMinutesRemaining > 0 && (
+              <div className="flex items-center justify-between text-sm mt-1">
+                <span className="text-slate-500">Trial minutes remaining</span>
+                <span className="text-green-400">{trialMinutesRemaining} min</span>
+              </div>
+            )}
+          </div>
+          
+          {premiumAccess?.hasAccess && premiumAccess.accessType === 'subscription' ? (
+            <Button 
+              onClick={handleManageBilling}
+              variant="outline"
+              className="w-full border-slate-600"
+              data-testid="button-manage-billing"
+            >
+              <ExternalLink className="w-4 h-4 mr-2" />
+              Manage Billing
+            </Button>
+          ) : (
+            <div className="space-y-2">
+              <Button 
+                onClick={handleUpgradeToPro}
+                disabled={isUpgrading}
+                className="w-full bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600"
+                data-testid="button-upgrade-pro"
+              >
+                <Sparkles className="w-4 h-4 mr-2" />
+                {isUpgrading ? 'Opening checkout...' : 'Upgrade to Pro - $9/mo'}
+              </Button>
+              <p className="text-xs text-slate-500 text-center">
+                Unlock creator features, paid calls, and priority support
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -580,13 +757,14 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
               </Button>
               <Button 
                 className="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600"
+                disabled={isUpgrading}
                 onClick={() => {
                   setShowUpgradeDialog(false);
-                  window.location.href = '/pricing';
+                  handleUpgradeToPro();
                 }}
                 data-testid="button-view-plans"
               >
-                View Plans
+                {isUpgrading ? 'Loading...' : 'Upgrade Now'}
               </Button>
             </div>
           </div>
