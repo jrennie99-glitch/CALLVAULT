@@ -10,6 +10,7 @@ import * as messageStore from "./messageStore";
 import * as policyStore from "./policyStore";
 import { storage } from "./storage";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
+import { FreeTierShield, FREE_TIER_LIMITS, type ShieldErrorCode } from "./freeTierShield";
 
 interface ClientConnection {
   ws: WebSocket;
@@ -36,6 +37,23 @@ function cleanupExpiredNonces() {
 }
 
 setInterval(cleanupExpiredNonces, 30000);
+
+// Server-side call monitoring: check for stale calls and terminate them
+setInterval(async () => {
+  try {
+    const terminatedIds = await FreeTierShield.terminateStaleCalls();
+    if (terminatedIds.length > 0) {
+      console.log(`Terminated ${terminatedIds.length} stale calls:`, terminatedIds);
+      // Notify connected clients about terminated calls
+      for (const callSessionId of terminatedIds) {
+        // The FreeTierShield already cleaned up the active call record
+        // Clients should handle the heartbeat response to know when to end
+      }
+    }
+  } catch (error) {
+    console.error('Error in stale call monitoring:', error);
+  }
+}, FREE_TIER_LIMITS.HEARTBEAT_INTERVAL_SECONDS * 1000); // Check every heartbeat interval
 
 function checkRateLimit(fromAddress: string): boolean {
   const now = Date.now();
@@ -1394,6 +1412,133 @@ export async function registerRoutes(
     }
   });
 
+  // Admin endpoint to set user tier (J)
+  app.post('/api/admin/users/:address/tier', requireAdmin, async (req: any, res) => {
+    try {
+      const { address } = req.params;
+      const { tier } = req.body;
+      const actorAddress = req.adminIdentity.address;
+      
+      if (!tier || !['free', 'paid', 'admin'].includes(tier)) {
+        return res.status(400).json({ error: 'Invalid tier. Must be: free, paid, or admin' });
+      }
+      
+      const updated = await storage.setUserTier(address, tier, actorAddress);
+      if (!updated) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      res.json({ success: true, tier, address });
+    } catch (error) {
+      console.error('Error setting user tier:', error);
+      res.status(500).json({ error: 'Failed to set user tier' });
+    }
+  });
+
+  // Get user's free tier remaining limits
+  app.get('/api/free-tier/limits/:address', async (req, res) => {
+    try {
+      const { address } = req.params;
+      const limits = await FreeTierShield.getRemainingLimits(address);
+      res.json({
+        ...limits,
+        config: {
+          maxCallsPerDay: FREE_TIER_LIMITS.MAX_CALLS_PER_DAY,
+          maxMinutesPerMonth: FREE_TIER_LIMITS.MAX_SECONDS_PER_MONTH / 60,
+          maxCallDurationMinutes: FREE_TIER_LIMITS.MAX_CALL_DURATION_SECONDS / 60,
+          maxAttemptsPerHour: FREE_TIER_LIMITS.MAX_CALL_ATTEMPTS_PER_HOUR,
+        }
+      });
+    } catch (error) {
+      console.error('Error fetching free tier limits:', error);
+      res.status(500).json({ error: 'Failed to fetch limits' });
+    }
+  });
+
+  // Call heartbeat endpoint (D)
+  app.post('/api/call/heartbeat', async (req, res) => {
+    try {
+      const { callSessionId, userAddress, isRelay } = req.body;
+      
+      if (!callSessionId || !userAddress) {
+        return res.status(400).json({ error: 'Missing callSessionId or userAddress' });
+      }
+      
+      // Rate limit heartbeats
+      if (!FreeTierShield.checkRateLimit(`heartbeat:${userAddress}`, FreeTierShield.RATE_LIMITS.HEARTBEAT)) {
+        return res.status(429).json({ error: 'RATE_LIMITED', message: 'Too many heartbeat requests' });
+      }
+      
+      const result = await FreeTierShield.updateHeartbeat(callSessionId, userAddress, isRelay);
+      
+      if (result.shouldTerminate) {
+        return res.json({
+          shouldTerminate: true,
+          reason: result.reason,
+          remainingSeconds: 0
+        });
+      }
+      
+      res.json({
+        shouldTerminate: false,
+        remainingSeconds: result.remainingSeconds
+      });
+    } catch (error) {
+      console.error('Error processing heartbeat:', error);
+      res.status(500).json({ error: 'Failed to process heartbeat' });
+    }
+  });
+
+  // Check if call can be started (pre-flight check)
+  app.post('/api/call/can-start', async (req, res) => {
+    try {
+      const { callerAddress, calleeAddress, isContact, isMutualContact, isGroupCall, isExternalLink, isPaidCall } = req.body;
+      
+      if (!callerAddress || !calleeAddress) {
+        return res.status(400).json({ error: 'Missing callerAddress or calleeAddress' });
+      }
+      
+      // Rate limit call start checks
+      if (!FreeTierShield.checkRateLimit(`call_start:${callerAddress}`, FreeTierShield.RATE_LIMITS.CALL_START)) {
+        return res.status(429).json({ 
+          allowed: false, 
+          errorCode: 'RATE_LIMITED' as ShieldErrorCode, 
+          message: 'Too many call attempts. Please wait.' 
+        });
+      }
+      
+      const result = await FreeTierShield.canStartCall(callerAddress, calleeAddress, {
+        isContact,
+        isMutualContact,
+        isGroupCall,
+        isExternalLink,
+        isPaidCall
+      });
+      
+      res.json(result);
+    } catch (error) {
+      console.error('Error checking call permission:', error);
+      res.status(500).json({ error: 'Failed to check call permission' });
+    }
+  });
+
+  // Record call end and update usage
+  app.post('/api/call/end', async (req, res) => {
+    try {
+      const { callSessionId, durationSeconds } = req.body;
+      
+      if (!callSessionId || durationSeconds === undefined) {
+        return res.status(400).json({ error: 'Missing callSessionId or durationSeconds' });
+      }
+      
+      await FreeTierShield.recordCallEnd(callSessionId, durationSeconds);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error recording call end:', error);
+      res.status(500).json({ error: 'Failed to record call end' });
+    }
+  });
+
   // Public endpoint to check trial access (for paywall bypass)
   app.get('/api/trial/check/:address', async (req, res) => {
     try {
@@ -1837,96 +1982,155 @@ export async function registerRoutes(
             const recipientAddress = signedIntent.intent.to_address;
             const callerAddress = signedIntent.intent.from_address;
             
-            const recipientContacts = policyStore.getBlocklist(recipientAddress);
-            const isContact = false;
-            
-            policyStore.recordCallAttempt(recipientAddress, callerAddress);
-            
-            const decision = policyStore.evaluateCallPolicy(
-              recipientAddress,
-              callerAddress,
-              isContact,
-              pass_id
-            );
-            
-            switch (decision.action) {
-              case 'block':
-                ws.send(JSON.stringify({
-                  type: 'call:blocked',
-                  reason: decision.reason
-                } as WSMessage));
-                console.log(`Call blocked from ${callerAddress} to ${recipientAddress}: ${decision.reason}`);
-                break;
+            // Free Tier Shield enforcement (async)
+            (async () => {
+              try {
+                // Record call attempt for free tier tracking
+                await FreeTierShield.recordCallAttempt(callerAddress);
                 
-              case 'request': {
-                const request: CallRequest = {
-                  id: `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-                  from_address: callerAddress,
-                  to_address: recipientAddress,
-                  is_video: signedIntent.intent.media.video,
-                  timestamp: Date.now(),
-                  status: 'pending'
-                };
-                policyStore.createCallRequest(request);
+                // Check if caller and callee have mutual contact relationship
+                const callerContact = await storage.getContact(callerAddress, recipientAddress);
+                const calleeContact = await storage.getContact(recipientAddress, callerAddress);
+                const isMutualContact = !!(callerContact && calleeContact);
+                const isContact = !!callerContact;
+                const isPaidCall = !!pass_id; // has paid pass
                 
-                targetConnection.ws.send(JSON.stringify({
-                  type: 'call:request',
-                  request
-                } as WSMessage));
+                // Free Tier Shield: Check if caller can start this call
+                const shieldCheck = await FreeTierShield.canStartCall(callerAddress, recipientAddress, {
+                  isContact,
+                  isMutualContact,
+                  isGroupCall: false,
+                  isExternalLink: false,
+                  isPaidCall
+                });
                 
-                ws.send(JSON.stringify({
-                  type: 'success',
-                  message: 'Call request sent. Waiting for recipient approval.'
-                } as WSMessage));
-                console.log(`Call request sent from ${callerAddress} to ${recipientAddress}`);
-                break;
-              }
-              
-              case 'auto_reply': {
-                const dmConvo = messageStore.getOrCreateDirectConversation(recipientAddress, callerAddress);
-                const autoMsg: Message = {
-                  id: `auto_${Date.now()}`,
-                  convo_id: dmConvo.id,
-                  from_address: recipientAddress,
-                  to_address: callerAddress,
-                  timestamp: Date.now(),
-                  type: 'text',
-                  content: `[Automated] ${decision.message}`,
-                  nonce: Math.random().toString(36).slice(2),
-                  status: 'sent'
-                };
-                messageStore.addMessage(autoMsg);
-                
-                ws.send(JSON.stringify({
-                  type: 'msg:incoming',
-                  message: autoMsg,
-                  from_pubkey: ''
-                } as WSMessage));
-                
-                ws.send(JSON.stringify({
-                  type: 'call:blocked',
-                  reason: 'Auto-reply sent: ' + decision.message
-                } as WSMessage));
-                console.log(`Auto-reply sent from ${recipientAddress} to ${callerAddress}`);
-                break;
-              }
-              
-              case 'ring':
-                if (pass_id) {
-                  policyStore.consumePass(pass_id);
+                if (!shieldCheck.allowed) {
+                  // Record failed start
+                  await FreeTierShield.recordFailedStart(callerAddress);
+                  
+                  ws.send(JSON.stringify({
+                    type: 'call:blocked',
+                    reason: shieldCheck.message || 'Call blocked by free tier limits',
+                    errorCode: shieldCheck.errorCode
+                  } as WSMessage));
+                  console.log(`Free tier shield blocked call from ${callerAddress}: ${shieldCheck.errorCode}`);
+                  return;
                 }
                 
-                targetConnection.ws.send(JSON.stringify({
-                  type: 'call:incoming',
-                  from_address: callerAddress,
-                  from_pubkey: signedIntent.intent.from_pubkey,
-                  media: signedIntent.intent.media,
-                  is_unknown: decision.is_unknown
-                } as WSMessage));
+                // Free Tier Shield: Check if callee can receive this call
+                const calleeShieldCheck = await FreeTierShield.canReceiveCall(recipientAddress, callerAddress, {
+                  isMutualContact
+                });
                 
-                console.log(`Call initiated from ${callerAddress} to ${recipientAddress}`);
-                break;
-            }
+                if (!calleeShieldCheck.allowed) {
+                  ws.send(JSON.stringify({
+                    type: 'call:blocked',
+                    reason: calleeShieldCheck.message || 'Recipient cannot receive this call',
+                    errorCode: calleeShieldCheck.errorCode
+                  } as WSMessage));
+                  console.log(`Free tier shield blocked inbound call to ${recipientAddress}: ${calleeShieldCheck.errorCode}`);
+                  return;
+                }
+                
+                // Continue with existing policy evaluation
+                policyStore.recordCallAttempt(recipientAddress, callerAddress);
+                
+                const decision = policyStore.evaluateCallPolicy(
+                  recipientAddress,
+                  callerAddress,
+                  isContact,
+                  pass_id
+                );
+                
+                switch (decision.action) {
+                  case 'block':
+                    await FreeTierShield.recordFailedStart(callerAddress);
+                    ws.send(JSON.stringify({
+                      type: 'call:blocked',
+                      reason: decision.reason
+                    } as WSMessage));
+                    console.log(`Call blocked from ${callerAddress} to ${recipientAddress}: ${decision.reason}`);
+                    break;
+                    
+                  case 'request': {
+                    const request: CallRequest = {
+                      id: `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                      from_address: callerAddress,
+                      to_address: recipientAddress,
+                      is_video: signedIntent.intent.media.video,
+                      timestamp: Date.now(),
+                      status: 'pending'
+                    };
+                    policyStore.createCallRequest(request);
+                    
+                    targetConnection.ws.send(JSON.stringify({
+                      type: 'call:request',
+                      request
+                    } as WSMessage));
+                    
+                    ws.send(JSON.stringify({
+                      type: 'success',
+                      message: 'Call request sent. Waiting for recipient approval.'
+                    } as WSMessage));
+                    console.log(`Call request sent from ${callerAddress} to ${recipientAddress}`);
+                    break;
+                  }
+                  
+                  case 'auto_reply': {
+                    const dmConvo = messageStore.getOrCreateDirectConversation(recipientAddress, callerAddress);
+                    const autoMsg: Message = {
+                      id: `auto_${Date.now()}`,
+                      convo_id: dmConvo.id,
+                      from_address: recipientAddress,
+                      to_address: callerAddress,
+                      timestamp: Date.now(),
+                      type: 'text',
+                      content: `[Automated] ${decision.message}`,
+                      nonce: Math.random().toString(36).slice(2),
+                      status: 'sent'
+                    };
+                    messageStore.addMessage(autoMsg);
+                    
+                    ws.send(JSON.stringify({
+                      type: 'msg:incoming',
+                      message: autoMsg,
+                      from_pubkey: ''
+                    } as WSMessage));
+                    
+                    ws.send(JSON.stringify({
+                      type: 'call:blocked',
+                      reason: 'Auto-reply sent: ' + decision.message
+                    } as WSMessage));
+                    console.log(`Auto-reply sent from ${recipientAddress} to ${callerAddress}`);
+                    break;
+                  }
+                  
+                  case 'ring': {
+                    if (pass_id) {
+                      policyStore.consumePass(pass_id);
+                    }
+                    
+                    // Include max call duration for free tier users
+                    const maxDuration = shieldCheck.maxDurationSeconds;
+                    
+                    targetConnection.ws.send(JSON.stringify({
+                      type: 'call:incoming',
+                      from_address: callerAddress,
+                      from_pubkey: signedIntent.intent.from_pubkey,
+                      media: signedIntent.intent.media,
+                      is_unknown: decision.is_unknown,
+                      maxDurationSeconds: maxDuration
+                    } as WSMessage));
+                    
+                    console.log(`Call initiated from ${callerAddress} to ${recipientAddress}`);
+                    break;
+                  }
+                }
+              } catch (error) {
+                console.error('Error in Free Tier Shield check:', error);
+                ws.send(JSON.stringify({ type: 'error', message: 'Failed to process call' } as WSMessage));
+              }
+            })();
             break;
           }
           
@@ -1964,12 +2168,53 @@ export async function registerRoutes(
             break;
           }
 
-          case 'call:accept':
-          case 'call:reject':
+          case 'call:accept': {
+            const targetConnection = connections.get(message.to_address);
+            if (targetConnection) {
+              targetConnection.ws.send(JSON.stringify(message));
+            }
+            
+            // Record call start for Free Tier Shield tracking
+            const acceptMsg = message as any;
+            if (acceptMsg.callSessionId && clientAddress) {
+              (async () => {
+                try {
+                  await FreeTierShield.recordCallStart(
+                    message.to_address, // caller
+                    clientAddress,       // callee (accepter)
+                    acceptMsg.callSessionId
+                  );
+                } catch (error) {
+                  console.error('Error recording call start:', error);
+                }
+              })();
+            }
+            break;
+          }
+          
+          case 'call:reject': {
+            const targetConnection = connections.get(message.to_address);
+            if (targetConnection) {
+              targetConnection.ws.send(JSON.stringify(message));
+            }
+            
+            // Record as failed start for free tier
+            if (clientAddress) {
+              FreeTierShield.recordFailedStart(message.to_address).catch(console.error);
+            }
+            break;
+          }
+          
           case 'call:end': {
             const targetConnection = connections.get(message.to_address);
             if (targetConnection) {
               targetConnection.ws.send(JSON.stringify(message));
+            }
+            
+            // Record call end for Free Tier Shield tracking
+            const endMsg = message as any;
+            if (endMsg.callSessionId && endMsg.durationSeconds !== undefined) {
+              FreeTierShield.recordCallEnd(endMsg.callSessionId, endMsg.durationSeconds).catch(console.error);
             }
             break;
           }
