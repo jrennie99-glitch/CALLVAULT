@@ -594,6 +594,218 @@ export async function registerRoutes(
     }
   });
 
+  // Phase 7: Crypto Payments (Base network)
+  const cryptoPayments = await import('./cryptoPayments');
+  
+  app.get('/api/crypto/enabled', async (_req, res) => {
+    res.json({ 
+      enabled: cryptoPayments.isCryptoPaymentsEnabled(),
+      chain: 'base',
+      assets: ['USDC', 'ETH']
+    });
+  });
+
+  app.get('/api/crypto/eth-price', async (_req, res) => {
+    if (!cryptoPayments.isCryptoPaymentsEnabled()) {
+      return res.status(400).json({ error: 'Crypto payments disabled' });
+    }
+    const price = await cryptoPayments.getEthUsdPrice();
+    res.json({ price, available: price !== null });
+  });
+
+  app.post('/api/crypto-invoice/create', async (req, res) => {
+    try {
+      if (!cryptoPayments.isCryptoPaymentsEnabled()) {
+        return res.status(400).json({ error: 'Crypto payments are disabled' });
+      }
+
+      const { payTokenId, asset, payerCallId } = req.body;
+
+      if (!payTokenId || !asset) {
+        return res.status(400).json({ error: 'Missing required fields: payTokenId, asset' });
+      }
+
+      if (asset !== 'USDC' && asset !== 'ETH') {
+        return res.status(400).json({ error: 'Invalid asset. Use USDC or ETH' });
+      }
+
+      const payToken = await storage.getPaidCallToken(payTokenId);
+      if (!payToken) {
+        return res.status(404).json({ error: 'Pay token not found' });
+      }
+
+      if (payToken.status === 'paid' || payToken.status === 'used') {
+        return res.status(400).json({ error: 'Token already paid' });
+      }
+
+      const recipientWallet = policyStore.getWalletVerification(payToken.creatorAddress);
+      if (!recipientWallet || recipientWallet.wallet_type !== 'ethereum') {
+        return res.status(400).json({ error: 'Recipient has no verified EVM wallet' });
+      }
+
+      const amountUsd = payToken.amountCents / 100;
+      let amountAsset: string;
+
+      if (asset === 'USDC') {
+        amountAsset = cryptoPayments.calculateUsdcAmount(amountUsd);
+      } else {
+        const ethAmount = await cryptoPayments.calculateEthAmount(amountUsd);
+        if (!ethAmount) {
+          return res.status(400).json({ error: 'ETH price unavailable. Try USDC instead.' });
+        }
+        amountAsset = ethAmount;
+      }
+
+      const invoice = await storage.createCryptoInvoice({
+        payTokenId: payToken.token,
+        recipientCallId: payToken.creatorAddress,
+        recipientWallet: recipientWallet.wallet_address,
+        payerCallId: payerCallId || null,
+        chain: 'base',
+        asset,
+        amountUsd,
+        amountAsset,
+        status: 'pending',
+        expiresAt: cryptoPayments.calculateInvoiceExpiry(),
+      });
+
+      res.json({
+        invoiceId: invoice.id,
+        recipientWallet: invoice.recipientWallet,
+        chain: invoice.chain,
+        asset: invoice.asset,
+        amountAsset: invoice.amountAsset,
+        amountUsd: invoice.amountUsd,
+        expiresAt: invoice.expiresAt,
+      });
+    } catch (error) {
+      console.error('Error creating crypto invoice:', error);
+      res.status(500).json({ error: 'Failed to create crypto invoice' });
+    }
+  });
+
+  app.post('/api/crypto-invoice/confirm', async (req, res) => {
+    try {
+      if (!cryptoPayments.isCryptoPaymentsEnabled()) {
+        return res.status(400).json({ error: 'Crypto payments are disabled' });
+      }
+
+      const { invoiceId, txHash } = req.body;
+
+      if (!invoiceId || !txHash) {
+        return res.status(400).json({ error: 'Missing required fields: invoiceId, txHash' });
+      }
+
+      if (!cryptoPayments.isValidTxHash(txHash)) {
+        return res.status(400).json({ error: 'Invalid transaction hash format' });
+      }
+
+      const invoice = await storage.getCryptoInvoice(invoiceId);
+      if (!invoice) {
+        return res.status(404).json({ error: 'Invoice not found' });
+      }
+
+      if (invoice.status === 'paid') {
+        return res.status(400).json({ error: 'Invoice already paid' });
+      }
+
+      if (invoice.status === 'expired' || new Date(invoice.expiresAt) < new Date()) {
+        await storage.updateCryptoInvoice(invoiceId, { status: 'expired' });
+        return res.status(400).json({ error: 'Invoice expired' });
+      }
+
+      const existingTx = await storage.getCryptoInvoiceByTxHash(txHash);
+      if (existingTx) {
+        return res.status(400).json({ error: 'Transaction already used for another invoice' });
+      }
+
+      let verification;
+      if (invoice.asset === 'ETH') {
+        verification = await cryptoPayments.verifyEthPayment(
+          txHash,
+          invoice.recipientWallet,
+          invoice.amountAsset
+        );
+      } else {
+        verification = await cryptoPayments.verifyUsdcPayment(
+          txHash,
+          invoice.recipientWallet,
+          invoice.amountAsset
+        );
+      }
+
+      if (!verification.success) {
+        await storage.updateCryptoInvoice(invoiceId, { status: 'failed' });
+        return res.status(400).json({ error: verification.error || 'Payment verification failed' });
+      }
+
+      await storage.updateCryptoInvoice(invoiceId, {
+        status: 'paid',
+        txHash,
+        paidAt: new Date(),
+      });
+
+      const payToken = await storage.getPaidCallToken(invoice.payTokenId);
+      if (payToken) {
+        await storage.updatePaidCallToken(payToken.id, {
+          status: 'paid',
+          paymentIntentId: `crypto:${txHash}`,
+        });
+      }
+
+      res.json({
+        success: true,
+        message: 'Payment verified successfully',
+        invoiceId: invoice.id,
+        txHash,
+      });
+    } catch (error) {
+      console.error('Error confirming crypto invoice:', error);
+      res.status(500).json({ error: 'Failed to confirm crypto payment' });
+    }
+  });
+
+  app.get('/api/crypto-invoice/:id', async (req, res) => {
+    try {
+      const invoice = await storage.getCryptoInvoice(req.params.id);
+      if (!invoice) {
+        return res.status(404).json({ error: 'Invoice not found' });
+      }
+
+      if (invoice.status === 'pending' && new Date(invoice.expiresAt) < new Date()) {
+        await storage.updateCryptoInvoice(invoice.id, { status: 'expired' });
+        invoice.status = 'expired';
+      }
+
+      res.json(invoice);
+    } catch (error) {
+      console.error('Error getting crypto invoice:', error);
+      res.status(500).json({ error: 'Failed to get invoice' });
+    }
+  });
+
+  app.get('/api/crypto/recipient-wallet/:address', async (req, res) => {
+    try {
+      const wallet = policyStore.getWalletVerification(req.params.address);
+      if (!wallet || wallet.wallet_type !== 'ethereum') {
+        return res.json({ hasWallet: false });
+      }
+      res.json({ hasWallet: true, walletAddress: wallet.wallet_address });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to check wallet' });
+    }
+  });
+
+  app.get('/api/admin/crypto-invoices', async (req, res) => {
+    try {
+      const invoices = await storage.getRecentCryptoInvoices(50);
+      res.json(invoices);
+    } catch (error) {
+      console.error('Error getting crypto invoices:', error);
+      res.status(500).json({ error: 'Failed to get invoices' });
+    }
+  });
+
   // Phase 5: Call Duration Tracking
   app.post('/api/call-duration/start', async (req, res) => {
     try {

@@ -1,0 +1,104 @@
+ADD SOLANA PAYMENTS NEXT (USDC + SOL) AS OPTIONAL “PAY WITH CRYPTO (ADVANCED)” METHODS. KEEP STRIPE + BASE (USDC/ETH) WORKING EXACTLY AS-IS. DO NOT CHANGE ANY EXISTING FEATURE OR FUNCTIONALITY.
+
+NON-NEGOTIABLE RULES
+- Do NOT remove/rename/break existing calls/video/chats/permissions/admin/trials/Stripe/Base crypto payments.
+- Only ADD Solana support + minimal UI wiring.
+- No custodial wallets. Never ask for seed phrases. Never store user private keys.
+- Solana must be OPTIONAL and under “Pay with Crypto (Advanced)”.
+
+SCOPE (KEEP IT SIMPLE AND CONVERTING)
+- Support Solana payments ONLY for:
+  1) Per-session paid calls (fixed amount)
+  2) Paid call links (/pay/<token>)
+- Do NOT implement per-minute Solana billing yet.
+- Support:
+  - USDC on Solana (SPL token) (PRIMARY)
+  - SOL (native) (OPTIONAL)
+- If price feed isn’t available, disable SOL option and keep USDC only.
+
+UI REQUIREMENTS
+1) On “Pay with Crypto (Advanced)” screen:
+- Add a chain selector (segmented control):
+  - Base
+  - Solana
+- Under Solana:
+  - Tabs: “USDC (Solana)” and “SOL (Solana)”
+- Show:
+  - exact amount
+  - network “Solana”
+  - recipient wallet address (Solana address) + QR
+  - warning: “Send exact amount on Solana. Crypto payments are final.”
+  - “I’ve Paid” + input for transaction signature (Solana tx sig)
+
+2) Recipient wallet requirement:
+- Only show Solana option if creator has a verified Solana address on file.
+- If current wallet verification supports only EVM, extend it:
+  - Add “Verify Solana wallet (optional)” in Settings/Profile
+  - Verification approach (safe):
+    - User proves ownership by signing a message with their Solana wallet OR
+    - Fallback: they paste a signature and public address
+  - Store verified solana address server-side tied to call ID.
+
+BACKEND / DATA MODEL
+- Extend existing crypto invoice system to support a second chain:
+  crypto_invoices:
+    - chain: "base" | "solana"
+    - asset: "USDC" | "ETH" | "SOL"
+    - recipient_wallet (address string)
+    - amount_asset
+    - tx_hash/signature
+- Add env vars:
+  ENABLE_SOLANA_PAYMENTS=true
+  SOLANA_RPC_URL=<rpc endpoint>
+  SOLANA_USDC_MINT=<USDC mint address on Solana>
+  SOLANA_CLUSTER=mainnet|devnet
+  SOL_USD_PRICE=<optional fixed> OR a cached price API server-side
+
+ON-CHAIN VERIFICATION (SOLANA)
+Implement server verify for Solana invoices:
+
+1) SOL (native):
+- Fetch transaction by signature from Solana RPC
+- Verify:
+  - destination == recipient_wallet
+  - lamports transferred >= required lamports
+  - tx is confirmed/finalized (choose confirmed at minimum, prefer finalized)
+  - within invoice expiry window
+
+2) USDC SPL:
+- Fetch transaction meta and parse token transfer instructions OR token balance changes
+- Verify:
+  - mint == SOLANA_USDC_MINT
+  - recipient token account belongs to recipient_wallet (handle ATA)
+  - amount transferred >= required (USDC has 6 decimals)
+  - tx confirmed/finalized
+  - within expiry window
+
+IMPORTANT: Recipient will likely provide a wallet address (owner). You must handle associated token accounts for USDC.
+
+INTEGRATION WITH PAID CALL TOKENS
+- After Solana payment is verified, activate the SAME “Paid Call Token” path used by Stripe/Base.
+- The rest of the app must behave identically: “Payment verified → Call Now”.
+
+ADMIN CONSOLE
+- Add Solana toggles and invoice list filter for chain=solana.
+- Show status counts pending/paid/expired.
+
+TEST CHECKLIST (MUST PASS)
+1) Stripe still works.
+2) Base USDC/ETH still works.
+3) If creator has verified Solana wallet and ENABLE_SOLANA_PAYMENTS=true:
+   - Solana appears
+4) Create Solana USDC invoice:
+   - shows Solana address + amount + QR
+5) Paste tx signature:
+   - server verifies payment
+   - unlocks paid call token
+6) Wrong mint/chain/amount fails verification
+7) Expired invoice fails
+
+DELIVERABLES
+- Implement Solana support with minimal changes.
+- List new env vars.
+- Provide “How to test on Solana devnet with USDC” instructions.
+Proceed now without breaking anything.
