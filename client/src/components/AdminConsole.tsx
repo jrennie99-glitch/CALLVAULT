@@ -108,6 +108,7 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
   const [selectedUser, setSelectedUser] = useState<CryptoIdentity | null>(null);
   const [trialDays, setTrialDays] = useState('7');
   const [trialMinutes, setTrialMinutes] = useState('30');
+  const [chainFilter, setChainFilter] = useState<'all' | 'base' | 'solana'>('all');
   const [trialType, setTrialType] = useState<'days' | 'minutes'>('days');
   const [newInviteDays, setNewInviteDays] = useState('7');
   const [newInviteMinutes, setNewInviteMinutes] = useState('30');
@@ -834,14 +835,26 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
                 <Wallet className="w-5 h-5 text-orange-400" />
                 Crypto Invoices
               </CardTitle>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => refetchCrypto()}
-                data-testid="button-refresh-crypto"
-              >
-                <RefreshCw className="w-4 h-4" />
-              </Button>
+              <div className="flex items-center gap-2">
+                <Select value={chainFilter} onValueChange={(v) => setChainFilter(v as typeof chainFilter)}>
+                  <SelectTrigger className="w-24 h-8 text-xs" data-testid="select-chain-filter">
+                    <SelectValue placeholder="Chain" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All</SelectItem>
+                    <SelectItem value="base">Base</SelectItem>
+                    <SelectItem value="solana">Solana</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => refetchCrypto()}
+                  data-testid="button-refresh-crypto"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               {cryptoLoading ? (
@@ -850,18 +863,25 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
                 <div className="text-slate-400 text-center py-4">No crypto invoices yet</div>
               ) : (
                 <div className="space-y-3 max-h-96 overflow-y-auto">
-                  {cryptoInvoices.map((invoice) => (
+                  {cryptoInvoices
+                    .filter(inv => chainFilter === 'all' || inv.chain === chainFilter)
+                    .map((invoice) => (
                     <div key={invoice.id} className="p-3 bg-slate-700 rounded-lg">
                       <div className="flex items-center justify-between mb-2">
-                        <Badge 
-                          className={
-                            invoice.status === 'paid' ? 'bg-green-500' :
-                            invoice.status === 'pending' ? 'bg-yellow-500' :
-                            invoice.status === 'expired' ? 'bg-slate-500' : 'bg-red-500'
-                          }
-                        >
-                          {invoice.status}
-                        </Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge 
+                            className={
+                              invoice.status === 'paid' ? 'bg-green-500' :
+                              invoice.status === 'pending' ? 'bg-yellow-500' :
+                              invoice.status === 'expired' ? 'bg-slate-500' : 'bg-red-500'
+                            }
+                          >
+                            {invoice.status}
+                          </Badge>
+                          <Badge variant="outline" className={invoice.chain === 'solana' ? 'border-purple-500 text-purple-400' : 'border-blue-500 text-blue-400'}>
+                            {invoice.chain}
+                          </Badge>
+                        </div>
                         <span className="text-xs text-slate-400">{formatDate(invoice.createdAt)}</span>
                       </div>
                       <div className="grid grid-cols-2 gap-2 text-xs">
@@ -876,8 +896,8 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
                           <span className="text-white ml-1">${invoice.amountUsd.toFixed(2)}</span>
                         </div>
                         <div>
-                          <span className="text-slate-400">Chain:</span>
-                          <span className="text-white ml-1">{invoice.chain}</span>
+                          <span className="text-slate-400">Asset:</span>
+                          <span className="text-white ml-1">{invoice.asset}</span>
                         </div>
                         <div>
                           <span className="text-slate-400">Recipient:</span>
@@ -890,7 +910,9 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
                         <div className="mt-2 pt-2 border-t border-slate-600">
                           <span className="text-slate-400 text-xs">Tx: </span>
                           <a
-                            href={`https://basescan.org/tx/${invoice.txHash}`}
+                            href={invoice.chain === 'solana' 
+                              ? `https://solscan.io/tx/${invoice.txHash}` 
+                              : `https://basescan.org/tx/${invoice.txHash}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-blue-400 hover:text-blue-300 text-xs font-mono"
