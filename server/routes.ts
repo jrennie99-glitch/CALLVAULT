@@ -2032,6 +2032,43 @@ export async function registerRoutes(
                   return;
                 }
                 
+                // FREEZE MODE ENFORCEMENT
+                const freezeSettings = await storage.getFreezeModeSetting(recipientAddress);
+                if (freezeSettings.enabled) {
+                  // Check if caller is always allowed (emergency bypass)
+                  const isAlwaysAllowed = await storage.isContactAlwaysAllowed(recipientAddress, callerAddress);
+                  
+                  // Freeze Mode allows: always-allowed contacts, paid calls, or approved contacts
+                  if (!isAlwaysAllowed && !isPaidCall) {
+                    // Check if caller is an approved contact (has a contact record)
+                    if (!calleeContact) {
+                      // Caller is not approved - require call request instead of ringing
+                      const request: CallRequest = {
+                        id: `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                        from_address: callerAddress,
+                        to_address: recipientAddress,
+                        is_video: signedIntent.intent.media.video,
+                        timestamp: Date.now(),
+                        status: 'pending'
+                      };
+                      policyStore.createCallRequest(request);
+                      
+                      targetConnection.ws.send(JSON.stringify({
+                        type: 'call:request',
+                        request
+                      } as WSMessage));
+                      
+                      ws.send(JSON.stringify({
+                        type: 'call:blocked',
+                        reason: 'Recipient has Freeze Mode enabled. Call request sent for approval.',
+                        errorCode: 'FREEZE_MODE_REQUEST'
+                      } as WSMessage));
+                      console.log(`Freeze Mode: ${callerAddress} → ${recipientAddress} converted to call request`);
+                      return;
+                    }
+                  }
+                }
+                
                 // Continue with existing policy evaluation
                 policyStore.recordCallAttempt(recipientAddress, callerAddress);
                 
