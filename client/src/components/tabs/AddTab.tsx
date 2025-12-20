@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react';
-import { QrCode, Copy, UserPlus, Link, CheckCircle, Video, Phone, Ticket, DollarSign, Briefcase, ChevronRight } from 'lucide-react';
+import { QrCode, Copy, UserPlus, Link, CheckCircle, Video, Phone, Ticket, DollarSign, Briefcase, ChevronRight, ScanLine, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { addContact, getContactByAddress } from '@/lib/storage';
 import { getCreatorProfile } from '@/lib/policyStorage';
 import { toast } from 'sonner';
 import QRCode from 'qrcode';
+import { Scanner } from '@yudiel/react-qr-scanner';
 
 interface AddTabProps {
   myAddress: string;
@@ -24,8 +26,24 @@ export function AddTab({ myAddress, onContactAdded, onStartCall, onNavigateToInv
   const [pastedQrPayload, setPastedQrPayload] = useState('');
   const [quickCallAddress, setQuickCallAddress] = useState('');
   const [quickCallType, setQuickCallType] = useState<'video' | 'audio'>('video');
+  const [showScanner, setShowScanner] = useState(false);
+  const [scannerError, setScannerError] = useState<string | null>(null);
   const creatorProfile = getCreatorProfile();
   const isBusinessMode = creatorProfile?.enabled ?? false;
+
+  const handleScan = (detectedCodes: { rawValue: string }[]) => {
+    if (detectedCodes.length > 0) {
+      const scannedValue = detectedCodes[0].rawValue;
+      if (scannedValue.startsWith('call:')) {
+        setNewContactAddress(scannedValue);
+        setShowScanner(false);
+        setScannerError(null);
+        toast.success('QR code scanned! Enter a name for this contact.');
+      } else {
+        setScannerError('Invalid QR code - must be a Call Vault address');
+      }
+    }
+  };
 
   useEffect(() => {
     if (myAddress) {
@@ -210,10 +228,32 @@ export function AddTab({ myAddress, onContactAdded, onStartCall, onNavigateToInv
             Add Contact
           </CardTitle>
           <CardDescription className="text-slate-400">
-            Add a new contact by their call address
+            Scan a QR code or enter their call address
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <Button
+            onClick={() => {
+              setScannerError(null);
+              setShowScanner(true);
+            }}
+            variant="outline"
+            className="w-full border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300"
+            data-testid="button-scan-qr"
+          >
+            <ScanLine className="w-4 h-4 mr-2" />
+            Scan QR Code
+          </Button>
+          
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t border-slate-700" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-slate-800 px-2 text-slate-500">or enter manually</span>
+            </div>
+          </div>
+
           <div>
             <Label className="text-slate-300">Name</Label>
             <Input
@@ -245,6 +285,48 @@ export function AddTab({ myAddress, onContactAdded, onStartCall, onNavigateToInv
           </Button>
         </CardContent>
       </Card>
+
+      <Dialog open={showScanner} onOpenChange={setShowScanner}>
+        <DialogContent className="bg-slate-800 border-slate-700 max-w-md p-0 overflow-hidden">
+          <DialogHeader className="p-4 pb-2">
+            <DialogTitle className="text-white flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <ScanLine className="w-5 h-5 text-emerald-400" />
+                Scan QR Code
+              </span>
+            </DialogTitle>
+          </DialogHeader>
+          <div className="relative">
+            <div className="aspect-square w-full bg-black">
+              <Scanner
+                onScan={handleScan}
+                onError={(error) => {
+                  console.error('Scanner error:', error);
+                  setScannerError('Camera access denied or not available');
+                }}
+                styles={{
+                  container: { width: '100%', height: '100%' },
+                  video: { width: '100%', height: '100%', objectFit: 'cover' }
+                }}
+                components={{
+                  audio: false,
+                  torch: false
+                }}
+              />
+            </div>
+            {scannerError && (
+              <div className="absolute bottom-0 left-0 right-0 bg-red-500/90 text-white text-center py-2 text-sm">
+                {scannerError}
+              </div>
+            )}
+          </div>
+          <div className="p-4 pt-2">
+            <p className="text-slate-400 text-sm text-center">
+              Point your camera at a Call Vault QR code
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Card className="bg-slate-800/50 border-slate-700">
         <CardHeader>
