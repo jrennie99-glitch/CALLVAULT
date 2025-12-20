@@ -212,14 +212,23 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall }: ChatPageP
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
       
+      // Store the start time for duration calculation
+      const startTime = Date.now();
+      
       mediaRecorder.ondataavailable = (e) => {
-        audioChunksRef.current.push(e.data);
+        if (e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
       };
       
       mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         stream.getTracks().forEach(t => t.stop());
         
+        // Only proceed if we have recorded data (not cancelled)
+        if (audioChunksRef.current.length === 0) return;
+        
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const durationSeconds = Math.round((Date.now() - startTime) / 1000);
         const fileName = `voice_${Date.now()}.webm`;
         
         try {
@@ -234,21 +243,54 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall }: ChatPageP
           
           if (!res.ok) throw new Error('Upload failed');
           const { url, name, size } = await res.json();
-          sendMessage('voice', '', url, name, size);
+          
+          // Create message with duration
+          const message: Message = {
+            id: generateMessageId(),
+            convo_id: convo.id,
+            from_address: identity.address,
+            to_address: getOtherAddress(),
+            timestamp: Date.now(),
+            type: 'voice',
+            content: '',
+            attachment_url: url,
+            attachment_name: name,
+            attachment_size: size,
+            attachment_duration: durationSeconds,
+            nonce: Math.random().toString(36).slice(2) + Date.now().toString(36),
+            status: 'sending'
+          };
+          
+          saveLocalMessage(message);
+          setMessages(prev => [...prev, message]);
+          
+          const signedMessage = await signMessage(identity, message);
+          ws?.send(JSON.stringify({
+            type: 'msg:send',
+            data: signedMessage
+          }));
+          
+          message.status = 'sent';
+          saveLocalMessage(message);
+          setMessages(prev => prev.map(m => m.id === message.id ? { ...m, status: 'sent' } : m));
         } catch (error) {
           toast.error('Failed to send voice note');
         }
       };
       
-      mediaRecorder.start();
+      mediaRecorder.start(1000); // Collect data every second
       setIsRecording(true);
       setRecordingTime(0);
       
       recordingIntervalRef.current = setInterval(() => {
         setRecordingTime(t => t + 1);
       }, 1000);
-    } catch (error) {
-      toast.error('Microphone access denied');
+    } catch (error: any) {
+      if (error.name === 'NotAllowedError') {
+        toast.error('Microphone access denied. Please allow microphone access.');
+      } else {
+        toast.error('Failed to access microphone');
+      }
     }
   };
 
@@ -275,22 +317,39 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall }: ChatPageP
 
   const startVideoRecording = async () => {
     try {
+      // Check for camera permission first
+      const permissionResult = await navigator.permissions.query({ name: 'camera' as PermissionName });
+      if (permissionResult.state === 'denied') {
+        toast.error('Camera access is blocked. Please enable it in your browser settings.');
+        return;
+      }
+      
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: { facingMode: 'user' } });
       videoStreamRef.current = stream;
+      
+      // Store the start time for duration calculation
+      const startTime = Date.now();
       
       const mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
       mediaRecorderRef.current = mediaRecorder;
       videoChunksRef.current = [];
       
       mediaRecorder.ondataavailable = (e) => {
-        videoChunksRef.current.push(e.data);
+        if (e.data.size > 0) {
+          videoChunksRef.current.push(e.data);
+        }
       };
       
       mediaRecorder.onstop = async () => {
-        const videoBlob = new Blob(videoChunksRef.current, { type: 'video/webm' });
+        // Clean up stream tracks
         stream.getTracks().forEach(t => t.stop());
         setVideoPreviewUrl(null);
         
+        // Only proceed if we have recorded data (not cancelled)
+        if (videoChunksRef.current.length === 0) return;
+        
+        const videoBlob = new Blob(videoChunksRef.current, { type: 'video/webm' });
+        const durationSeconds = Math.round((Date.now() - startTime) / 1000);
         const fileName = `video_message_${Date.now()}.webm`;
         
         try {
@@ -305,13 +364,42 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall }: ChatPageP
           
           if (!res.ok) throw new Error('Upload failed');
           const { url, name, size } = await res.json();
-          sendMessage('video_message', '', url, name, size);
+          
+          // Create message with duration
+          const message: Message = {
+            id: generateMessageId(),
+            convo_id: convo.id,
+            from_address: identity.address,
+            to_address: getOtherAddress(),
+            timestamp: Date.now(),
+            type: 'video_message',
+            content: '',
+            attachment_url: url,
+            attachment_name: name,
+            attachment_size: size,
+            attachment_duration: durationSeconds,
+            nonce: Math.random().toString(36).slice(2) + Date.now().toString(36),
+            status: 'sending'
+          };
+          
+          saveLocalMessage(message);
+          setMessages(prev => [...prev, message]);
+          
+          const signedMessage = await signMessage(identity, message);
+          ws?.send(JSON.stringify({
+            type: 'msg:send',
+            data: signedMessage
+          }));
+          
+          message.status = 'sent';
+          saveLocalMessage(message);
+          setMessages(prev => prev.map(m => m.id === message.id ? { ...m, status: 'sent' } : m));
         } catch (error) {
           toast.error('Failed to send video message');
         }
       };
       
-      mediaRecorder.start();
+      mediaRecorder.start(1000); // Collect data every second
       setIsVideoRecording(true);
       setRecordingTime(0);
       
@@ -324,8 +412,19 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall }: ChatPageP
       recordingIntervalRef.current = setInterval(() => {
         setRecordingTime(t => t + 1);
       }, 1000);
-    } catch (error) {
-      toast.error('Camera access denied');
+    } catch (error: any) {
+      if (error.name === 'NotAllowedError') {
+        toast.error('Camera access denied. Please allow camera access to record video messages.');
+      } else if (error.name === 'NotFoundError') {
+        toast.error('No camera found. Please connect a camera to record video messages.');
+      } else {
+        toast.error('Failed to access camera');
+      }
+      // Clean up any partial state
+      setIsVideoRecording(false);
+      if (recordingIntervalRef.current) {
+        clearInterval(recordingIntervalRef.current);
+      }
     }
   };
 
