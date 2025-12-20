@@ -1962,10 +1962,9 @@ export async function registerRoutes(
   });
 
   // Bootstrap admin endpoint - one-time setup for first master admin
-  const bootstrapUsed = new Set<string>();
   app.post('/api/bootstrap-admin', async (req, res) => {
     try {
-      const { address, signature, timestamp, bootstrapSecret } = req.body;
+      const { address, publicKey, signature, timestamp, nonce, bootstrapSecret } = req.body;
       
       const envSecret = process.env.CV_BOOTSTRAP_SECRET;
       if (!envSecret) {
@@ -1976,27 +1975,31 @@ export async function registerRoutes(
         return res.status(403).json({ error: 'Invalid bootstrap secret' });
       }
       
-      if (bootstrapUsed.has(envSecret)) {
+      // Check if bootstrap was already used (persisted in system settings)
+      const bootstrapSetting = await storage.getSystemSetting('bootstrap_used');
+      if (bootstrapSetting?.value === 'true') {
         return res.status(403).json({ error: 'Bootstrap already used' });
       }
       
-      const existingAdmins = await storage.getAllIdentities();
-      const hasAdmin = existingAdmins.some(i => 
-        i.role === 'ultra_god_admin' || i.role === 'founder' || i.role === 'super_admin'
+      // Check for existing admins with targeted query
+      const identities = await storage.getAllIdentities();
+      const hasAdmin = identities.some(i => 
+        ['ultra_god_admin', 'founder', 'super_admin'].includes(i.role)
       );
       
       if (hasAdmin) {
         return res.status(403).json({ error: 'Admin already exists' });
       }
       
-      if (!address || !signature || !timestamp) {
-        return res.status(400).json({ error: 'Missing required fields' });
+      if (!address || !publicKey || !signature || !timestamp || !nonce) {
+        return res.status(400).json({ error: 'Missing required fields: address, publicKey, signature, timestamp, nonce' });
       }
       
-      const signedData = JSON.stringify({ action: 'bootstrap_admin', address, timestamp });
-      const signatureValid = verifySignature(address, signedData, signature);
+      // Verify signature using the generic verification function
+      const payload = { action: 'bootstrap_admin', address, timestamp, nonce };
+      const signatureValid = verifyGenericSignature(payload, signature, publicKey, nonce, timestamp);
       if (!signatureValid) {
-        return res.status(401).json({ error: 'Invalid signature' });
+        return res.status(401).json({ error: 'Invalid signature or expired timestamp' });
       }
       
       const identity = await storage.getIdentity(address);
@@ -2004,12 +2007,18 @@ export async function registerRoutes(
         return res.status(404).json({ error: 'Identity not found - register first' });
       }
       
+      // Verify the public key matches the identity
+      if (identity.publicKeyBase58 !== publicKey) {
+        return res.status(401).json({ error: 'Public key mismatch' });
+      }
+      
       await storage.updateIdentity(address, { 
         role: 'ultra_god_admin',
         status: 'active'
       } as any);
       
-      bootstrapUsed.add(envSecret);
+      // Persist bootstrap usage to prevent replay after restart
+      await storage.upsertSystemSetting('bootstrap_used', 'true');
       
       await storage.createAuditLog({
         actorAddress: address,
