@@ -3,6 +3,7 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { InstallPrompt } from "@/components/InstallPrompt";
 import CallPage from "@/pages/call";
 import ProfilePage from "@/pages/profile";
 import InvitePage from "@/pages/invite";
@@ -36,6 +37,7 @@ function App() {
       <TooltipProvider>
         <SonnerToaster />
         <Router />
+        <InstallPrompt />
       </TooltipProvider>
     </QueryClientProvider>
   );

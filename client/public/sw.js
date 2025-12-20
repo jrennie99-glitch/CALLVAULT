@@ -1,8 +1,9 @@
-const CACHE_NAME = 'crypto-call-v1';
+const CACHE_NAME = 'call-vault-v2';
 const STATIC_ASSETS = [
   '/',
   '/favicon.png',
-  '/manifest.json'
+  '/manifest.json',
+  '/offline.html'
 ];
 
 self.addEventListener('install', (event) => {
@@ -30,8 +31,20 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  if (event.request.url.includes('/ws') || 
-      event.request.url.includes('/api')) {
+  const url = new URL(event.request.url);
+  
+  if (url.pathname.startsWith('/ws') || 
+      url.pathname.startsWith('/api') ||
+      url.protocol === 'ws:' ||
+      url.protocol === 'wss:') {
+    return;
+  }
+
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request)
+        .catch(() => caches.match('/offline.html'))
+    );
     return;
   }
 

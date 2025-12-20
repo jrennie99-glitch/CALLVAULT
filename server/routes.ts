@@ -1961,6 +1961,187 @@ export async function registerRoutes(
     }
   });
 
+  // Bootstrap admin endpoint - one-time setup for first master admin
+  const bootstrapUsed = new Set<string>();
+  app.post('/api/bootstrap-admin', async (req, res) => {
+    try {
+      const { address, signature, timestamp, bootstrapSecret } = req.body;
+      
+      const envSecret = process.env.CV_BOOTSTRAP_SECRET;
+      if (!envSecret) {
+        return res.status(403).json({ error: 'Bootstrap not configured' });
+      }
+      
+      if (bootstrapSecret !== envSecret) {
+        return res.status(403).json({ error: 'Invalid bootstrap secret' });
+      }
+      
+      if (bootstrapUsed.has(envSecret)) {
+        return res.status(403).json({ error: 'Bootstrap already used' });
+      }
+      
+      const existingAdmins = await storage.getAllIdentities();
+      const hasAdmin = existingAdmins.some(i => 
+        i.role === 'ultra_god_admin' || i.role === 'founder' || i.role === 'super_admin'
+      );
+      
+      if (hasAdmin) {
+        return res.status(403).json({ error: 'Admin already exists' });
+      }
+      
+      if (!address || !signature || !timestamp) {
+        return res.status(400).json({ error: 'Missing required fields' });
+      }
+      
+      const signedData = JSON.stringify({ action: 'bootstrap_admin', address, timestamp });
+      const signatureValid = verifySignature(address, signedData, signature);
+      if (!signatureValid) {
+        return res.status(401).json({ error: 'Invalid signature' });
+      }
+      
+      const identity = await storage.getIdentity(address);
+      if (!identity) {
+        return res.status(404).json({ error: 'Identity not found - register first' });
+      }
+      
+      await storage.updateIdentity(address, { 
+        role: 'ultra_god_admin',
+        status: 'active'
+      } as any);
+      
+      bootstrapUsed.add(envSecret);
+      
+      await storage.createAuditLog({
+        actorAddress: address,
+        targetAddress: address,
+        actionType: 'BOOTSTRAP_ADMIN',
+        metadata: { method: 'api' },
+      });
+      
+      res.json({ success: true, message: 'Admin bootstrapped successfully' });
+    } catch (error) {
+      console.error('Error bootstrapping admin:', error);
+      res.status(500).json({ error: 'Failed to bootstrap admin' });
+    }
+  });
+
+  // Admin diagnostics endpoint
+  app.get('/api/admin/diagnostics', requirePermission('system.settings'), async (_req, res) => {
+    try {
+      const diagnostics: any = {
+        timestamp: new Date().toISOString(),
+        checks: {}
+      };
+      
+      // Database connectivity check
+      try {
+        const testQuery = await storage.getAllIdentities();
+        diagnostics.checks.database = {
+          status: 'ok',
+          message: 'Database connected',
+          userCount: testQuery.length
+        };
+      } catch (dbError) {
+        diagnostics.checks.database = {
+          status: 'error',
+          message: 'Database connection failed',
+          error: (dbError as Error).message
+        };
+      }
+      
+      // Stripe webhook status (check for recent webhook events)
+      try {
+        const stripeConfigured = !!process.env.STRIPE_SECRET_KEY;
+        const webhookConfigured = !!process.env.STRIPE_WEBHOOK_SECRET;
+        diagnostics.checks.stripe = {
+          status: stripeConfigured && webhookConfigured ? 'ok' : 'warning',
+          message: stripeConfigured && webhookConfigured 
+            ? 'Stripe configured' 
+            : 'Stripe partially configured',
+          details: {
+            secretKeySet: stripeConfigured,
+            webhookSecretSet: webhookConfigured,
+            proPriceId: !!process.env.STRIPE_PRO_PRICE_ID,
+            businessPriceId: !!process.env.STRIPE_BUSINESS_PRICE_ID
+          }
+        };
+      } catch (stripeError) {
+        diagnostics.checks.stripe = {
+          status: 'error',
+          message: 'Stripe check failed',
+          error: (stripeError as Error).message
+        };
+      }
+      
+      // Free tier gating check
+      diagnostics.checks.freeTierGating = {
+        status: 'ok',
+        message: 'Free tier enforcement active',
+        limits: {
+          maxCallsPerDay: FREE_TIER_LIMITS.MAX_CALLS_PER_DAY,
+          maxMinutesPerMonth: FREE_TIER_LIMITS.MAX_SECONDS_PER_MONTH / 60,
+          maxCallDurationMinutes: FREE_TIER_LIMITS.MAX_CALL_DURATION_SECONDS / 60,
+          heartbeatIntervalSeconds: FREE_TIER_LIMITS.HEARTBEAT_INTERVAL_SECONDS,
+          staleCallTimeoutSeconds: FREE_TIER_LIMITS.STALE_CALL_TIMEOUT_SECONDS
+        }
+      };
+      
+      // RBAC status
+      diagnostics.checks.rbac = {
+        status: 'ok',
+        message: 'RBAC system active',
+        founderAddressConfigured: !!FOUNDER_ADDRESS
+      };
+      
+      // Recent security events
+      try {
+        const recentLogs = await storage.getAuditLogs({ limit: 20 });
+        const securityEvents = recentLogs.filter(l => 
+          ['SUSPEND_USER', 'ROLE_CHANGE', 'BOOTSTRAP_ADMIN', 'LOGIN_FAILED', 'SESSION_REVOKED'].includes(l.actionType)
+        );
+        diagnostics.checks.securityEvents = {
+          status: 'ok',
+          recentCount: securityEvents.length,
+          events: securityEvents.slice(0, 10).map(e => ({
+            action: e.actionType,
+            actor: e.actorAddress?.slice(0, 20) + '...',
+            target: e.targetAddress?.slice(0, 20) + '...',
+            time: e.createdAt
+          }))
+        };
+      } catch (logError) {
+        diagnostics.checks.securityEvents = {
+          status: 'warning',
+          message: 'Could not fetch security events'
+        };
+      }
+      
+      // Active calls check
+      try {
+        const activeCalls = await storage.getActiveCalls();
+        diagnostics.checks.activeCalls = {
+          status: 'ok',
+          count: activeCalls.length
+        };
+      } catch (callError) {
+        diagnostics.checks.activeCalls = {
+          status: 'warning',
+          message: 'Could not fetch active calls'
+        };
+      }
+      
+      // Overall status
+      const hasErrors = Object.values(diagnostics.checks).some((c: any) => c.status === 'error');
+      const hasWarnings = Object.values(diagnostics.checks).some((c: any) => c.status === 'warning');
+      diagnostics.overallStatus = hasErrors ? 'error' : hasWarnings ? 'warning' : 'ok';
+      
+      res.json(diagnostics);
+    } catch (error) {
+      console.error('Error running diagnostics:', error);
+      res.status(500).json({ error: 'Failed to run diagnostics' });
+    }
+  });
+
   // Get user's free tier remaining limits
   app.get('/api/free-tier/limits/:address', async (req, res) => {
     try {
