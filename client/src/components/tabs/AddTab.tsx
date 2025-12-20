@@ -300,26 +300,32 @@ export function AddTab({ myAddress, onContactAdded, onStartCall, onNavigateToInv
             </DialogTitle>
           </DialogHeader>
           <div className="relative">
-            <div className="aspect-square w-full bg-black">
+            <div className="aspect-square w-full bg-black overflow-hidden">
               {showScanner && (
                 <Scanner
-                  key="qr-scanner"
-                  onScan={handleScan}
-                  onError={(error: any) => {
+                  onScan={(detectedCodes) => {
+                    if (detectedCodes && detectedCodes.length > 0) {
+                      handleScan(detectedCodes);
+                    }
+                  }}
+                  onError={(error: unknown) => {
                     console.error('Scanner error:', error);
-                    if (error?.name === 'NotAllowedError') {
+                    const err = error as any;
+                    if (err?.name === 'NotAllowedError' || err?.message?.includes('Permission')) {
                       setScannerError('Camera access denied. Please allow camera access in your browser settings.');
-                    } else if (error?.name === 'NotFoundError') {
+                    } else if (err?.name === 'NotFoundError' || err?.message?.includes('not found')) {
                       setScannerError('No camera found on this device.');
+                    } else if (err?.name === 'NotReadableError') {
+                      setScannerError('Camera is in use by another app. Please close other apps using the camera.');
                     } else {
                       setScannerError('Unable to access camera. Please try again.');
                     }
                   }}
                   constraints={{
-                    facingMode: 'environment',
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 }
+                    facingMode: 'environment'
                   }}
+                  formats={['qr_code']}
+                  scanDelay={300}
                   styles={{
                     container: { width: '100%', height: '100%' },
                     video: { width: '100%', height: '100%', objectFit: 'cover' }
