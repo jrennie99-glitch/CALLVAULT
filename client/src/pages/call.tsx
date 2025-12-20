@@ -9,6 +9,7 @@ import { FAB } from '@/components/FAB';
 import { ChatsTab } from '@/components/tabs/ChatsTab';
 import { CallsTab } from '@/components/tabs/CallsTab';
 import { ContactsTab } from '@/components/tabs/ContactsTab';
+import { VoicemailTab } from '@/components/tabs/VoicemailTab';
 import { AddTab } from '@/components/tabs/AddTab';
 import { SettingsTab } from '@/components/tabs/SettingsTab';
 import { CreateGroupModal } from '@/components/CreateGroupModal';
@@ -30,7 +31,7 @@ import { addToLocalBlocklist, isCreatorAvailable, shouldRequirePayment, getCallP
 import { PaymentRequiredScreen } from '@/components/PaymentRequiredScreen';
 import type { CryptoIdentity, WSMessage, Conversation, Message, CallRequest, CallPricing } from '@shared/types';
 
-type SettingsScreen = 'main' | 'call_permissions' | 'blocklist' | 'ai_guardian' | 'wallet' | 'passes' | 'creator_mode' | 'earnings_dashboard' | 'admin_console';
+type SettingsScreen = 'main' | 'call_permissions' | 'blocklist' | 'ai_guardian' | 'wallet' | 'passes' | 'creator_mode' | 'earnings_dashboard' | 'admin_console' | 'voicemail';
 
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -504,6 +505,11 @@ export default function CallPage() {
               setActiveTab('settings');
               setSettingsScreen('passes');
             }}
+            onNavigateToVoicemail={() => {
+              setActiveTab('settings');
+              setSettingsScreen('voicemail');
+            }}
+            myAddress={identity.address}
             onOpenChat={(address) => {
               const convo = getOrCreateDirectConvo(identity.address, address);
               saveLocalConversation(convo);
@@ -653,6 +659,12 @@ export default function CallPage() {
           <AdminConsole
             identity={identity}
             onBack={() => setSettingsScreen('main')}
+          />
+        )}
+        {activeTab === 'settings' && settingsScreen === 'voicemail' && identity && (
+          <VoicemailTab
+            myAddress={identity.address}
+            onClose={() => setSettingsScreen('main')}
           />
         )}
       </main>

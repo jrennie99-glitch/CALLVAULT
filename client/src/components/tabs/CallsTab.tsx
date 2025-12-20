@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Phone, Video, PhoneIncoming, PhoneOutgoing, PhoneMissed, UserPlus, Bell, Check, X, Ban, ChevronRight, MessageCircle, Ticket, Shield, Briefcase, DollarSign, Link2, Users, Clock } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Phone, Video, PhoneIncoming, PhoneOutgoing, PhoneMissed, UserPlus, Bell, Check, X, Ban, ChevronRight, MessageCircle, Ticket, Shield, Briefcase, DollarSign, Link2, Users, Clock, Voicemail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getCallHistory, getContactByAddress, type CallRecord } from '@/lib/storage';
 import { getLocalPasses, isLocallyBlocked, getCreatorProfile, getCallPricingSettings, formatPrice } from '@/lib/policyStorage';
@@ -13,6 +13,7 @@ interface CallsTabProps {
   onNavigateToAdd?: () => void;
   onNavigateToContacts?: () => void;
   onNavigateToSettings?: () => void;
+  onNavigateToVoicemail?: () => void;
   onOpenChat?: (address: string) => void;
   callRequests?: CallRequest[];
   onAcceptRequest?: (request: CallRequest) => void;
@@ -21,13 +22,24 @@ interface CallsTabProps {
   callQueue?: QueueEntry[];
   onAcceptQueueEntry?: (entry: QueueEntry) => void;
   onSkipQueueEntry?: (entry: QueueEntry) => void;
+  myAddress?: string;
 }
 
-export function CallsTab({ onStartCall, onNavigateToAdd, onNavigateToContacts, onNavigateToSettings, onOpenChat, callRequests = [], onAcceptRequest, onDeclineRequest, onBlockRequester, callQueue = [], onAcceptQueueEntry, onSkipQueueEntry }: CallsTabProps) {
+export function CallsTab({ onStartCall, onNavigateToAdd, onNavigateToContacts, onNavigateToSettings, onNavigateToVoicemail, onOpenChat, callRequests = [], onAcceptRequest, onDeclineRequest, onBlockRequester, callQueue = [], onAcceptQueueEntry, onSkipQueueEntry, myAddress }: CallsTabProps) {
   const [showRequests, setShowRequests] = useState(true);
   const [showQueue, setShowQueue] = useState(true);
   const [showPaidLinkModal, setShowPaidLinkModal] = useState(false);
+  const [unreadVoicemails, setUnreadVoicemails] = useState(0);
   const callHistory = getCallHistory();
+
+  useEffect(() => {
+    if (myAddress) {
+      fetch(`/api/voicemails/${encodeURIComponent(myAddress)}/unread-count`)
+        .then(res => res.ok ? res.json() : { count: 0 })
+        .then(data => setUnreadVoicemails(data.count))
+        .catch(() => setUnreadVoicemails(0));
+    }
+  }, [myAddress]);
   const passes = getLocalPasses();
   const creatorProfile = getCreatorProfile();
   const pricing = getCallPricingSettings();
@@ -154,6 +166,32 @@ export function CallsTab({ onStartCall, onNavigateToAdd, onNavigateToContacts, o
 
   return (
     <div>
+      <button
+        onClick={onNavigateToVoicemail}
+        className="w-full flex items-center justify-between p-4 bg-slate-800/50 border-b border-slate-700 hover:bg-slate-800 transition-colors"
+        data-testid="button-voicemail"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center relative">
+            <Voicemail className="w-5 h-5 text-emerald-400" />
+            {unreadVoicemails > 0 && (
+              <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                {unreadVoicemails > 9 ? '9+' : unreadVoicemails}
+              </span>
+            )}
+          </div>
+          <div className="text-left">
+            <p className="text-white font-medium">Voicemail</p>
+            <p className="text-slate-500 text-sm">
+              {unreadVoicemails > 0 
+                ? `${unreadVoicemails} new message${unreadVoicemails !== 1 ? 's' : ''}` 
+                : 'No new messages'}
+            </p>
+          </div>
+        </div>
+        <ChevronRight className="w-5 h-5 text-slate-400" />
+      </button>
+
       {isBusinessMode && (
         <div className="p-4 border-b border-slate-700">
           <Button
