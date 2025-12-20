@@ -22,9 +22,19 @@ Preferred communication style: Simple, everyday language.
     - **Call Queue**: Management for busy creators, priority for paid callers.
     - **Subscription Tiers**: Free, Pro ($9/mo), Business ($29/mo) with feature gating.
     - **Invite Links**: Admin-generated codes for influencer onboarding with trial access.
-- **Admin Console**: Role-Based Access Control (RBAC) for `founder`, `admin`, `user` roles, user management (enable/disable, roles), free trial system (time-based/usage-based), audit logs, impersonation, crypto invoice monitoring.
+- **Admin Console**: Advanced multi-level admin system with comprehensive RBAC:
+    - **Role Hierarchy**: `ultra_god_admin/founder` > `super_admin` > `admin` > `support` > `user` with cascading permissions.
+    - **Granular Permissions**: 20+ individual permissions covering users, access, admins, billing, security, audit, system, rate limits, and blocklist management.
+    - **Permission Categories**: `users.*` (read/write/suspend/impersonate/delete), `access.*` (grant/revoke/trials), `admins.*` (read/manage/create), `billing.*` (read/write/refund), `security.*` (read/write/2fa), `audit.*` (read/export), `system.*` (settings/maintenance), `rate_limits.manage`, `blocklist.manage`.
+    - **Admin Expiration**: Time-limited admin access with automatic permission revocation.
+    - **Custom Permissions**: Per-user permission overrides beyond role defaults.
+    - **Admin Sessions**: Tracked sessions with IP/user agent logging and revocation support.
     - **Comped Accounts**: Toggle `isComped` flag for perpetual Pro access without billing (useful for friends, family, or VIPs).
     - **Usage Dashboard**: Real-time view of active calls, calls today, minutes this month, relay calls 24h, estimated TURN costs, and per-user activity table.
+    - **System Settings**: Dynamic configuration stored in database for runtime adjustments.
+    - **Promo Codes**: Admin-generated discount/trial codes with usage limits and expiration.
+    - **IP Blocklist**: Block malicious IPs with reason tracking and expiration.
+    - **Key Files**: `server/rbac.ts` (RBAC service), admin routes in `server/routes.ts`, `AdminConsole.tsx` with Admins tab.
 - **Stripe Subscriptions (Phase 9)**: Full subscription management integration:
     - **Checkout Flow**: Stripe Checkout sessions for Pro ($9/mo) and Business ($29/mo) plans.
     - **Customer Portal**: Users can manage billing, update payment methods, and cancel subscriptions.

@@ -10,7 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { 
   Users, Shield, Clock, Activity, Search, 
   UserX, UserCheck, Crown, Eye, FileText,
-  ArrowLeft, RefreshCw, Gift, Link, Copy, Plus, Trash2, Wallet
+  ArrowLeft, RefreshCw, Gift, Link, Copy, Plus, Trash2, Wallet,
+  Settings, UserCog, Ban, CheckCircle, AlertTriangle
 } from 'lucide-react';
 import { toast } from 'sonner';
 import * as nacl from 'tweetnacl';
@@ -33,7 +34,30 @@ interface CryptoIdentity {
   stripeSubscriptionId: string | null;
   planRenewalAt: string | null;
   isComped: boolean | null;
+  status?: string;
+  adminExpiresAt?: string | null;
 }
+
+interface AdminPermissionsData {
+  address: string;
+  role: string;
+  permissions: string[];
+}
+
+interface AdminWithPermissions extends CryptoIdentity {
+  effectivePermissions: string[];
+  customPermissions: string[];
+  permissionsExpireAt?: string | null;
+}
+
+const ROLE_LABELS: Record<string, { label: string; color: string }> = {
+  ultra_god_admin: { label: 'Ultra Admin', color: 'bg-red-500' },
+  super_admin: { label: 'Super Admin', color: 'bg-orange-500' },
+  admin: { label: 'Admin', color: 'bg-yellow-500' },
+  support: { label: 'Support', color: 'bg-blue-500' },
+  founder: { label: 'Founder', color: 'bg-purple-500' },
+  user: { label: 'User', color: 'bg-slate-500' },
+};
 
 interface UserUsageStats {
   userAddress: string;
@@ -221,6 +245,35 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
       return res.json();
     },
   });
+
+  const { data: myPermissions } = useQuery<AdminPermissionsData>({
+    queryKey: ['admin-my-permissions'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/me/permissions', {
+        headers: generateAdminHeaders(identity),
+      });
+      if (!res.ok) throw new Error('Failed to fetch permissions');
+      return res.json();
+    },
+  });
+
+  const { data: adminsList, isLoading: adminsLoading, refetch: refetchAdmins } = useQuery<AdminWithPermissions[]>({
+    queryKey: ['admin-admins-list'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/admins', {
+        headers: generateAdminHeaders(identity),
+      });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: myPermissions?.permissions?.includes('admins.read') || 
+             myPermissions?.role === 'ultra_god_admin' || 
+             myPermissions?.role === 'founder',
+  });
+
+  const canManageAdmins = myPermissions?.permissions?.includes('admins.manage') || 
+                          myPermissions?.role === 'ultra_god_admin' ||
+                          myPermissions?.role === 'founder';
 
   const isFounder = roleData?.isFounder ?? false;
 
@@ -471,7 +524,7 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="p-4">
-        <TabsList className="grid w-full grid-cols-7 bg-slate-800">
+        <TabsList className="grid w-full grid-cols-8 bg-slate-800">
           <TabsTrigger value="dashboard" data-testid="tab-admin-dashboard">
             <Activity className="w-4 h-4 mr-1" /> Stats
           </TabsTrigger>
@@ -480,6 +533,9 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
           </TabsTrigger>
           <TabsTrigger value="users" data-testid="tab-admin-users">
             <Users className="w-4 h-4 mr-1" /> Users
+          </TabsTrigger>
+          <TabsTrigger value="admins" data-testid="tab-admin-admins">
+            <UserCog className="w-4 h-4 mr-1" /> Admins
           </TabsTrigger>
           <TabsTrigger value="invites" data-testid="tab-admin-invites">
             <Link className="w-4 h-4 mr-1" /> Invites
@@ -857,6 +913,113 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
               {usersData?.users.length === 0 && (
                 <div className="text-center py-8 text-slate-400">
                   No users found
+                </div>
+              )}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="admins" className="mt-4 space-y-4">
+          <div className="flex justify-between items-center">
+            <h2 className="text-lg font-semibold">Admin Management</h2>
+            <Button variant="outline" size="icon" onClick={() => refetchAdmins()} data-testid="button-refresh-admins">
+              <RefreshCw className="w-4 h-4" />
+            </Button>
+          </div>
+
+          <Card className="bg-slate-800 border-slate-700">
+            <CardHeader>
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Shield className="w-4 h-4 text-blue-400" />
+                Your Permissions
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-2">
+                <Badge className={ROLE_LABELS[myPermissions?.role || 'user']?.color || 'bg-slate-500'}>
+                  {ROLE_LABELS[myPermissions?.role || 'user']?.label || myPermissions?.role}
+                </Badge>
+                {myPermissions?.permissions?.map((perm) => (
+                  <Badge key={perm} variant="outline" className="text-xs">
+                    {perm}
+                  </Badge>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {adminsLoading ? (
+            <div className="text-center py-8 text-slate-400">Loading admins...</div>
+          ) : (
+            <div className="space-y-3">
+              <h3 className="text-sm text-slate-400">All Administrators</h3>
+              {adminsList?.map((admin) => (
+                <Card key={admin.address} className="bg-slate-800 border-slate-700">
+                  <CardContent className="py-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-sm">{admin.displayName || admin.address.slice(0, 20)}...</span>
+                          <Badge className={ROLE_LABELS[admin.role]?.color || 'bg-slate-500'}>
+                            {ROLE_LABELS[admin.role]?.label || admin.role}
+                          </Badge>
+                          {admin.status === 'suspended' && (
+                            <Badge variant="destructive"><Ban className="w-3 h-3 mr-1" /> Suspended</Badge>
+                          )}
+                          {admin.adminExpiresAt && new Date(admin.adminExpiresAt) < new Date() && (
+                            <Badge variant="outline" className="text-yellow-400 border-yellow-400">
+                              <AlertTriangle className="w-3 h-3 mr-1" /> Expired
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {admin.effectivePermissions?.slice(0, 5).map((perm) => (
+                            <Badge key={perm} variant="outline" className="text-xs text-slate-400">
+                              {perm}
+                            </Badge>
+                          ))}
+                          {admin.effectivePermissions?.length > 5 && (
+                            <Badge variant="outline" className="text-xs text-slate-400">
+                              +{admin.effectivePermissions.length - 5} more
+                            </Badge>
+                          )}
+                        </div>
+                        {admin.adminExpiresAt && (
+                          <p className="text-xs text-slate-500 mt-1">
+                            Expires: {new Date(admin.adminExpiresAt).toLocaleDateString()}
+                          </p>
+                        )}
+                      </div>
+                      {canManageAdmins && admin.address !== identity.address && (
+                        <div className="flex gap-2">
+                          <Button 
+                            variant="ghost" 
+                            size="icon"
+                            onClick={() => {
+                              if (confirm('Remove admin role from this user?')) {
+                                fetch(`/api/admin/admins/${admin.address}`, {
+                                  method: 'DELETE',
+                                  headers: generateAdminHeaders(identity),
+                                }).then(() => {
+                                  refetchAdmins();
+                                  toast.success('Admin role revoked');
+                                }).catch(() => toast.error('Failed to revoke admin'));
+                              }
+                            }}
+                            title="Revoke Admin"
+                            data-testid={`button-revoke-admin-${admin.address.slice(0, 8)}`}
+                          >
+                            <UserX className="w-4 h-4 text-red-400" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+              {(!adminsList || adminsList.length === 0) && (
+                <div className="text-center py-8 text-slate-400">
+                  No admins found or insufficient permissions to view
                 </div>
               )}
             </div>

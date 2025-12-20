@@ -15,6 +15,11 @@ import {
   cryptoInvoices, type CryptoInvoice, type InsertCryptoInvoice,
   usageCounters, type UsageCounter, type InsertUsageCounter,
   activeCalls, type ActiveCall, type InsertActiveCall,
+  adminPermissions, type AdminPermissions, type InsertAdminPermissions,
+  systemSettings, type SystemSetting,
+  promoCodes, type PromoCode, type InsertPromoCode,
+  ipBlocklist, type IpBlocklistEntry,
+  adminSessions, type AdminSession,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, asc, sql, gte, lte, ilike, or } from "drizzle-orm";
@@ -157,6 +162,42 @@ export interface IStorage {
   getFreezeModeSetting(address: string): Promise<{ enabled: boolean; setupCompleted: boolean }>;
   setFreezeMode(address: string, enabled: boolean): Promise<CryptoIdentityRecord | undefined>;
   setFreezeModeSetupCompleted(address: string): Promise<CryptoIdentityRecord | undefined>;
+
+  // Admin Permissions (RBAC)
+  getAdminPermissions(userAddress: string): Promise<AdminPermissions | undefined>;
+  setAdminPermissions(data: InsertAdminPermissions): Promise<AdminPermissions>;
+  updateAdminPermissions(userAddress: string, permissions: string[], expiresAt?: Date): Promise<AdminPermissions | undefined>;
+  deleteAdminPermissions(userAddress: string): Promise<boolean>;
+
+  // System Settings
+  getSystemSetting(key: string): Promise<SystemSetting | undefined>;
+  setSystemSetting(key: string, value: unknown, updatedBy: string, description?: string): Promise<SystemSetting>;
+  getAllSystemSettings(): Promise<SystemSetting[]>;
+
+  // Promo Codes
+  getPromoCode(code: string): Promise<PromoCode | undefined>;
+  createPromoCode(data: InsertPromoCode): Promise<PromoCode>;
+  updatePromoCode(id: string, updates: Partial<PromoCode>): Promise<PromoCode | undefined>;
+  getAllPromoCodes(): Promise<PromoCode[]>;
+
+  // IP Blocklist
+  getBlockedIp(ipAddress: string): Promise<IpBlocklistEntry | undefined>;
+  blockIp(ipAddress: string, reason: string, blockedBy: string, expiresAt?: Date): Promise<IpBlocklistEntry>;
+  unblockIp(ipAddress: string): Promise<boolean>;
+  getAllBlockedIps(): Promise<IpBlocklistEntry[]>;
+
+  // Admin Sessions
+  getAdminSession(sessionToken: string): Promise<AdminSession | undefined>;
+  getAdminSessionsForUser(adminAddress: string): Promise<AdminSession[]>;
+  createAdminSession(adminAddress: string, ipAddress?: string, userAgent?: string): Promise<AdminSession>;
+  revokeAdminSession(sessionToken: string): Promise<boolean>;
+  revokeAllAdminSessions(adminAddress: string): Promise<number>;
+
+  // Extended user management
+  suspendUser(address: string, reason: string, suspendedBy: string): Promise<CryptoIdentityRecord | undefined>;
+  unsuspendUser(address: string): Promise<CryptoIdentityRecord | undefined>;
+  softBanUser(address: string, reason: string, bannedBy: string): Promise<CryptoIdentityRecord | undefined>;
+  grantFreeAccess(address: string, endAt: Date, actorAddress: string): Promise<CryptoIdentityRecord | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1231,6 +1272,190 @@ export class DatabaseStorage implements IStorage {
 
   async setFreezeModeSetupCompleted(address: string): Promise<CryptoIdentityRecord | undefined> {
     return this.updateIdentity(address, { freezeModeSetupCompleted: true });
+  }
+
+  // Admin Permissions (RBAC) methods
+  async getAdminPermissions(userAddress: string): Promise<AdminPermissions | undefined> {
+    const [perms] = await db.select().from(adminPermissions).where(eq(adminPermissions.userAddress, userAddress));
+    return perms || undefined;
+  }
+
+  async setAdminPermissions(data: InsertAdminPermissions): Promise<AdminPermissions> {
+    const existing = await this.getAdminPermissions(data.userAddress);
+    const permsArray: string[] = Array.isArray(data.permissions) ? [...data.permissions] : [];
+    if (existing) {
+      const [updated] = await db.update(adminPermissions)
+        .set({ permissions: permsArray as string[], expiresAt: data.expiresAt, updatedAt: new Date() })
+        .where(eq(adminPermissions.userAddress, data.userAddress))
+        .returning();
+      return updated;
+    }
+    const insertData: any = {
+      userAddress: data.userAddress,
+      permissions: permsArray as string[],
+      expiresAt: data.expiresAt,
+      grantedBy: data.grantedBy,
+    };
+    const [created] = await db.insert(adminPermissions).values(insertData).returning();
+    return created;
+  }
+
+  async updateAdminPermissions(userAddress: string, permissions: string[], expiresAt?: Date): Promise<AdminPermissions | undefined> {
+    const [updated] = await db.update(adminPermissions)
+      .set({ permissions, expiresAt, updatedAt: new Date() })
+      .where(eq(adminPermissions.userAddress, userAddress))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteAdminPermissions(userAddress: string): Promise<boolean> {
+    const result = await db.delete(adminPermissions).where(eq(adminPermissions.userAddress, userAddress)).returning();
+    return result.length > 0;
+  }
+
+  // System Settings methods
+  async getSystemSetting(key: string): Promise<SystemSetting | undefined> {
+    const [setting] = await db.select().from(systemSettings).where(eq(systemSettings.key, key));
+    return setting || undefined;
+  }
+
+  async setSystemSetting(key: string, value: unknown, updatedBy: string, description?: string): Promise<SystemSetting> {
+    const existing = await this.getSystemSetting(key);
+    if (existing) {
+      const [updated] = await db.update(systemSettings)
+        .set({ valueJson: value, updatedBy, updatedAt: new Date(), description })
+        .where(eq(systemSettings.key, key))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(systemSettings).values({ key, valueJson: value, updatedBy, description }).returning();
+    return created;
+  }
+
+  async getAllSystemSettings(): Promise<SystemSetting[]> {
+    return db.select().from(systemSettings);
+  }
+
+  // Promo Codes methods
+  async getPromoCode(code: string): Promise<PromoCode | undefined> {
+    const [promo] = await db.select().from(promoCodes).where(eq(promoCodes.code, code));
+    return promo || undefined;
+  }
+
+  async createPromoCode(data: InsertPromoCode): Promise<PromoCode> {
+    const [created] = await db.insert(promoCodes).values(data).returning();
+    return created;
+  }
+
+  async updatePromoCode(id: string, updates: Partial<PromoCode>): Promise<PromoCode | undefined> {
+    const [updated] = await db.update(promoCodes).set(updates).where(eq(promoCodes.id, id)).returning();
+    return updated || undefined;
+  }
+
+  async getAllPromoCodes(): Promise<PromoCode[]> {
+    return db.select().from(promoCodes).orderBy(desc(promoCodes.createdAt));
+  }
+
+  // IP Blocklist methods
+  async getBlockedIp(ipAddress: string): Promise<IpBlocklistEntry | undefined> {
+    const [entry] = await db.select().from(ipBlocklist).where(eq(ipBlocklist.ipAddress, ipAddress));
+    return entry || undefined;
+  }
+
+  async blockIp(ipAddress: string, reason: string, blockedBy: string, expiresAt?: Date): Promise<IpBlocklistEntry> {
+    const [created] = await db.insert(ipBlocklist).values({ ipAddress, reason, blockedBy, expiresAt }).returning();
+    return created;
+  }
+
+  async unblockIp(ipAddress: string): Promise<boolean> {
+    const result = await db.delete(ipBlocklist).where(eq(ipBlocklist.ipAddress, ipAddress)).returning();
+    return result.length > 0;
+  }
+
+  async getAllBlockedIps(): Promise<IpBlocklistEntry[]> {
+    return db.select().from(ipBlocklist);
+  }
+
+  // Admin Sessions methods
+  async getAdminSession(sessionToken: string): Promise<AdminSession | undefined> {
+    const [session] = await db.select().from(adminSessions).where(
+      and(eq(adminSessions.sessionToken, sessionToken), sql`${adminSessions.revokedAt} IS NULL`)
+    );
+    return session || undefined;
+  }
+
+  async getAdminSessionsForUser(adminAddress: string): Promise<AdminSession[]> {
+    return db.select().from(adminSessions).where(
+      and(eq(adminSessions.adminAddress, adminAddress), sql`${adminSessions.revokedAt} IS NULL`)
+    );
+  }
+
+  async createAdminSession(adminAddress: string, ipAddress?: string, userAgent?: string): Promise<AdminSession> {
+    const sessionToken = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+    const [created] = await db.insert(adminSessions).values({
+      adminAddress,
+      sessionToken,
+      ipAddress,
+      userAgent,
+      expiresAt,
+    }).returning();
+    return created;
+  }
+
+  async revokeAdminSession(sessionToken: string): Promise<boolean> {
+    const result = await db.update(adminSessions)
+      .set({ revokedAt: new Date() })
+      .where(eq(adminSessions.sessionToken, sessionToken))
+      .returning();
+    return result.length > 0;
+  }
+
+  async revokeAllAdminSessions(adminAddress: string): Promise<number> {
+    const result = await db.update(adminSessions)
+      .set({ revokedAt: new Date() })
+      .where(and(eq(adminSessions.adminAddress, adminAddress), sql`${adminSessions.revokedAt} IS NULL`))
+      .returning();
+    return result.length;
+  }
+
+  // Extended user management methods
+  async suspendUser(address: string, reason: string, suspendedBy: string): Promise<CryptoIdentityRecord | undefined> {
+    return this.updateIdentity(address, {
+      status: 'suspended',
+      suspendedAt: new Date(),
+      suspendedBy,
+      suspendedReason: reason,
+    } as any);
+  }
+
+  async unsuspendUser(address: string): Promise<CryptoIdentityRecord | undefined> {
+    return this.updateIdentity(address, {
+      status: 'active',
+      suspendedAt: null,
+      suspendedBy: null,
+      suspendedReason: null,
+    } as any);
+  }
+
+  async softBanUser(address: string, reason: string, bannedBy: string): Promise<CryptoIdentityRecord | undefined> {
+    return this.updateIdentity(address, {
+      status: 'soft_banned',
+      suspendedAt: new Date(),
+      suspendedBy: bannedBy,
+      suspendedReason: reason,
+    } as any);
+  }
+
+  async grantFreeAccess(address: string, endAt: Date, actorAddress: string): Promise<CryptoIdentityRecord | undefined> {
+    const updated = await this.updateIdentity(address, { freeAccessEndAt: endAt } as any);
+    await this.createAuditLog({
+      actorAddress,
+      targetAddress: address,
+      actionType: 'GRANT_FREE_ACCESS',
+      metadata: { freeAccessEndAt: endAt.toISOString() }
+    });
+    return updated;
   }
 }
 

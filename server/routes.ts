@@ -1140,7 +1140,7 @@ export async function registerRoutes(
   
   seedFounder().catch(console.error);
 
-  // Admin auth middleware
+  // Admin auth middleware with RBAC support
   async function requireAdmin(req: any, res: any, next: any) {
     const actorAddress = req.headers['x-admin-address'] as string;
     const signature = req.headers['x-admin-signature'] as string;
@@ -1163,9 +1163,21 @@ export async function registerRoutes(
     if (identity.isDisabled) {
       return res.status(403).json({ error: 'Account is disabled' });
     }
-    
-    if (identity.role !== 'admin' && identity.role !== 'founder') {
+
+    // Check if identity has an admin-level role using RBAC
+    const { RBAC } = await import('./rbac');
+    if (!RBAC.isAdminRole(identity.role)) {
       return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    // Check admin expiration
+    if (identity.adminExpiresAt && new Date(identity.adminExpiresAt) < new Date()) {
+      return res.status(403).json({ error: 'Admin access has expired' });
+    }
+
+    // Check user status
+    if ((identity as any).status === 'suspended' || (identity as any).status === 'soft_banned') {
+      return res.status(403).json({ error: 'Account is suspended' });
     }
     
     // Verify signature
@@ -1184,13 +1196,48 @@ export async function registerRoutes(
     }
     
     req.adminIdentity = identity;
+    req.adminPermissions = await RBAC.getUserEffectivePermissions(actorAddress);
     next();
   }
 
+  // Require specific permission(s)
+  function requirePermission(...permissions: string[]) {
+    return async (req: any, res: any, next: any) => {
+      await requireAdmin(req, res, async () => {
+        const { RBAC } = await import('./rbac');
+        const hasAny = await RBAC.hasAnyPermission(req.adminIdentity.address, permissions as any);
+        if (!hasAny) {
+          return res.status(403).json({ 
+            error: 'Insufficient permissions', 
+            required: permissions 
+          });
+        }
+        next();
+      });
+    };
+  }
+
+  // Require specific role level or higher
+  function requireRole(minRole: string) {
+    return async (req: any, res: any, next: any) => {
+      await requireAdmin(req, res, async () => {
+        const { RBAC } = await import('./rbac');
+        if (!RBAC.isRoleHigherOrEqual(req.adminIdentity.role, minRole)) {
+          return res.status(403).json({ 
+            error: `Role '${minRole}' or higher required` 
+          });
+        }
+        next();
+      });
+    };
+  }
+
+  // Legacy requireFounder - now maps to ultra_god_admin
   async function requireFounder(req: any, res: any, next: any) {
     await requireAdmin(req, res, () => {
-      if (req.adminIdentity?.role !== 'founder') {
-        return res.status(403).json({ error: 'Founder access required' });
+      const role = req.adminIdentity?.role;
+      if (role !== 'founder' && role !== 'ultra_god_admin') {
+        return res.status(403).json({ error: 'Owner access required' });
       }
       next();
     });
@@ -1485,6 +1532,432 @@ export async function registerRoutes(
     } catch (error) {
       console.error('Error fetching usage stats:', error);
       res.status(500).json({ error: 'Failed to fetch usage stats' });
+    }
+  });
+
+  // ============================================
+  // ENHANCED ADMIN SYSTEM (RBAC, Sessions, etc.)
+  // ============================================
+
+  // Get admin's own permissions
+  app.get('/api/admin/me/permissions', requireAdmin, async (req: any, res) => {
+    try {
+      res.json({
+        address: req.adminIdentity.address,
+        role: req.adminIdentity.role,
+        permissions: req.adminPermissions || [],
+      });
+    } catch (error) {
+      console.error('Error fetching admin permissions:', error);
+      res.status(500).json({ error: 'Failed to fetch permissions' });
+    }
+  });
+
+  // List all admins (requires admins.read)
+  app.get('/api/admin/admins', requirePermission('admins.read'), async (_req, res) => {
+    try {
+      const { RBAC } = await import('./rbac');
+      const allIdentities = await storage.getAllIdentities({ limit: 10000 });
+      const admins = allIdentities.filter(i => RBAC.isAdminRole(i.role));
+      
+      const adminsWithPerms = await Promise.all(admins.map(async (admin) => {
+        const perms = await storage.getAdminPermissions(admin.address);
+        return {
+          ...admin,
+          effectivePermissions: await RBAC.getUserEffectivePermissions(admin.address),
+          customPermissions: perms?.permissions || [],
+          permissionsExpireAt: perms?.expiresAt,
+        };
+      }));
+      
+      res.json(adminsWithPerms);
+    } catch (error) {
+      console.error('Error fetching admins:', error);
+      res.status(500).json({ error: 'Failed to fetch admins' });
+    }
+  });
+
+  // Grant admin role (requires admins.create)
+  app.post('/api/admin/admins/:address', requirePermission('admins.create'), async (req: any, res) => {
+    try {
+      const { address } = req.params;
+      const { role, permissions, expiresAt } = req.body;
+      const actorAddress = req.adminIdentity.address;
+      
+      const { RBAC } = await import('./rbac');
+      
+      // Check if actor can grant this role
+      if (!(await RBAC.canManageRole(actorAddress, role))) {
+        return res.status(403).json({ error: 'Cannot grant a role equal or higher than your own' });
+      }
+      
+      const identity = await storage.getIdentity(address);
+      if (!identity) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      // Update role
+      await storage.updateIdentity(address, { 
+        role,
+        adminExpiresAt: expiresAt ? new Date(expiresAt) : null,
+      } as any);
+      
+      // Set custom permissions if provided
+      if (permissions && permissions.length > 0) {
+        await storage.setAdminPermissions({
+          userAddress: address,
+          permissions,
+          expiresAt: expiresAt ? new Date(expiresAt) : null,
+          grantedBy: actorAddress,
+        });
+      }
+      
+      await storage.createAuditLog({
+        actorAddress,
+        targetAddress: address,
+        actionType: 'GRANT_ADMIN',
+        metadata: { role, permissions, expiresAt },
+      });
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error granting admin:', error);
+      res.status(500).json({ error: 'Failed to grant admin role' });
+    }
+  });
+
+  // Revoke admin role (requires admins.manage)
+  app.delete('/api/admin/admins/:address', requirePermission('admins.manage'), async (req: any, res) => {
+    try {
+      const { address } = req.params;
+      const actorAddress = req.adminIdentity.address;
+      
+      const { RBAC } = await import('./rbac');
+      
+      if (!(await RBAC.canEditUser(actorAddress, address))) {
+        return res.status(403).json({ error: 'Cannot revoke admin from this user' });
+      }
+      
+      await storage.updateIdentity(address, { role: 'user' } as any);
+      await storage.deleteAdminPermissions(address);
+      
+      await storage.createAuditLog({
+        actorAddress,
+        targetAddress: address,
+        actionType: 'REVOKE_ADMIN',
+        metadata: {},
+      });
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error revoking admin:', error);
+      res.status(500).json({ error: 'Failed to revoke admin role' });
+    }
+  });
+
+  // Update admin permissions (requires admins.manage)
+  app.put('/api/admin/admins/:address/permissions', requirePermission('admins.manage'), async (req: any, res) => {
+    try {
+      const { address } = req.params;
+      const { permissions, expiresAt } = req.body;
+      const actorAddress = req.adminIdentity.address;
+      
+      const { RBAC } = await import('./rbac');
+      if (!(await RBAC.canEditUser(actorAddress, address))) {
+        return res.status(403).json({ error: 'Cannot modify this admin' });
+      }
+      
+      await storage.setAdminPermissions({
+        userAddress: address,
+        permissions: permissions || [],
+        expiresAt: expiresAt ? new Date(expiresAt) : null,
+        grantedBy: actorAddress,
+      });
+      
+      await storage.createAuditLog({
+        actorAddress,
+        targetAddress: address,
+        actionType: 'UPDATE_PERMISSIONS',
+        metadata: { permissions, expiresAt },
+      });
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error updating permissions:', error);
+      res.status(500).json({ error: 'Failed to update permissions' });
+    }
+  });
+
+  // Suspend user (requires users.suspend)
+  app.post('/api/admin/users/:address/suspend', requirePermission('users.suspend'), async (req: any, res) => {
+    try {
+      const { address } = req.params;
+      const { reason } = req.body;
+      const actorAddress = req.adminIdentity.address;
+      
+      const { RBAC } = await import('./rbac');
+      if (!(await RBAC.canEditUser(actorAddress, address))) {
+        return res.status(403).json({ error: 'Cannot suspend this user' });
+      }
+      
+      await storage.suspendUser(address, reason || 'No reason provided', actorAddress);
+      
+      await storage.createAuditLog({
+        actorAddress,
+        targetAddress: address,
+        actionType: 'SUSPEND_USER',
+        metadata: { reason },
+      });
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error suspending user:', error);
+      res.status(500).json({ error: 'Failed to suspend user' });
+    }
+  });
+
+  // Unsuspend user (requires users.suspend)
+  app.post('/api/admin/users/:address/unsuspend', requirePermission('users.suspend'), async (req: any, res) => {
+    try {
+      const { address } = req.params;
+      const actorAddress = req.adminIdentity.address;
+      
+      await storage.unsuspendUser(address);
+      
+      await storage.createAuditLog({
+        actorAddress,
+        targetAddress: address,
+        actionType: 'UNSUSPEND_USER',
+        metadata: {},
+      });
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error unsuspending user:', error);
+      res.status(500).json({ error: 'Failed to unsuspend user' });
+    }
+  });
+
+  // Grant free access (requires access.grant)
+  app.post('/api/admin/users/:address/free-access', requirePermission('access.grant'), async (req: any, res) => {
+    try {
+      const { address } = req.params;
+      const { days } = req.body;
+      const actorAddress = req.adminIdentity.address;
+      
+      const endAt = new Date(Date.now() + (days || 30) * 24 * 60 * 60 * 1000);
+      await storage.grantFreeAccess(address, endAt, actorAddress);
+      
+      res.json({ success: true, freeAccessEndAt: endAt });
+    } catch (error) {
+      console.error('Error granting free access:', error);
+      res.status(500).json({ error: 'Failed to grant free access' });
+    }
+  });
+
+  // System Settings
+  app.get('/api/admin/settings', requirePermission('system.settings'), async (_req, res) => {
+    try {
+      const settings = await storage.getAllSystemSettings();
+      res.json(settings);
+    } catch (error) {
+      console.error('Error fetching settings:', error);
+      res.status(500).json({ error: 'Failed to fetch settings' });
+    }
+  });
+
+  app.put('/api/admin/settings/:key', requirePermission('system.settings'), async (req: any, res) => {
+    try {
+      const { key } = req.params;
+      const { value, description } = req.body;
+      const actorAddress = req.adminIdentity.address;
+      
+      const setting = await storage.setSystemSetting(key, value, actorAddress, description);
+      
+      await storage.createAuditLog({
+        actorAddress,
+        targetAddress: key,
+        actionType: 'SYSTEM_SETTING_CHANGE',
+        metadata: { key, value },
+      });
+      
+      res.json(setting);
+    } catch (error) {
+      console.error('Error updating setting:', error);
+      res.status(500).json({ error: 'Failed to update setting' });
+    }
+  });
+
+  // Promo Codes
+  app.get('/api/admin/promo-codes', requirePermission('access.trials'), async (_req, res) => {
+    try {
+      const codes = await storage.getAllPromoCodes();
+      res.json(codes);
+    } catch (error) {
+      console.error('Error fetching promo codes:', error);
+      res.status(500).json({ error: 'Failed to fetch promo codes' });
+    }
+  });
+
+  app.post('/api/admin/promo-codes', requirePermission('access.trials'), async (req: any, res) => {
+    try {
+      const { code, type, trialDays, trialMinutes, grantPlan, discountPercent, maxUses, expiresAt } = req.body;
+      const actorAddress = req.adminIdentity.address;
+      
+      const promoCode = await storage.createPromoCode({
+        code: code.toUpperCase(),
+        type: type || 'trial',
+        trialDays,
+        trialMinutes,
+        grantPlan,
+        discountPercent,
+        maxUses: maxUses || null,
+        expiresAt: expiresAt ? new Date(expiresAt) : null,
+        createdBy: actorAddress,
+      });
+      
+      await storage.createAuditLog({
+        actorAddress,
+        targetAddress: code,
+        actionType: 'CREATE_PROMO_CODE',
+        metadata: { code, type, trialDays, maxUses },
+      });
+      
+      res.json(promoCode);
+    } catch (error) {
+      console.error('Error creating promo code:', error);
+      res.status(500).json({ error: 'Failed to create promo code' });
+    }
+  });
+
+  // IP Blocklist
+  app.get('/api/admin/ip-blocklist', requirePermission('blocklist.manage'), async (_req, res) => {
+    try {
+      const blocked = await storage.getAllBlockedIps();
+      res.json(blocked);
+    } catch (error) {
+      console.error('Error fetching blocklist:', error);
+      res.status(500).json({ error: 'Failed to fetch blocklist' });
+    }
+  });
+
+  app.post('/api/admin/ip-blocklist', requirePermission('blocklist.manage'), async (req: any, res) => {
+    try {
+      const { ipAddress, reason, expiresAt } = req.body;
+      const actorAddress = req.adminIdentity.address;
+      
+      const entry = await storage.blockIp(ipAddress, reason, actorAddress, expiresAt ? new Date(expiresAt) : undefined);
+      
+      await storage.createAuditLog({
+        actorAddress,
+        targetAddress: ipAddress,
+        actionType: 'BLOCK_IP',
+        metadata: { ipAddress, reason },
+      });
+      
+      res.json(entry);
+    } catch (error) {
+      console.error('Error blocking IP:', error);
+      res.status(500).json({ error: 'Failed to block IP' });
+    }
+  });
+
+  app.delete('/api/admin/ip-blocklist/:ip', requirePermission('blocklist.manage'), async (req: any, res) => {
+    try {
+      const ipAddress = req.params.ip;
+      const actorAddress = req.adminIdentity.address;
+      
+      await storage.unblockIp(ipAddress);
+      
+      await storage.createAuditLog({
+        actorAddress,
+        targetAddress: ipAddress,
+        actionType: 'UNBLOCK_IP',
+        metadata: {},
+      });
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error unblocking IP:', error);
+      res.status(500).json({ error: 'Failed to unblock IP' });
+    }
+  });
+
+  // Admin Sessions
+  app.get('/api/admin/sessions', requirePermission('security.read'), async (req: any, res) => {
+    try {
+      const sessions = await storage.getAdminSessionsForUser(req.adminIdentity.address);
+      res.json(sessions);
+    } catch (error) {
+      console.error('Error fetching sessions:', error);
+      res.status(500).json({ error: 'Failed to fetch sessions' });
+    }
+  });
+
+  app.delete('/api/admin/sessions/:token', requirePermission('security.write'), async (req: any, res) => {
+    try {
+      const { token } = req.params;
+      const actorAddress = req.adminIdentity.address;
+      
+      await storage.revokeAdminSession(token);
+      
+      await storage.createAuditLog({
+        actorAddress,
+        targetAddress: token,
+        actionType: 'REVOKE_SESSION',
+        metadata: {},
+      });
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error revoking session:', error);
+      res.status(500).json({ error: 'Failed to revoke session' });
+    }
+  });
+
+  // Revoke all sessions for a user (requires security.write)
+  app.delete('/api/admin/users/:address/sessions', requirePermission('security.write'), async (req: any, res) => {
+    try {
+      const { address } = req.params;
+      const actorAddress = req.adminIdentity.address;
+      
+      const count = await storage.revokeAllAdminSessions(address);
+      
+      await storage.createAuditLog({
+        actorAddress,
+        targetAddress: address,
+        actionType: 'REVOKE_ALL_SESSIONS',
+        metadata: { revokedCount: count },
+      });
+      
+      res.json({ success: true, revokedCount: count });
+    } catch (error) {
+      console.error('Error revoking sessions:', error);
+      res.status(500).json({ error: 'Failed to revoke sessions' });
+    }
+  });
+
+  // Enhanced audit logs with filters
+  app.get('/api/admin/audit-logs/search', requirePermission('audit.read'), async (req, res) => {
+    try {
+      const { actor, target, action, limit } = req.query;
+      
+      const logs = await storage.getAuditLogs({
+        actorAddress: actor as string | undefined,
+        targetAddress: target as string | undefined,
+        limit: parseInt(limit as string) || 100
+      });
+      
+      // Filter by additional criteria
+      let filtered = logs;
+      if (action) {
+        filtered = filtered.filter(l => l.actionType === action);
+      }
+      
+      res.json(filtered);
+    } catch (error) {
+      console.error('Error searching audit logs:', error);
+      res.status(500).json({ error: 'Failed to search audit logs' });
     }
   });
 

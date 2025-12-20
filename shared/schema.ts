@@ -46,6 +46,13 @@ export const cryptoIdentities = pgTable("crypto_identities", {
   freezeModeSetupCompleted: boolean("freeze_mode_setup_completed").default(false),
   // Comped account (perpetual Pro without billing)
   isComped: boolean("is_comped").default(false),
+  // Extended admin fields
+  status: text("status").notNull().default("active"), // 'active' | 'suspended' | 'soft_banned' | 'deleted'
+  suspendedAt: timestamp("suspended_at"),
+  suspendedBy: text("suspended_by"),
+  suspendedReason: text("suspended_reason"),
+  freeAccessEndAt: timestamp("free_access_end_at"), // For time-limited free access grants
+  adminExpiresAt: timestamp("admin_expires_at"), // For time-limited admin roles
 });
 
 export const insertCryptoIdentitySchema = createInsertSchema(cryptoIdentities).omit({
@@ -254,13 +261,22 @@ export const callDurationRecordsRelations = relations(callDurationRecords, ({ on
   }),
 }));
 
-// Admin Audit Logs
+// Admin Audit Logs (extended for comprehensive tracking)
 export const adminAuditLogs = pgTable("admin_audit_logs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   actorAddress: text("actor_address").notNull(),
+  actorRole: text("actor_role"),
   targetAddress: text("target_address"),
-  actionType: text("action_type").notNull(), // 'GRANT_TRIAL' | 'DISABLE_USER' | 'ENABLE_USER' | 'ROLE_CHANGE' | 'IMPERSONATE_START' | 'IMPERSONATE_END' | 'CREATE_USER'
+  targetType: text("target_type"), // 'user' | 'admin' | 'system' | 'billing'
+  actionType: text("action_type").notNull(),
+  category: text("category").notNull().default("admin"), // 'admin' | 'security' | 'billing' | 'system' | 'access'
+  severity: text("severity").notNull().default("info"), // 'info' | 'warning' | 'critical'
+  beforeJson: jsonb("before_json").$type<Record<string, unknown>>(),
+  afterJson: jsonb("after_json").$type<Record<string, unknown>>(),
   metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+  reason: text("reason"),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -386,3 +402,117 @@ export const insertActiveCallSchema = createInsertSchema(activeCalls).omit({
 });
 export type InsertActiveCall = z.infer<typeof insertActiveCallSchema>;
 export type ActiveCall = typeof activeCalls.$inferSelect;
+
+// Role hierarchy: ultra_god_admin > super_admin > admin > support > user
+export const ROLE_HIERARCHY = ['user', 'support', 'admin', 'super_admin', 'ultra_god_admin'] as const;
+export type AdminRole = typeof ROLE_HIERARCHY[number];
+
+// Admin Permissions (granular RBAC)
+export const adminPermissions = pgTable("admin_permissions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userAddress: text("user_address").notNull().unique(),
+  permissions: jsonb("permissions").$type<string[]>().default([]),
+  expiresAt: timestamp("expires_at"),
+  grantedBy: text("granted_by").notNull(),
+  grantedAt: timestamp("granted_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertAdminPermissionsSchema = createInsertSchema(adminPermissions).omit({
+  id: true,
+  grantedAt: true,
+  updatedAt: true,
+});
+export type InsertAdminPermissions = z.infer<typeof insertAdminPermissionsSchema>;
+export type AdminPermissions = typeof adminPermissions.$inferSelect;
+
+// All available permissions
+export const ALL_PERMISSIONS = [
+  'users.read', 'users.write', 'users.suspend', 'users.impersonate', 'users.delete',
+  'access.grant', 'access.revoke', 'access.trials',
+  'admins.read', 'admins.manage', 'admins.create',
+  'billing.read', 'billing.write', 'billing.refund',
+  'security.read', 'security.write', 'security.2fa',
+  'audit.read', 'audit.export',
+  'system.settings', 'system.maintenance',
+  'rate_limits.manage', 'blocklist.manage',
+] as const;
+
+// Admin Sessions (for session management and impersonation)
+export const adminSessions = pgTable("admin_sessions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  adminAddress: text("admin_address").notNull(),
+  sessionToken: text("session_token").notNull().unique(),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  isImpersonating: boolean("is_impersonating").default(false),
+  impersonatingAddress: text("impersonating_address"),
+  impersonationReason: text("impersonation_reason"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  lastActivityAt: timestamp("last_activity_at").defaultNow().notNull(),
+  revokedAt: timestamp("revoked_at"),
+});
+
+export type AdminSession = typeof adminSessions.$inferSelect;
+
+// System Settings (global config)
+export const systemSettings = pgTable("system_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  key: text("key").notNull().unique(),
+  valueJson: jsonb("value_json").$type<unknown>(),
+  description: text("description"),
+  updatedBy: text("updated_by").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type SystemSetting = typeof systemSettings.$inferSelect;
+
+// Default system settings keys
+export const SYSTEM_SETTING_KEYS = {
+  FREE_CALLS_PER_DAY: 'free_calls_per_day',
+  FREE_MINUTES_PER_MONTH: 'free_minutes_per_month',
+  FREE_MAX_CALL_DURATION: 'free_max_call_duration',
+  REQUIRE_INVITE_CODE: 'require_invite_code',
+  TURN_PAID_ONLY: 'turn_paid_only',
+  MAINTENANCE_MODE: 'maintenance_mode',
+  SIGNUPS_PAUSED: 'signups_paused',
+  CALLS_PAUSED: 'calls_paused',
+} as const;
+
+// Promo Codes (global trial/discount codes)
+export const promoCodes = pgTable("promo_codes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  code: text("code").notNull().unique(),
+  type: text("type").notNull().default("trial"), // 'trial' | 'pro_access' | 'discount'
+  trialDays: integer("trial_days"),
+  trialMinutes: integer("trial_minutes"),
+  grantPlan: text("grant_plan"), // 'pro' | 'business'
+  discountPercent: integer("discount_percent"),
+  maxUses: integer("max_uses"),
+  uses: integer("uses").default(0),
+  expiresAt: timestamp("expires_at"),
+  isActive: boolean("is_active").default(true),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertPromoCodeSchema = createInsertSchema(promoCodes).omit({
+  id: true,
+  uses: true,
+  createdAt: true,
+});
+export type InsertPromoCode = z.infer<typeof insertPromoCodeSchema>;
+export type PromoCode = typeof promoCodes.$inferSelect;
+
+// IP Blocklist (abuse protection)
+export const ipBlocklist = pgTable("ip_blocklist", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ipAddress: text("ip_address").notNull(),
+  reason: text("reason").notNull(),
+  blockedBy: text("blocked_by").notNull(),
+  blockedAt: timestamp("blocked_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at"),
+});
+
+export type IpBlocklistEntry = typeof ipBlocklist.$inferSelect;

@@ -1,0 +1,218 @@
+REPLIT AGENT — IMPORTANT: THIS APP IS ALREADY BUILT.
+DO NOT remove, rename, or break ANY existing feature, route, UI, styling, database tables, or functionality.
+ONLY ADD the requested “Super Admin / Ultra God Mode” admin system by inspecting the current repo and integrating cleanly.
+
+APP NAME: Call Vault (CV)
+
+GOAL
+Add an EXTENSIVE admin area with:
+- “Ultra God Admin” (owner-level) with limitless control
+- “Admin” (delegated) with configurable permissions
+- “Support” (limited) optional
+Admin can: grant/revoke access, timers for free access, manage users/admins, reset passwords, change usernames, audit logs, abuse controls, billing overrides, and more—production-ready and secure.
+
+NON-NEGOTIABLE SECURITY RULES
+- Never store plaintext passwords.
+- All admin actions must be server-side authorized (no client-only checks).
+- Add audit logs for every admin action (who/what/when/from where).
+- Add “break-glass” protections for Ultra God Admin actions (2FA + re-auth + confirmations).
+- Prevent privilege escalation (admins cannot promote themselves or edit Ultra God Admin).
+
+STEP 1 — DISCOVER CURRENT STACK (DO THIS FIRST)
+1) Inspect current repo: frontend framework (Next/React/Vite), backend (Node/Express/FastAPI), DB (Postgres/SQLite/etc), auth (JWT/cookies/NextAuth/etc).
+2) Identify current user table/model and auth flow.
+3) Identify existing “admin” routes if any.
+4) Identify existing payment gating (Stripe) if present; reuse it.
+
+STEP 2 — ROLES & PERMISSIONS MODEL
+Create roles:
+- ultra_god_admin (OWNER) — immutable, highest authority
+- super_admin — near-owner but cannot lock out owner
+- admin — standard admin
+- support — read-only + limited tools
+- user — normal
+
+Permission system (RBAC + optional granular permissions):
+- Store user.role
+- Store admin_permissions (JSON) for non-owner admins
+- “ultra_god_admin” bypasses permission checks but still logs actions + requires 2FA for destructive actions
+
+OWNER IDENTIFICATION
+- Use ENV: OWNER_EMAIL (or OWNER_USER_ID)
+- Ensure owner always has role ultra_god_admin (enforced server-side)
+
+STEP 3 — ADMIN AREA UI (KEEP CURRENT THEME)
+Add admin routes/pages:
+- /admin (dashboard)
+- /admin/users
+- /admin/access
+- /admin/admins
+- /admin/security
+- /admin/billing
+- /admin/analytics
+- /admin/audit
+- /admin/settings
+All must be protected by server middleware.
+
+ADMIN DASHBOARD (HIGH LEVEL)
+Show:
+- Total users, active users (7d), paid users, trials, churn
+- Usage summary: total minutes, peak concurrent calls, top users by minutes
+- Abuse signals: rate limit hits, blocked IPs, suspicious signups
+- Stripe status: webhook last received, failures
+
+STEP 4 — USER MANAGEMENT (SUPER ULTRA)
+On /admin/users:
+- Search/filter by email, plan, status, created date, last_seen, role
+- View user profile (full detail)
+- Actions (ALL logged):
+  1) Grant access:
+     - Set plan: Free / Pro / Business / Custom
+     - Grant “comped” access (never charges)
+     - Add “trial” with expiration (date/time) and/or usage caps
+     - Add “time-limited access” (e.g., 2 hours, 7 days, custom end date)
+  2) Revoke access:
+     - Downgrade to Free
+     - Suspend account (block login)
+     - Soft-ban (can login but cannot place/receive calls)
+  3) Reset security:
+     - Force password reset (send email link if email system exists; otherwise generate one-time token)
+     - Force logout all sessions
+     - Rotate API keys/tokens if any exist
+  4) Identity updates:
+     - Change username/display name
+     - Change email (with verification flow)
+     - Merge duplicate accounts (optional if feasible)
+  5) Impersonation (Support tool):
+     - “Login as user” session (time-limited, read/write optional)
+     - Watermark: “ADMIN IMPERSONATION”
+     - Log start/stop + reason required
+
+TRIALS / FREE ACCESS TIMERS
+Implement:
+- trial_end_at (timestamp)
+- free_access_end_at (timestamp) for comped/time grants
+- usage_caps per plan (minutes/month, minutes/call, concurrent calls)
+- scheduled enforcement: when time expires → auto-downgrade/restrict
+Admin can set:
+- “Test Access” preset (e.g., 24 hours + 60 minutes total)
+- “Creator Demo” preset (e.g., 7 days + 500 minutes)
+- Custom rules per user
+
+STEP 5 — ADMIN MANAGEMENT (ADMINS CONTROLLING ADMINS)
+On /admin/admins:
+Ultra God Admin can:
+- Create new admin accounts
+- Assign roles (super_admin/admin/support)
+- Set granular permissions (checkbox matrix)
+- Set admin expiration (admin role ends on date)
+- Force admin 2FA enrollment
+- Revoke admin instantly
+- Reset admin password / disable account
+- Enforce “cannot change billing settings” for limited admins
+- Enforce “cannot edit roles above your own”
+Admin self-service:
+- Change own password
+- Change own admin username/display name (not role)
+- Manage 2FA
+- View their own audit log
+
+PERMISSION MATRIX (EXAMPLES)
+- users.read
+- users.write
+- users.suspend
+- users.impersonate
+- access.grant
+- access.revoke
+- admins.manage
+- billing.read
+- billing.write
+- security.read
+- security.write
+- audit.read
+- audit.export
+- system.settings
+- rate_limits.manage
+- blocklist.manage
+
+STEP 6 — SECURITY CENTER (MUST HAVE)
+On /admin/security:
+- 2FA enforcement:
+  - Ultra God Admin required (TOTP authenticator)
+  - Optional: backup codes
+- Session controls:
+  - Active sessions list per user/admin
+  - Revoke sessions
+- IP allowlist for admin logins (optional toggle)
+- Admin action “reason required” for destructive actions:
+  - suspend user, delete data, revoke admin, change billing, export data
+- Password policy + rate limiting
+- Alerts:
+  - Email owner on: new admin created, role changes, failed admin logins, large exports, mass grants
+
+STEP 7 — AUDIT LOGS (NON-OPTIONAL)
+Create table: audit_logs
+Fields:
+- id, actor_user_id, actor_role, action, target_type, target_id,
+  before_json, after_json, reason, ip, user_agent, created_at
+UI:
+- Filters + export CSV
+- Immutable logs (no edits/deletes except optional retention policy)
+
+STEP 8 — BILLING CONTROL (STRIPE FRIENDLY)
+On /admin/billing:
+- View subscription status per user
+- Force “comped” override (bypass billing) without breaking Stripe record
+- Cancel at period end (if permitted)
+- Refunds: DO NOT implement direct refunds unless Stripe integration already supports it; otherwise show instructions + log admin intent.
+
+STEP 9 — COST PROTECTION CONTROLS (FREE USERS DON’T COST ME)
+Add admin-configurable system-wide limits (safe defaults):
+- Free plan caps (minutes/month, minutes/call, attempts/hour)
+- Require invite code toggle for signups
+- Toggle: “TURN/Relay for paid only” if WebRTC exists
+- Abuse throttles: IP rate limits, suspicious signup blocks
+Admin UI to adjust safely (with warnings), and log all changes.
+
+STEP 10 — “ULTRA GOD MODE” OWNER PANEL
+On /admin/settings (owner-only):
+- Change any global setting
+- Create global promo codes / trial codes
+- Mass actions:
+  - extend trials for cohort
+  - downgrade inactive accounts
+- Emergency freeze:
+  - “Pause new signups”
+  - “Disable calls platform-wide”
+  - “Maintenance mode banner”
+All require 2FA + re-auth + reason, and are logged.
+
+DATABASE / MIGRATIONS
+Add or extend tables/fields as needed, using the existing DB/migration system:
+- users: role, plan, trial_end_at, free_access_end_at, is_comped, status, last_seen_at
+- admin_permissions: user_id, permissions_json, expires_at
+- audit_logs: (as above)
+- system_settings: key, value_json, updated_by, updated_at
+
+DELIVERABLES REQUIRED
+1) List of files changed/added
+2) Migrations + how to run them
+3) ENV vars to add in Replit Secrets (OWNER_EMAIL, SESSION_SECRET, STRIPE vars if used, etc.)
+4) Smoke test checklist:
+   - owner access works
+   - non-admin blocked
+   - admin actions logged
+   - trial timers expire correctly
+   - admins cannot escalate above role
+   - 2FA enforced for ultra_god_admin
+
+IMPORTANT UI NOTE
+Keep the current “Crypto Call / Call Vault” style and navigation. Add an “Admin” entry ONLY visible to admins.
+
+NOW IMPLEMENT:
+- Scan repo
+- Implement roles/permissions
+- Build admin pages + APIs
+- Add audit logging everywhere
+- Add safe defaults for cost protection
+- Ensure everything is production-ready
