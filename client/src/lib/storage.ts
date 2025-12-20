@@ -46,7 +46,7 @@ export function saveContacts(contacts: Contact[]): void {
   localStorage.setItem(CONTACTS_KEY, JSON.stringify(contacts));
 }
 
-export function addContact(contact: Omit<Contact, 'id' | 'addedAt'>): Contact {
+export function addContact(contact: Omit<Contact, 'id' | 'addedAt'>, ownerAddress?: string): Contact {
   const contacts = getContacts();
   const newContact: Contact = {
     ...contact,
@@ -55,7 +55,32 @@ export function addContact(contact: Omit<Contact, 'id' | 'addedAt'>): Contact {
   };
   contacts.push(newContact);
   saveContacts(contacts);
+  
+  // Sync to server for mutual contact verification
+  if (ownerAddress) {
+    syncContactToServer(ownerAddress, contact.address, contact.name);
+  }
+  
   return newContact;
+}
+
+export function syncContactToServer(ownerAddress: string, contactAddress: string, name: string): void {
+  fetch('/api/contacts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ownerAddress,
+      contactAddress,
+      name
+    })
+  }).catch(err => console.error('Failed to sync contact to server:', err));
+}
+
+export async function syncAllContactsToServer(ownerAddress: string): Promise<void> {
+  const contacts = getContacts();
+  for (const contact of contacts) {
+    syncContactToServer(ownerAddress, contact.address, contact.name);
+  }
 }
 
 export function updateContact(id: string, updates: Partial<Contact>): void {

@@ -77,7 +77,7 @@ export function AddTab({ myAddress, onContactAdded, onStartCall, onNavigateToInv
     addContact({
       name: newContactName.trim(),
       address: newContactAddress.trim()
-    });
+    }, myAddress);
 
     setNewContactName('');
     setNewContactAddress('');

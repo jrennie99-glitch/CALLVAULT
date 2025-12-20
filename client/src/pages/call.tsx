@@ -25,7 +25,7 @@ import { ChatPage } from '@/pages/chat';
 import * as cryptoLib from '@/lib/crypto';
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
-import { getAppSettings, addCallRecord, getContactByAddress, getContacts } from '@/lib/storage';
+import { getAppSettings, addCallRecord, getContactByAddress, getContacts, syncAllContactsToServer } from '@/lib/storage';
 import { getLocalConversations, saveLocalConversation, getOrCreateDirectConvo, saveLocalMessage, incrementUnreadCount, getPrivacySettings } from '@/lib/messageStorage';
 import { addToLocalBlocklist, isCreatorAvailable, shouldRequirePayment, getCallPricingSettings } from '@/lib/policyStorage';
 import { PaymentRequiredScreen } from '@/components/PaymentRequiredScreen';
@@ -89,6 +89,9 @@ export default function CallPage() {
       cryptoLib.saveIdentity(storedIdentity);
     }
     setIdentity(storedIdentity);
+    
+    // Sync existing contacts to server for mutual contact verification
+    syncAllContactsToServer(storedIdentity.address);
 
     fetchTurnConfig();
     initWebSocket(storedIdentity);
