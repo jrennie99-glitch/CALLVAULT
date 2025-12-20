@@ -22,7 +22,10 @@ import {
   adminSessions, type AdminSession,
   adminCredentials, type AdminCredentials, type InsertAdminCredentials,
   voicemails, type Voicemail, type InsertVoicemail,
+  callTokenNonces, type CallTokenNonce,
+  tokenMetrics, type TokenMetric,
 } from "@shared/schema";
+import { randomUUID, createHash } from "crypto";
 import { db } from "./db";
 import { eq, and, desc, asc, sql, gte, lte, ilike, or } from "drizzle-orm";
 
@@ -218,6 +221,15 @@ export interface IStorage {
   markVoicemailRead(id: string): Promise<Voicemail | undefined>;
   deleteVoicemail(id: string): Promise<boolean>;
   getUnreadVoicemailCount(recipientAddress: string): Promise<number>;
+
+  // Token metrics (observability)
+  recordTokenMetric(eventType: string, userAddress?: string, userAgent?: string, ipAddress?: string, details?: string): Promise<void>;
+  getTokenMetrics(since: Date, eventType?: string): Promise<{ eventType: string; count: number }[]>;
+
+  // Call token nonces (server-issued tokens with replay protection)
+  createCallToken(userAddress: string, targetAddress?: string, plan?: string, allowTurn?: boolean, allowVideo?: boolean): Promise<{ token: string; nonce: string; issuedAt: Date; expiresAt: Date }>;
+  verifyCallToken(token: string, markUsed?: boolean, usedByIp?: string): Promise<{ valid: boolean; reason?: string; data?: { userAddress: string; plan: string; allowTurn: boolean; allowVideo: boolean } }>;
+  cleanupExpiredCallTokens(): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1588,6 +1600,121 @@ export class DatabaseStorage implements IStorage {
         sql`${voicemails.deletedAt} IS NULL`
       ));
     return Number(result?.count || 0);
+  }
+
+  // Token metrics implementation
+  async recordTokenMetric(eventType: string, userAddress?: string, userAgent?: string, ipAddress?: string, details?: string): Promise<void> {
+    await db.insert(tokenMetrics).values({
+      eventType,
+      userAddress: userAddress || null,
+      userAgent: userAgent || null,
+      ipAddress: ipAddress || null,
+      details: details || null,
+    });
+  }
+
+  async getTokenMetrics(since: Date, eventType?: string): Promise<{ eventType: string; count: number }[]> {
+    const conditions = [gte(tokenMetrics.createdAt, since)];
+    if (eventType) {
+      conditions.push(eq(tokenMetrics.eventType, eventType));
+    }
+    
+    const results = await db.select({
+      eventType: tokenMetrics.eventType,
+      count: sql<number>`count(*)::int`
+    })
+      .from(tokenMetrics)
+      .where(and(...conditions))
+      .groupBy(tokenMetrics.eventType);
+    
+    return results;
+  }
+
+  // Call token nonces implementation
+  async createCallToken(
+    userAddress: string, 
+    targetAddress?: string, 
+    plan: string = 'free', 
+    allowTurn: boolean = false, 
+    allowVideo: boolean = true
+  ): Promise<{ token: string; nonce: string; issuedAt: Date; expiresAt: Date }> {
+    const token = randomUUID();
+    const nonce = randomUUID();
+    const nonceHash = createHash('sha256').update(nonce).digest('hex');
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 5 * 60 * 1000); // 5 minutes TTL
+
+    await db.insert(callTokenNonces).values({
+      token,
+      nonceHash,
+      userAddress,
+      targetAddress: targetAddress || null,
+      plan,
+      allowTurn,
+      allowVideo,
+      issuedAt: now,
+      expiresAt,
+    });
+
+    return { token, nonce, issuedAt: now, expiresAt };
+  }
+
+  async verifyCallToken(
+    token: string, 
+    markUsed: boolean = true, 
+    usedByIp?: string
+  ): Promise<{ valid: boolean; reason?: string; data?: { userAddress: string; plan: string; allowTurn: boolean; allowVideo: boolean } }> {
+    const [tokenRecord] = await db.select().from(callTokenNonces).where(eq(callTokenNonces.token, token));
+
+    if (!tokenRecord) {
+      return { valid: false, reason: 'token_not_found' };
+    }
+
+    const now = new Date();
+
+    // Check if expired
+    if (tokenRecord.expiresAt < now) {
+      return { valid: false, reason: 'token_expired' };
+    }
+
+    // Check if already used (replay protection)
+    if (tokenRecord.usedAt) {
+      return { valid: false, reason: 'token_replay' };
+    }
+
+    // Mark as used atomically if requested
+    if (markUsed) {
+      const [updated] = await db.update(callTokenNonces)
+        .set({ usedAt: now, usedByIp: usedByIp || null })
+        .where(and(
+          eq(callTokenNonces.token, token),
+          sql`${callTokenNonces.usedAt} IS NULL` // Atomic check
+        ))
+        .returning();
+
+      if (!updated) {
+        // Another request already used this token (race condition)
+        return { valid: false, reason: 'token_replay' };
+      }
+    }
+
+    return {
+      valid: true,
+      data: {
+        userAddress: tokenRecord.userAddress,
+        plan: tokenRecord.plan,
+        allowTurn: tokenRecord.allowTurn || false,
+        allowVideo: tokenRecord.allowVideo !== false,
+      }
+    };
+  }
+
+  async cleanupExpiredCallTokens(): Promise<number> {
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const result = await db.delete(callTokenNonces)
+      .where(lte(callTokenNonces.expiresAt, oneDayAgo))
+      .returning();
+    return result.length;
   }
 }
 

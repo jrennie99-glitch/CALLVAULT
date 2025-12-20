@@ -568,5 +568,36 @@ export const insertVoicemailSchema = createInsertSchema(voicemails).omit({
 export type InsertVoicemail = z.infer<typeof insertVoicemailSchema>;
 export type Voicemail = typeof voicemails.$inferSelect;
 
+// Call token nonces - server-issued tokens for call authentication with replay protection
+export const callTokenNonces = pgTable("call_token_nonces", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  nonceHash: text("nonce_hash").notNull().unique(), // SHA-256 hash of the nonce
+  userAddress: text("user_address").notNull(),
+  targetAddress: text("target_address"), // Optional: the call destination
+  token: text("token").notNull().unique(), // The actual token string
+  issuedAt: timestamp("issued_at").notNull(), // Server timestamp when issued
+  expiresAt: timestamp("expires_at").notNull(), // When token expires
+  usedAt: timestamp("used_at"), // When token was used (null = unused)
+  usedByIp: text("used_by_ip"), // IP that used the token
+  allowTurn: boolean("allow_turn").default(false), // Plan-based permission
+  allowVideo: boolean("allow_video").default(true),
+  plan: text("plan").notNull().default("free"),
+});
+
+export type CallTokenNonce = typeof callTokenNonces.$inferSelect;
+
+// Token verification metrics for observability
+export const tokenMetrics = pgTable("token_metrics", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  eventType: text("event_type").notNull(), // 'minted' | 'verify_ok' | 'verify_expired' | 'verify_skew' | 'verify_replay' | 'verify_invalid'
+  userAddress: text("user_address"),
+  userAgent: text("user_agent"),
+  ipAddress: text("ip_address"),
+  details: text("details"), // Additional context
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type TokenMetric = typeof tokenMetrics.$inferSelect;
+
 // Re-export chat models for Gemini integration
 export * from "./models/chat";

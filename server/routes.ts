@@ -31,6 +31,8 @@ const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 
 const NONCE_EXPIRY = 5 * 60 * 1000;
 const TIMESTAMP_FRESHNESS = 5 * 60 * 1000; // 5 minutes - allows for clock drift between devices
+const MAX_CLOCK_SKEW = 2 * 60 * 1000; // 2 minutes - bidirectional tolerance for device clock drift
+const CALL_TOKEN_TTL = 5 * 60 * 1000; // 5 minutes - server-issued token lifetime
 const RATE_LIMIT_WINDOW = 60 * 1000;
 const RATE_LIMIT_MAX_CALLS = 10;
 
@@ -84,9 +86,10 @@ function verifySignature(signedIntent: SignedCallIntent): boolean {
     const { intent, signature } = signedIntent;
     const now = Date.now();
     
-    const timeDiff = now - intent.timestamp;
-    if (timeDiff < 0 || timeDiff > TIMESTAMP_FRESHNESS) {
-      console.log('Timestamp validation failed: timeDiff =', timeDiff);
+    // Bidirectional clock skew tolerance: allow client to be ahead or behind by MAX_CLOCK_SKEW
+    const timeDiff = Math.abs(now - intent.timestamp);
+    if (timeDiff > TIMESTAMP_FRESHNESS) {
+      console.log('Timestamp validation failed: timeDiff =', timeDiff, 'ms, max allowed =', TIMESTAMP_FRESHNESS);
       return false;
     }
     
@@ -118,9 +121,10 @@ function verifyMessageSignature(signedMessage: SignedMessage): boolean {
     const { message, signature, from_pubkey } = signedMessage;
     const now = Date.now();
     
-    const timeDiff = now - message.timestamp;
-    if (timeDiff < 0 || timeDiff > TIMESTAMP_FRESHNESS) {
-      console.log('Message timestamp validation failed: timeDiff =', timeDiff);
+    // Bidirectional clock skew tolerance
+    const timeDiff = Math.abs(now - message.timestamp);
+    if (timeDiff > TIMESTAMP_FRESHNESS) {
+      console.log('Message timestamp validation failed: timeDiff =', timeDiff, 'ms');
       return false;
     }
     
@@ -151,9 +155,10 @@ function verifyGenericSignature(payload: any, signature: string, from_pubkey: st
   try {
     const now = Date.now();
     
-    const timeDiff = now - timestamp;
-    if (timeDiff < 0 || timeDiff > TIMESTAMP_FRESHNESS) {
-      console.log('Generic signature timestamp validation failed: timeDiff =', timeDiff);
+    // Bidirectional clock skew tolerance
+    const timeDiff = Math.abs(now - timestamp);
+    if (timeDiff > TIMESTAMP_FRESHNESS) {
+      console.log('Generic signature timestamp validation failed: timeDiff =', timeDiff, 'ms');
       return false;
     }
     
@@ -188,11 +193,29 @@ function ensureUploadsDir() {
   }
 }
 
+// Helper function to record token metrics
+async function recordTokenMetric(eventType: string, userAddress?: string, userAgent?: string, ipAddress?: string, details?: string) {
+  try {
+    await storage.recordTokenMetric(eventType, userAddress, userAgent, ipAddress, details);
+  } catch (error) {
+    console.error('Failed to record token metric:', error);
+  }
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
   ensureUploadsDir();
+  
+  // Server time endpoint - provides authoritative server timestamp for client clock sync
+  app.get('/api/server-time', (_req, res) => {
+    const now = Date.now();
+    res.json({
+      serverTime: now,
+      serverTimeISO: new Date(now).toISOString()
+    });
+  });
   
   // Legacy turn-config endpoint (kept for backwards compatibility)
   app.get('/api/turn-config', (_req, res) => {
@@ -211,29 +234,28 @@ export async function registerRoutes(
     }
   });
 
-  // Call session token endpoint - mints a short-lived token with plan-based permissions
-  const callSessionTokens = new Map<string, { 
-    userAddress: string;
-    plan: string;
-    allowTurn: boolean;
-    allowVideo: boolean;
-    expiresAt: number;
-  }>();
-
-  // Cleanup expired tokens every minute
-  setInterval(() => {
-    const now = Date.now();
-    callSessionTokens.forEach((data, token) => {
-      if (now > data.expiresAt) {
-        callSessionTokens.delete(token);
+  // Cleanup expired call tokens from database every hour
+  setInterval(async () => {
+    try {
+      const count = await storage.cleanupExpiredCallTokens();
+      if (count > 0) {
+        console.log(`Cleaned up ${count} expired call tokens`);
       }
-    });
-  }, 60000);
+    } catch (error) {
+      console.error('Error cleaning up call tokens:', error);
+    }
+  }, 60 * 60 * 1000);
 
+  // Call session token endpoint - mints a server-issued token with plan-based permissions
+  // Uses server time as source of truth, stored in database for replay protection
   app.post('/api/call-session-token', async (req, res) => {
     try {
-      const { address } = req.body;
+      const { address, targetAddress } = req.body;
+      const userAgent = req.headers['user-agent'] || 'unknown';
+      const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+
       if (!address) {
+        await recordTokenMetric('verify_invalid', undefined, userAgent, clientIp, 'Missing address');
         return res.status(400).json({ error: 'Address required' });
       }
 
@@ -241,11 +263,11 @@ export async function registerRoutes(
       const user = await storage.getIdentity(address);
       let plan = 'free';
       let allowTurn = false;
-      let allowVideo = true; // Default to allow video, but TURN requires paid plan
+      let allowVideo = true;
 
       if (user) {
-        // Check subscription status
-        if (user.stripeSubscriptionStatus === 'active' || user.stripeSubscriptionStatus === 'trialing') {
+        // Check subscription status (planStatus is used for Stripe subscription state)
+        if (user.planStatus === 'active' || user.planStatus === 'trialing') {
           plan = user.plan || 'pro';
           allowTurn = true;
         }
@@ -268,18 +290,19 @@ export async function registerRoutes(
 
       // Check if TURN is configured on server
       const turnConfigured = !!(process.env.TURN_URL && process.env.TURN_USER && process.env.TURN_PASS);
-      
-      // Generate token
-      const token = randomUUID();
-      const expiresAt = Date.now() + 2 * 60 * 1000; // 2 minutes
+      const finalAllowTurn = allowTurn && turnConfigured;
 
-      callSessionTokens.set(token, {
-        userAddress: address,
+      // Create database-backed token with server timestamps
+      const tokenData = await storage.createCallToken(
+        address,
+        targetAddress,
         plan,
-        allowTurn: allowTurn && turnConfigured,
-        allowVideo,
-        expiresAt
-      });
+        finalAllowTurn,
+        allowVideo
+      );
+
+      // Record metric
+      await recordTokenMetric('minted', address, userAgent, clientIp);
 
       // Build ICE servers config
       const iceServers: any[] = [
@@ -288,7 +311,7 @@ export async function registerRoutes(
       ];
 
       // Add TURN servers for paid users if configured
-      if (allowTurn && turnConfigured) {
+      if (finalAllowTurn) {
         const turnUrls = process.env.TURN_URLS 
           ? process.env.TURN_URLS.split(',').map(u => u.trim())
           : [process.env.TURN_URL!];
@@ -300,11 +323,15 @@ export async function registerRoutes(
         });
       }
 
+      // Return with server timestamps
       res.json({
-        token,
-        expiresAt,
+        token: tokenData.token,
+        nonce: tokenData.nonce,
+        issuedAt: tokenData.issuedAt.getTime(),
+        expiresAt: tokenData.expiresAt.getTime(),
+        serverTime: Date.now(),
         plan,
-        allowTurn: allowTurn && turnConfigured,
+        allowTurn: finalAllowTurn,
         allowVideo,
         turnConfigured,
         iceServers
@@ -315,25 +342,71 @@ export async function registerRoutes(
     }
   });
 
-  // Validate call session token
-  app.get('/api/call-session-token/:token', (req, res) => {
-    const { token } = req.params;
-    const session = callSessionTokens.get(token);
-    
-    if (!session) {
-      return res.status(404).json({ error: 'Token not found or expired' });
+  // Validate call session token (with optional consumption for one-time use)
+  app.post('/api/call-session-token/verify', async (req, res) => {
+    try {
+      const { token, markUsed = false } = req.body;
+      const userAgent = req.headers['user-agent'] || 'unknown';
+      const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+
+      if (!token) {
+        return res.status(400).json({ error: 'Token required' });
+      }
+
+      const result = await storage.verifyCallToken(token, markUsed, clientIp);
+
+      if (!result.valid) {
+        // Record failure metric with reason
+        const eventType = result.reason === 'token_expired' ? 'verify_expired' 
+          : result.reason === 'token_replay' ? 'verify_replay' 
+          : 'verify_invalid';
+        await recordTokenMetric(eventType, result.data?.userAddress, userAgent, clientIp, result.reason);
+
+        // Return user-friendly error
+        const errorMessage = result.reason === 'token_expired' 
+          ? 'Secure session expired - please try again'
+          : result.reason === 'token_replay'
+          ? 'This session has already been used'
+          : 'Invalid session token';
+
+        return res.status(401).json({ 
+          error: errorMessage,
+          reason: result.reason,
+          retryable: result.reason === 'token_expired' // Client can request a new token
+        });
+      }
+
+      await recordTokenMetric('verify_ok', result.data?.userAddress, userAgent, clientIp);
+
+      res.json({
+        valid: true,
+        plan: result.data?.plan,
+        allowTurn: result.data?.allowTurn,
+        allowVideo: result.data?.allowVideo
+      });
+    } catch (error) {
+      console.error('Token verification error:', error);
+      res.status(500).json({ error: 'Failed to verify token' });
     }
+  });
+
+  // Legacy GET endpoint for backwards compatibility (read-only check)
+  app.get('/api/call-session-token/:token', async (req, res) => {
+    const { token } = req.params;
+    const result = await storage.verifyCallToken(token, false); // Don't mark as used
     
-    if (Date.now() > session.expiresAt) {
-      callSessionTokens.delete(token);
-      return res.status(401).json({ error: 'Token expired' });
+    if (!result.valid) {
+      return res.status(401).json({ 
+        error: result.reason === 'token_expired' ? 'Token expired' : 'Token not found or invalid',
+        reason: result.reason
+      });
     }
     
     res.json({
       valid: true,
-      plan: session.plan,
-      allowTurn: session.allowTurn,
-      allowVideo: session.allowVideo
+      plan: result.data?.plan,
+      allowTurn: result.data?.allowTurn,
+      allowVideo: result.data?.allowVideo
     });
   });
 
@@ -2478,7 +2551,7 @@ export async function registerRoutes(
       } as any);
       
       // Persist bootstrap usage to prevent replay after restart
-      await storage.upsertSystemSetting('bootstrap_used', 'true');
+      await storage.setSystemSetting('bootstrap_used', 'true', address);
       
       await storage.createAuditLog({
         actorAddress: address,
@@ -2551,7 +2624,7 @@ export async function registerRoutes(
           maxMinutesPerMonth: FREE_TIER_LIMITS.MAX_SECONDS_PER_MONTH / 60,
           maxCallDurationMinutes: FREE_TIER_LIMITS.MAX_CALL_DURATION_SECONDS / 60,
           heartbeatIntervalSeconds: FREE_TIER_LIMITS.HEARTBEAT_INTERVAL_SECONDS,
-          staleCallTimeoutSeconds: FREE_TIER_LIMITS.STALE_CALL_TIMEOUT_SECONDS
+          heartbeatTimeoutSeconds: FREE_TIER_LIMITS.HEARTBEAT_TIMEOUT_SECONDS
         }
       };
       
@@ -2587,7 +2660,7 @@ export async function registerRoutes(
       
       // Active calls check
       try {
-        const activeCalls = await storage.getActiveCalls();
+        const activeCalls = await storage.getAllActiveCalls();
         diagnostics.checks.activeCalls = {
           status: 'ok',
           count: activeCalls.length
@@ -2596,6 +2669,39 @@ export async function registerRoutes(
         diagnostics.checks.activeCalls = {
           status: 'warning',
           message: 'Could not fetch active calls'
+        };
+      }
+      
+      // Call token health (last 24 hours)
+      try {
+        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const tokenMetrics = await storage.getTokenMetrics(oneDayAgo);
+        
+        const mintedCount = tokenMetrics.find(m => m.eventType === 'minted')?.count || 0;
+        const verifyOkCount = tokenMetrics.find(m => m.eventType === 'verify_ok')?.count || 0;
+        const verifyExpiredCount = tokenMetrics.find(m => m.eventType === 'verify_expired')?.count || 0;
+        const verifyReplayCount = tokenMetrics.find(m => m.eventType === 'verify_replay')?.count || 0;
+        const verifyInvalidCount = tokenMetrics.find(m => m.eventType === 'verify_invalid')?.count || 0;
+        
+        const totalFailures = verifyExpiredCount + verifyReplayCount + verifyInvalidCount;
+        const failureRate = mintedCount > 0 ? (totalFailures / mintedCount * 100).toFixed(2) : '0';
+        
+        diagnostics.checks.callTokenHealth = {
+          status: totalFailures > 10 ? 'warning' : 'ok',
+          message: `${failureRate}% token failure rate (24h)`,
+          last24Hours: {
+            minted: mintedCount,
+            verified: verifyOkCount,
+            expired: verifyExpiredCount,
+            replay: verifyReplayCount,
+            invalid: verifyInvalidCount,
+            failureRate: parseFloat(failureRate)
+          }
+        };
+      } catch (tokenError) {
+        diagnostics.checks.callTokenHealth = {
+          status: 'warning',
+          message: 'Could not fetch token metrics'
         };
       }
       

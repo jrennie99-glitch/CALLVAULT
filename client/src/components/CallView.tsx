@@ -29,12 +29,20 @@ type ConnectionRoute = 'unknown' | 'direct' | 'relay';
 
 interface CallSessionToken {
   token: string;
+  nonce: string;
+  issuedAt: number;
   expiresAt: number;
+  serverTime: number;
   plan: string;
   allowTurn: boolean;
   allowVideo: boolean;
   turnConfigured: boolean;
   iceServers: RTCIceServer[];
+}
+
+// Helper to get server-adjusted timestamp
+function getServerAdjustedTimestamp(serverTimeOffset: number): number {
+  return Date.now() + serverTimeOffset;
 }
 
 interface CallViewProps {
@@ -71,6 +79,11 @@ export function CallView({
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [isRetryingWithTurn, setIsRetryingWithTurn] = useState(false);
   const [currentIceServers, setCurrentIceServers] = useState<RTCIceServer[]>(iceServers);
+  
+  // Server time synchronization for reliable timestamps
+  const serverTimeOffsetRef = useRef<number>(0);
+  const callRetryCountRef = useRef<number>(0);
+  const MAX_CALL_RETRIES = 1; // Silent retry once before showing error
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -293,8 +306,15 @@ export function CallView({
         break;
 
       case 'error':
-        toast.error(message.message);
-        handleEndCall();
+        // Check if this is a signature/timestamp error that can be retried
+        const errorMsg = message.message || '';
+        const reason = (message as any).reason;
+        if (errorMsg.includes('expired') || errorMsg.includes('signature') || errorMsg.includes('timestamp') || reason === 'token_expired') {
+          handleCallError(errorMsg, reason);
+        } else {
+          toast.error(errorMsg);
+          handleEndCall();
+        }
         break;
     }
   }, []);
@@ -312,14 +332,74 @@ export function CallView({
     });
   };
 
-  const initiateCall = () => {
+  // Fetch a fresh call token from the server (with server timestamps)
+  const fetchCallToken = async (): Promise<CallSessionToken | null> => {
+    try {
+      const response = await fetch('/api/call-session-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          address: identity.address,
+          targetAddress: destinationAddress 
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('Failed to get call token:', errorData);
+        return null;
+      }
+
+      const tokenData: CallSessionToken = await response.json();
+      
+      // Calculate server time offset (server time - client time)
+      serverTimeOffsetRef.current = tokenData.serverTime - Date.now();
+      
+      setCallSession(tokenData);
+      setCurrentIceServers(tokenData.iceServers);
+      
+      return tokenData;
+    } catch (error) {
+      console.error('Error fetching call token:', error);
+      return null;
+    }
+  };
+
+  // Main call initiation - fetches fresh token then starts call
+  const initiateCall = async () => {
     if (!identity || !ws) return;
+
+    setConnectionStatus('Preparing secure session...');
+
+    // Fetch fresh token from server (token generated at call time, not page load)
+    const tokenData = await fetchCallToken();
+    
+    if (!tokenData) {
+      // Check if we should retry silently
+      if (callRetryCountRef.current < MAX_CALL_RETRIES) {
+        callRetryCountRef.current++;
+        console.log(`Call token fetch failed, retrying (attempt ${callRetryCountRef.current})...`);
+        // Wait a moment and retry
+        await new Promise(resolve => setTimeout(resolve, 500));
+        return initiateCall();
+      }
+      
+      toast.error('Unable to start secure session. Please try again.');
+      handleEndCall();
+      return;
+    }
+
+    // Reset retry counter on success
+    callRetryCountRef.current = 0;
+
+    // Use server-adjusted timestamp for the call intent
+    const serverAdjustedTime = getServerAdjustedTimestamp(serverTimeOffsetRef.current);
 
     const intent = {
       from_pubkey: identity.publicKeyBase58,
       from_address: identity.address,
       to_address: destinationAddress,
-      timestamp: Date.now(),
+      timestamp: serverAdjustedTime,
       nonce: crypto.generateNonce(),
       media: {
         audio: true,
@@ -331,11 +411,32 @@ export function CallView({
 
     ws.send(JSON.stringify({
       type: 'call:init',
-      data: signedIntent
+      data: signedIntent,
+      callToken: tokenData.token // Include token for server-side validation
     }));
 
     setCallState('calling');
     setConnectionStatus('Ringing...');
+  };
+  
+  // Handle call errors with silent retry logic
+  const handleCallError = async (errorMessage: string, reason?: string) => {
+    // Check if this is a retryable error (expired token)
+    if (reason === 'token_expired' && callRetryCountRef.current < MAX_CALL_RETRIES) {
+      callRetryCountRef.current++;
+      console.log(`Token expired, silently retrying (attempt ${callRetryCountRef.current})...`);
+      setConnectionStatus('Reconnecting...');
+      
+      // Fetch fresh token and retry
+      const newToken = await fetchCallToken();
+      if (newToken) {
+        return initiateCall();
+      }
+    }
+    
+    // Show user-friendly error after retries exhausted
+    toast.error('Secure session expired - please try again');
+    handleEndCall();
   };
 
   // STUN-only ICE servers (used for initial connection attempt)

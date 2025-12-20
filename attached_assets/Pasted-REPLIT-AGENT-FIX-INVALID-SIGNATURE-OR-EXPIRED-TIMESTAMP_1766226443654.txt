@@ -1,0 +1,95 @@
+REPLIT AGENT — FIX “INVALID SIGNATURE OR EXPIRED TIMESTAMP” SEAMLESSLY (DO NOT BREAK ANYTHING)
+
+CONTEXT
+Call Vault (CV) is already built. Users are seeing: “Invalid signature or expired timestamp”.
+This must become invisible to customers and work like WhatsApp.
+
+NON-NEGOTIABLE RULES
+- DO NOT remove or weaken cryptographic security.
+- DO NOT delete/rename/remove existing features/routes/components.
+- Only ADD/ADJUST logic to make timing robust and seamless.
+
+GOAL
+Make call/session signatures reliable by:
+1) Using SERVER TIME as the source of truth
+2) Allowing small clock drift (mobile devices)
+3) Generating tokens only at the moment of call start (not on page load)
+4) Auto-refresh + retry once silently before showing any error
+5) Making tokens one-time-use to prevent replay, while still allowing retry
+
+IMPLEMENTATION REQUIREMENTS (DO ALL)
+
+A) SERVER-SIDE TOKEN ISSUANCE (SOURCE OF TRUTH TIME)
+1) Ensure there is an endpoint like POST /api/calls/token (or equivalent) that returns:
+   - token (signed)
+   - issued_at (server timestamp, ms)
+   - expires_at (server timestamp, ms)
+   - nonce (random)
+2) Token TTL must be at least 5 minutes:
+   TTL_MS = 5 * 60 * 1000
+3) Token must include:
+   - user_id
+   - call_id or target_id
+   - persona_id (if applicable)
+   - plan flags (allow_turn, allow_video) if you use them
+   - nonce (random 16–32 bytes)
+   - iat (server ms)
+   - exp (server ms)
+
+B) VERIFICATION: CLOCK SKEW TOLERANCE (DON’T BREAK SECURITY)
+1) When verifying token timestamps server-side, allow a small skew:
+   MAX_SKEW_MS = 2 * 60 * 1000   (2 minutes)
+2) Validation rules:
+   - token.exp must be >= now - MAX_SKEW_MS
+   - token.iat must be <= now + MAX_SKEW_MS
+   This tolerates device time mismatch without accepting old tokens.
+
+C) ONE-TIME TOKEN (ANTI-REPLAY) WITH SAFE RETRY
+1) Store token nonce hash in DB/cache when minted:
+   token_nonces: (nonce_hash, user_id, call_id, exp, used_at nullable)
+2) On verify:
+   - if nonce not found => invalid
+   - if used_at is set => reject (replay)
+   - else set used_at immediately (atomic transaction / compare-and-set)
+3) For “silent retry once”, implement:
+   - If verify fails ONLY due to expiration, allow client to request a NEW token and retry once.
+   - Do NOT allow reuse of the same nonce.
+
+D) CLIENT: GENERATE TOKEN ONLY ON CLICK
+1) Remove any logic that creates or fetches tokens on page load.
+2) On “Start Call” button click:
+   - call POST /api/calls/token
+   - immediately begin signaling using returned token
+
+E) SILENT AUTO-REFRESH + ONE RETRY
+1) If the client receives “expired timestamp” / “invalid signature” during call setup:
+   - automatically request a fresh token once
+   - retry the call setup once
+2) Only after retry fails, show user-friendly message:
+   “Secure session expired — please try again.”
+   (No scary cryptographic wording)
+
+F) OBSERVABILITY (ADMIN + DEBUG)
+1) Add server logs/metrics counters:
+   - token_minted
+   - token_verify_ok
+   - token_verify_expired
+   - token_verify_skew
+   - token_verify_replay
+2) Add admin “Call Health” panel item:
+   - last 24h token failures by reason
+   - top failing clients (user agent)
+
+G) ACCEPTANCE TESTS
+- Waiting 2 minutes after loading the page does NOT break calling.
+- On slow devices/network, call start does NOT throw timestamp error.
+- If a token truly expires, the app silently refreshes once and succeeds.
+- Replay attempts are blocked.
+- No existing features break.
+
+NOW APPLY FIXES
+1) Locate where signatures/timestamps are generated and verified.
+2) Update TTL to 5 minutes.
+3) Add MAX_SKEW_MS tolerance and server-time source of truth.
+4) Ensure token is minted on click and retry logic exists.
+5) Verify end-to-end.
