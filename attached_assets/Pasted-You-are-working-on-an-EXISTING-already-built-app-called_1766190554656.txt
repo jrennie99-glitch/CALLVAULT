@@ -1,0 +1,151 @@
+You are working on an EXISTING, already-built app called **Call Vault (CV)**. This request is an UPGRADE ONLY.
+
+NON-NEGOTIABLE RULES
+1) DO NOT delete, rename, or remove any existing feature, route, page, API, component, styling, or database table/collection. Preserve all current behavior.
+2) DO NOT replace the tech stack. Work inside the existing stack.
+3) DO NOT add crypto, wallets, Base/Solana/EVM, Helius, Web3, or blockchain. **Stripe only** for payments (existing Stripe stays if already present).
+4) All new features must be production-ready: secure defaults, server-side validation, rate limits, audit logs.
+5) If something is missing, implement it (do not leave TODOs). If you must choose, choose the safest/most standard approach.
+
+GOAL
+Add:
+A) A “Super Admin” area (Ultra God Mode) with full control of users, access, trials, billing, and system operations.
+B) PWA “private app” setup so CV installs on phones (Add to Home Screen) with a clean app-like experience.
+C) Make free users NOT cost me: enforce usage caps and fail-closed so real-time calling is not enabled for free users beyond strict limits.
+
+STEP 0 — AUTO-DETECT AND DOCUMENT
+- Detect current stack (Next.js/React/Vite, Node/Express, Python, DB type).
+- Identify auth system (JWT/session/OAuth) and user table/collection.
+- Identify “call” features: where calls are created/joined, and how usage (minutes) could be tracked.
+- Output a short “Implementation Map” in the chat: which files you changed/added and why.
+
+A) SUPER ADMIN AREA (MANDATORY)
+Create a secure admin area accessible at:
+- /admin (UI)
+- /api/admin/* (server endpoints)
+
+ADMIN ROLES
+- master_admin (Owner / Ultra God) — full, irreversible authority except cannot lock self out
+- admin (limited) — can manage users + support but cannot change billing settings, cannot delete logs, cannot change master_admin
+- support (optional) — can view users + logs, revoke sessions, reset passwords
+
+RBAC
+- Implement role-based access control SERVER-SIDE on all /api/admin endpoints.
+- UI must hide forbidden actions but server must enforce.
+
+ADMIN FEATURES (BUILD ALL)
+1) User management
+   - List/search/filter users
+   - View user profile + status + plan + trial expiry + usage (minutes, calls, last activity)
+   - Create user (email, username), send invite link OR set temp password
+   - Edit user: username/email (with validation), status, role, plan
+   - Force password reset / set password (securely)
+   - Revoke all sessions / logout user everywhere
+   - Ban / suspend / re-enable user
+   - Delete user ONLY if your system already supports safe deletion; otherwise do “soft delete”
+
+2) Free access & Trials (timer system)
+   - Grant trial: X days or until date/time
+   - Grant time-based access: X minutes of calling credits
+   - Grant free full access for a limited time window
+   - “Freeze/Unfreeze” account access instantly
+   - Auto-expire trials and revert to Free plan
+   - All enforced server-side on every call/create/join call action
+
+3) Access gating & safety (free users shouldn’t cost me)
+   - Create a config “Free Tier Limits” stored in DB:
+     * max calls/day
+     * max call minutes/month
+     * max concurrent calls
+     * max participants per call
+     * max call link creations/day
+   - Default Free tier should be conservative (safe) and Pro/Business higher.
+   - If user exceeds limit, block call start/join and show upgrade prompt.
+   - Add global rate limiting on high-cost endpoints (call create/join, signaling, etc).
+
+4) Stripe controls (Stripe only)
+   - Admin can view subscription status, cancel, refund flag, comp access
+   - Admin can comp a user (no charge) for X days (still tracked)
+   - Admin can create/manage plans via ENV-configured Price IDs (no hardcoding secrets)
+   - Webhooks must be verified; store events; idempotent processing
+
+5) Audit logs (CRITICAL)
+   - Log every admin action: who did it, target user, before/after, timestamp, IP/user agent if available
+   - Make audit logs append-only (no delete in UI for non-master)
+   - Add “Security Events” table/collection: failed logins, password resets, bans, plan changes
+
+6) Admin account security
+   - Add optional 2FA for admin roles if your stack already has email/SMS; if not, implement TOTP (Google Authenticator) for admin users only.
+   - Prevent lockout: master_admin cannot demote/delete self; must have at least one master_admin always.
+
+ADMIN UI PAGES
+- /admin (dashboard: users, revenue summary placeholder, system status)
+- /admin/users
+- /admin/users/[id]
+- /admin/plans (read-only config + price IDs)
+- /admin/audit-logs
+- /admin/security
+Keep the existing CV theme (dark/modern).
+
+DATABASE
+- Add fields/collections as needed:
+  users.role, users.status, users.trial_expires_at, users.comp_expires_at, users.call_credits_minutes
+  usage_monthly (user_id, month, minutes_used, calls_started)
+  admin_audit_log
+  security_events
+  system_config (free tier limits, plan limits)
+- Use migrations if SQL; if NoSQL, do safe backfills.
+
+B) PWA “PRIVATE APP” SETUP (MANDATORY)
+Implement a proper PWA so CV can be installed on phones.
+
+1) Add manifest
+- public/manifest.webmanifest (or equivalent)
+- Name: "Call Vault"
+- Short name: "CV"
+- theme_color/background_color aligned to current UI
+- display: "standalone"
+- icons: 192x192 and 512x512 (generate from existing logo or create simple CV icon if missing)
+
+2) Add service worker
+- Cache static assets and app shell routes for faster loads
+- Must NOT break auth or realtime calling. Use network-first for API/call endpoints.
+- Add offline fallback page that says “You’re offline — Call Vault requires internet for calls.”
+
+3) Add meta tags
+- Apple touch icon, status bar style, viewport
+- Ensure “Add to Home Screen” works on iOS Safari
+
+4) Add install UX
+- Add a subtle banner/button “Install Call Vault” that shows only when installable.
+
+C) KEEP EVERYTHING WORKING + TESTS (MANDATORY)
+1) Add automated checks:
+- Minimal unit tests for RBAC + trial expiry logic
+- Integration test for admin create user, grant trial, revoke access
+
+2) Add a “Diagnostics” page (admin-only):
+- Verify Stripe webhook status
+- Verify DB connectivity
+- Verify free-tier gating is active
+- Show last 20 security events
+
+DELIVERABLES
+- Implement all above in the existing repo.
+- Provide a short “How to use” note in README:
+  - How to create first master_admin (via ENV bootstrap or one-time script)
+  - Required ENV vars (Stripe keys, webhook secret, admin bootstrap secret)
+  - How to run locally and in production
+- Do NOT break existing routes, UI, or calling flows.
+- After implementation, run the app and confirm:
+  - normal users can use existing features
+  - free users are capped and cannot trigger costly operations beyond limits
+  - admin can grant/revoke trial and it is enforced instantly
+
+IMPORTANT BOOTSTRAP REQUIREMENT
+If there is no admin yet, implement a safe bootstrap:
+- ENV: CV_BOOTSTRAP_ADMIN_EMAIL, CV_BOOTSTRAP_ADMIN_PASSWORD, CV_BOOTSTRAP_SECRET
+- A one-time endpoint or script that creates the first master_admin only when CV_BOOTSTRAP_SECRET is provided, then disables itself (or requires rotating secret).
+
+NOW DO THE WORK
+Proceed to implement everything above.
