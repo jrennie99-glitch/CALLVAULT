@@ -286,7 +286,10 @@ export function AddTab({ myAddress, onContactAdded, onStartCall, onNavigateToInv
         </CardContent>
       </Card>
 
-      <Dialog open={showScanner} onOpenChange={setShowScanner}>
+      <Dialog open={showScanner} onOpenChange={(open) => {
+          setShowScanner(open);
+          if (!open) setScannerError(null);
+        }}>
         <DialogContent className="bg-slate-800 border-slate-700 max-w-md p-0 overflow-hidden">
           <DialogHeader className="p-4 pb-2">
             <DialogTitle className="text-white flex items-center justify-between">
@@ -298,21 +301,27 @@ export function AddTab({ myAddress, onContactAdded, onStartCall, onNavigateToInv
           </DialogHeader>
           <div className="relative">
             <div className="aspect-square w-full bg-black">
-              <Scanner
-                onScan={handleScan}
-                onError={(error) => {
-                  console.error('Scanner error:', error);
-                  setScannerError('Camera access denied or not available');
-                }}
-                styles={{
-                  container: { width: '100%', height: '100%' },
-                  video: { width: '100%', height: '100%', objectFit: 'cover' }
-                }}
-                components={{
-                  audio: false,
-                  torch: false
-                }}
-              />
+              {showScanner && (
+                <Scanner
+                  key="qr-scanner"
+                  onScan={handleScan}
+                  onError={(error) => {
+                    console.error('Scanner error:', error);
+                    setScannerError('Camera access denied. Please allow camera access in your browser settings.');
+                  }}
+                  constraints={{
+                    facingMode: 'environment'
+                  }}
+                  styles={{
+                    container: { width: '100%', height: '100%' },
+                    video: { width: '100%', height: '100%', objectFit: 'cover' }
+                  }}
+                  components={{
+                    audio: false,
+                    torch: false
+                  }}
+                />
+              )}
             </div>
             {scannerError && (
               <div className="absolute bottom-0 left-0 right-0 bg-red-500/90 text-white text-center py-2 text-sm">
