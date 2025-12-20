@@ -349,8 +349,8 @@ export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR, onOpenCha
   }
 
   return (
-    <div>
-      <div className="p-4 sticky top-14 bg-slate-900/95 backdrop-blur-lg z-10">
+    <div className="flex flex-col">
+      <div className="p-4 bg-slate-900 border-b border-slate-800">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
           <Input
@@ -360,6 +360,9 @@ export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR, onOpenCha
             className="pl-10 bg-slate-800 border-slate-700 text-white placeholder:text-slate-500"
             data-testid="input-search-contacts"
           />
+        </div>
+        <div className="text-xs text-slate-500 mt-2">
+          {contacts.length} contact{contacts.length !== 1 ? 's' : ''}
         </div>
       </div>
 
