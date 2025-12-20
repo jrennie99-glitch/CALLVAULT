@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { QrCode, Copy, UserPlus, Link, CheckCircle, Video, Phone, Ticket, DollarSign, Briefcase, ChevronRight, ScanLine, X } from 'lucide-react';
+import { QrCode, Copy, UserPlus, Link, CheckCircle, Video, Phone, Ticket, DollarSign, Briefcase, ChevronRight, ScanLine } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
