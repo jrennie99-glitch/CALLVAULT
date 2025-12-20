@@ -3516,9 +3516,32 @@ export async function registerRoutes(
     path: '/ws'
   });
 
+  // Keep-alive ping interval (every 30 seconds)
+  const PING_INTERVAL = 30000;
+  
   wss.on('connection', (ws: WebSocket) => {
     console.log('WebSocket client connected');
     let clientAddress: string | null = null;
+    let isAlive = true;
+    
+    // Set up ping/pong keep-alive
+    ws.on('pong', () => {
+      isAlive = true;
+    });
+    
+    const pingInterval = setInterval(() => {
+      if (!isAlive) {
+        console.log('WebSocket client not responding to ping, terminating');
+        clearInterval(pingInterval);
+        return ws.terminate();
+      }
+      isAlive = false;
+      ws.ping();
+    }, PING_INTERVAL);
+    
+    ws.on('close', () => {
+      clearInterval(pingInterval);
+    });
 
     ws.on('message', (data: Buffer) => {
       try {
