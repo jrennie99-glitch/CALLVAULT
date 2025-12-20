@@ -83,6 +83,15 @@ Preferred communication style: Simple, everyday language.
     - **Env Var Method**: Set `FOUNDER_ADDRESS` environment variable with user's call address.
     - **API Method**: POST `/api/bootstrap-admin` with `CV_BOOTSTRAP_SECRET` for one-time admin creation.
     - **Safety**: Bootstrap endpoint can only be used once and only when no admin exists.
+- **Admin Login (Phase 14)**: Username/password authentication for admin console:
+    - **Login Page**: `/admin/login` page with username/password form.
+    - **Credential Setup**: Admins can set up username/password from Account tab in Admin Console (requires cryptographic signature).
+    - **Security Features**: bcrypt hashing (12 rounds), account lockout after 5 failed attempts (15-minute), session-based authentication.
+    - **Password Management**: Change password from Account tab with current password verification.
+    - **Dual Authentication**: Admins can access console via cryptographic keys OR username/password.
+    - **Audit Logging**: All login attempts, credential creation, and password changes are logged.
+    - **API Endpoints**: `/api/admin/login`, `/api/admin/logout`, `/api/admin/session`, `/api/admin/setup-credentials`, `/api/admin/change-password`.
+    - **Key Files**: `client/src/pages/admin-login.tsx`, Account tab in `AdminConsole.tsx`.
 - **Payment Success Flow (Phase 13)**: Post-payment user onboarding:
     - **Success Page**: `/success` page verifies Stripe session and shows platform-specific PWA install instructions.
     - **Session Verification**: `/api/billing/verify-session` endpoint validates Stripe checkout sessions.
