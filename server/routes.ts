@@ -83,7 +83,32 @@ function checkRateLimit(fromAddress: string): boolean {
 
 function verifySignature(signedIntent: SignedCallIntent): boolean {
   try {
+    if (!signedIntent || typeof signedIntent !== 'object') {
+      console.error('Invalid signedIntent: not an object');
+      return false;
+    }
+    
     const { intent, signature } = signedIntent;
+    
+    if (!intent || typeof intent !== 'object') {
+      console.error('Invalid intent: missing or not an object');
+      return false;
+    }
+    
+    if (!signature || typeof signature !== 'string') {
+      console.error('Invalid signature: missing or not a string');
+      return false;
+    }
+    
+    if (!intent.from_pubkey || !intent.timestamp || !intent.nonce) {
+      console.error('Missing required intent fields:', { 
+        from_pubkey: !!intent.from_pubkey, 
+        timestamp: !!intent.timestamp, 
+        nonce: !!intent.nonce 
+      });
+      return false;
+    }
+    
     const now = Date.now();
     
     // Bidirectional clock skew tolerance: allow client to be ahead or behind by MAX_CLOCK_SKEW
