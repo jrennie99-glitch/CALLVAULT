@@ -99,8 +99,61 @@ export function CallView({
   const reconnectAttemptsRef = useRef<number>(0);
   const stunFailureTimerRef = useRef<NodeJS.Timeout | null>(null);
   const hasAttemptedTurnFallbackRef = useRef<boolean>(false);
+  const ringbackRef = useRef<{ audioContext: AudioContext | null; intervalId: number | null }>({ audioContext: null, intervalId: null });
   const maxReconnectAttempts = 3;
   const STUN_FAILURE_TIMEOUT = 8000; // 8 seconds before TURN fallback
+  
+  // Ringback tone for caller (plays while waiting for answer)
+  useEffect(() => {
+    if (callState === 'calling' || callState === 'ringing') {
+      try {
+        const audioContext = new AudioContext();
+        ringbackRef.current.audioContext = audioContext;
+        
+        const playRingback = () => {
+          if (!ringbackRef.current.audioContext) return;
+          const ctx = ringbackRef.current.audioContext;
+          
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          
+          osc.type = 'sine';
+          osc.frequency.value = 440;
+          gain.gain.setValueAtTime(0.15, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 1);
+          
+          osc.start();
+          setTimeout(() => { try { osc.stop(); } catch {} }, 1000);
+        };
+        
+        playRingback();
+        ringbackRef.current.intervalId = window.setInterval(playRingback, 3000);
+      } catch (e) {
+        console.error('Ringback failed:', e);
+      }
+    } else {
+      // Stop ringback when call state changes
+      if (ringbackRef.current.intervalId) {
+        clearInterval(ringbackRef.current.intervalId);
+        ringbackRef.current.intervalId = null;
+      }
+      if (ringbackRef.current.audioContext) {
+        ringbackRef.current.audioContext.close();
+        ringbackRef.current.audioContext = null;
+      }
+    }
+    
+    return () => {
+      if (ringbackRef.current.intervalId) {
+        clearInterval(ringbackRef.current.intervalId);
+      }
+      if (ringbackRef.current.audioContext) {
+        ringbackRef.current.audioContext.close();
+      }
+    };
+  }, [callState]);
 
   useEffect(() => {
     remoteAddressRef.current = destinationAddress;
