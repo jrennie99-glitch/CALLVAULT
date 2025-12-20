@@ -438,6 +438,30 @@ export const ALL_PERMISSIONS = [
   'rate_limits.manage', 'blocklist.manage',
 ] as const;
 
+// Admin Credentials (username/password authentication for admins)
+export const adminCredentials = pgTable("admin_credentials", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  address: text("address").notNull().unique(), // links to cryptoIdentities
+  username: text("username").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  lastPasswordChange: timestamp("last_password_change").defaultNow().notNull(),
+  failedLoginAttempts: integer("failed_login_attempts").default(0),
+  lockedUntil: timestamp("locked_until"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertAdminCredentialsSchema = createInsertSchema(adminCredentials).omit({
+  id: true,
+  failedLoginAttempts: true,
+  lockedUntil: true,
+  createdAt: true,
+  updatedAt: true,
+  lastPasswordChange: true,
+});
+export type InsertAdminCredentials = z.infer<typeof insertAdminCredentialsSchema>;
+export type AdminCredentials = typeof adminCredentials.$inferSelect;
+
 // Admin Sessions (for session management and impersonation)
 export const adminSessions = pgTable("admin_sessions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

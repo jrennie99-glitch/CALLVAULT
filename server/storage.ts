@@ -20,6 +20,7 @@ import {
   promoCodes, type PromoCode, type InsertPromoCode,
   ipBlocklist, type IpBlocklistEntry,
   adminSessions, type AdminSession,
+  adminCredentials, type AdminCredentials, type InsertAdminCredentials,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, asc, sql, gte, lte, ilike, or } from "drizzle-orm";
@@ -198,6 +199,15 @@ export interface IStorage {
   unsuspendUser(address: string): Promise<CryptoIdentityRecord | undefined>;
   softBanUser(address: string, reason: string, bannedBy: string): Promise<CryptoIdentityRecord | undefined>;
   grantFreeAccess(address: string, endAt: Date, actorAddress: string): Promise<CryptoIdentityRecord | undefined>;
+
+  // Admin Credentials (username/password auth)
+  getAdminCredentialsByUsername(username: string): Promise<AdminCredentials | undefined>;
+  getAdminCredentialsByAddress(address: string): Promise<AdminCredentials | undefined>;
+  createAdminCredentials(creds: InsertAdminCredentials): Promise<AdminCredentials>;
+  updateAdminCredentials(address: string, updates: Partial<AdminCredentials>): Promise<AdminCredentials | undefined>;
+  incrementFailedLoginAttempts(address: string): Promise<AdminCredentials | undefined>;
+  resetFailedLoginAttempts(address: string): Promise<AdminCredentials | undefined>;
+  lockAdminAccount(address: string, untilDate: Date): Promise<AdminCredentials | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1468,6 +1478,54 @@ export class DatabaseStorage implements IStorage {
       metadata: { freeAccessEndAt: endAt.toISOString() }
     });
     return updated;
+  }
+
+  // Admin Credentials implementation
+  async getAdminCredentialsByUsername(username: string): Promise<AdminCredentials | undefined> {
+    const [creds] = await db.select().from(adminCredentials).where(eq(adminCredentials.username, username));
+    return creds || undefined;
+  }
+
+  async getAdminCredentialsByAddress(address: string): Promise<AdminCredentials | undefined> {
+    const [creds] = await db.select().from(adminCredentials).where(eq(adminCredentials.address, address));
+    return creds || undefined;
+  }
+
+  async createAdminCredentials(creds: InsertAdminCredentials): Promise<AdminCredentials> {
+    const [created] = await db.insert(adminCredentials).values(creds).returning();
+    return created;
+  }
+
+  async updateAdminCredentials(address: string, updates: Partial<AdminCredentials>): Promise<AdminCredentials | undefined> {
+    const [updated] = await db.update(adminCredentials)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(adminCredentials.address, address))
+      .returning();
+    return updated || undefined;
+  }
+
+  async incrementFailedLoginAttempts(address: string): Promise<AdminCredentials | undefined> {
+    const [updated] = await db.update(adminCredentials)
+      .set({ failedLoginAttempts: sql`${adminCredentials.failedLoginAttempts} + 1` })
+      .where(eq(adminCredentials.address, address))
+      .returning();
+    return updated || undefined;
+  }
+
+  async resetFailedLoginAttempts(address: string): Promise<AdminCredentials | undefined> {
+    const [updated] = await db.update(adminCredentials)
+      .set({ failedLoginAttempts: 0, lockedUntil: null })
+      .where(eq(adminCredentials.address, address))
+      .returning();
+    return updated || undefined;
+  }
+
+  async lockAdminAccount(address: string, untilDate: Date): Promise<AdminCredentials | undefined> {
+    const [updated] = await db.update(adminCredentials)
+      .set({ lockedUntil: untilDate })
+      .where(eq(adminCredentials.address, address))
+      .returning();
+    return updated || undefined;
   }
 }
 
