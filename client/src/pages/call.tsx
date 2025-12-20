@@ -29,6 +29,7 @@ import { getAppSettings, addCallRecord, getContactByAddress, getContacts, syncAl
 import { getLocalConversations, saveLocalConversation, getOrCreateDirectConvo, saveLocalMessage, incrementUnreadCount, getPrivacySettings } from '@/lib/messageStorage';
 import { addToLocalBlocklist, isCreatorAvailable, shouldRequirePayment, getCallPricingSettings } from '@/lib/policyStorage';
 import { PaymentRequiredScreen } from '@/components/PaymentRequiredScreen';
+import { initAudio } from '@/lib/audio';
 import type { CryptoIdentity, WSMessage, Conversation, Message, CallRequest, CallPricing } from '@shared/types';
 
 type SettingsScreen = 'main' | 'call_permissions' | 'blocklist' | 'ai_guardian' | 'wallet' | 'passes' | 'creator_mode' | 'earnings_dashboard' | 'admin_console' | 'voicemail';
@@ -172,6 +173,9 @@ export default function CallPage() {
 
   const handleWebSocketMessage = useCallback((message: WSMessage) => {
     if (message.type === 'call:incoming') {
+      // Try to initialize audio for ringtone (may need user interaction first)
+      initAudio();
+      
       setIncomingCall({
         from_address: message.from_address,
         from_pubkey: message.from_pubkey,
@@ -238,6 +242,9 @@ export default function CallPage() {
   }, [activeChat]);
 
   const handleStartCall = (address: string, video: boolean) => {
+    // Initialize audio context on user gesture (required for browser autoplay policy)
+    initAudio();
+    
     // Guard: Prevent duplicate calls
     if (inCall) {
       toast.error('Already in a call');
@@ -285,6 +292,9 @@ export default function CallPage() {
   };
 
   const handleAcceptCall = async () => {
+    // Initialize audio context on user gesture (required for browser autoplay policy)
+    initAudio();
+    
     if (!incomingCall || !ws || !identity) return;
     
     // Guard: Prevent accepting if already in a call

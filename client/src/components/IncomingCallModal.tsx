@@ -1,8 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { PhoneOff, Phone, PhoneIncoming, Video, User, Ticket, Shield, AlertTriangle } from 'lucide-react';
 import { getContactByAddress } from '@/lib/storage';
+import { playRingtone, stopRingtone } from '@/lib/audio';
 
 type CallSource = 'contact' | 'invite' | 'unknown';
 
@@ -15,96 +16,16 @@ interface IncomingCallModalProps {
   aiWarning?: boolean;
 }
 
-function createRingtone(): { start: () => void; stop: () => void } {
-  let audioContext: AudioContext | null = null;
-  let oscillator: OscillatorNode | null = null;
-  let gainNode: GainNode | null = null;
-  let intervalId: number | null = null;
-  
-  const start = () => {
-    try {
-      audioContext = new AudioContext();
-      gainNode = audioContext.createGain();
-      gainNode.connect(audioContext.destination);
-      gainNode.gain.value = 0;
-      
-      const playTone = () => {
-        if (!audioContext || !gainNode) return;
-        
-        oscillator = audioContext.createOscillator();
-        oscillator.type = 'sine';
-        oscillator.frequency.value = 440;
-        oscillator.connect(gainNode);
-        oscillator.start();
-        
-        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
-        
-        setTimeout(() => {
-          if (oscillator) {
-            oscillator.stop();
-            oscillator.disconnect();
-          }
-        }, 500);
-        
-        setTimeout(() => {
-          if (!audioContext || !gainNode) return;
-          oscillator = audioContext.createOscillator();
-          oscillator.type = 'sine';
-          oscillator.frequency.value = 554;
-          oscillator.connect(gainNode);
-          oscillator.start();
-          
-          gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-          gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
-          
-          setTimeout(() => {
-            if (oscillator) {
-              oscillator.stop();
-              oscillator.disconnect();
-            }
-          }, 500);
-        }, 200);
-      };
-      
-      playTone();
-      intervalId = window.setInterval(playTone, 2000);
-    } catch (e) {
-      console.error('Failed to create ringtone:', e);
-    }
-  };
-  
-  const stop = () => {
-    if (intervalId) {
-      clearInterval(intervalId);
-      intervalId = null;
-    }
-    if (oscillator) {
-      try { oscillator.stop(); } catch {}
-      oscillator.disconnect();
-      oscillator = null;
-    }
-    if (audioContext) {
-      audioContext.close();
-      audioContext = null;
-    }
-  };
-  
-  return { start, stop };
-}
-
 export function IncomingCallModal({ fromAddress, isVideo, onAccept, onReject, callSource, aiWarning }: IncomingCallModalProps) {
   const contact = getContactByAddress(fromAddress);
   const displayName = contact?.name || fromAddress.slice(0, 20) + '...';
   const source = callSource || (contact ? 'contact' : 'unknown');
-  const ringtoneRef = useRef<{ start: () => void; stop: () => void } | null>(null);
   
   useEffect(() => {
-    ringtoneRef.current = createRingtone();
-    ringtoneRef.current.start();
+    playRingtone();
     
     return () => {
-      ringtoneRef.current?.stop();
+      stopRingtone();
     };
   }, []);
 
