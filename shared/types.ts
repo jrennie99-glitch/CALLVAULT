@@ -165,6 +165,29 @@ export interface CallRequest {
   status: 'pending' | 'accepted' | 'declined' | 'expired';
 }
 
+// Group Call Room
+export interface GroupCallRoom {
+  id: string;
+  room_code: string;
+  host_address: string;
+  name?: string;
+  is_video: boolean;
+  is_locked: boolean;
+  max_participants: number;
+  status: 'active' | 'ended';
+  created_at: number;
+}
+
+// Group Call Participant
+export interface GroupCallParticipant {
+  user_address: string;
+  display_name?: string;
+  is_host: boolean;
+  is_muted: boolean;
+  is_video_off: boolean;
+  joined_at: number;
+}
+
 export type WSMessage =
   | { type: 'register'; address: string }
   | { type: 'call:init'; data: SignedCallIntent; pass_id?: string }
@@ -233,7 +256,36 @@ export type WSMessage =
   | { type: 'queue:update'; position: number; estimated_wait: number }
   | { type: 'queue:ready'; request_id: string }
   | { type: 'payment:required'; recipient_address: string; pricing: CallPricing }
-  | { type: 'payment:verified'; token_id: string };
+  | { type: 'payment:verified'; token_id: string }
+  // Call Waiting (phone-like)
+  | { type: 'call:waiting'; from_address: string; from_pubkey: string; media: { audio: boolean; video: boolean } }
+  | { type: 'call:hold'; to_address: string }
+  | { type: 'call:resume'; to_address: string }
+  | { type: 'call:held'; by_address: string }
+  | { type: 'call:resumed'; by_address: string }
+  | { type: 'call:busy_waiting'; to_address: string }
+  // Group Calls (room-based mesh WebRTC)
+  | { type: 'room:create'; name?: string; is_video: boolean; participant_addresses: string[]; signature: string; from_pubkey: string; from_address: string; nonce: string; timestamp: number }
+  | { type: 'room:created'; room: GroupCallRoom }
+  | { type: 'room:join'; room_id: string; signature: string; from_pubkey: string; from_address: string; nonce: string; timestamp: number }
+  | { type: 'room:joined'; room: GroupCallRoom; participants: GroupCallParticipant[] }
+  | { type: 'room:leave'; room_id: string; from_address: string }
+  | { type: 'room:left'; room_id: string; user_address: string }
+  | { type: 'room:participant_joined'; room_id: string; participant: GroupCallParticipant }
+  | { type: 'room:participant_left'; room_id: string; user_address: string }
+  | { type: 'room:participants'; room_id: string; participants: GroupCallParticipant[] }
+  | { type: 'room:invite'; room_id: string; to_address: string; from_address: string; is_video: boolean }
+  | { type: 'room:lock'; room_id: string; locked: boolean }
+  | { type: 'room:end'; room_id: string }
+  | { type: 'room:ended'; room_id: string }
+  | { type: 'room:error'; room_id?: string; message: string; reason?: string }
+  // Mesh WebRTC signaling for group calls
+  | { type: 'mesh:offer'; room_id: string; to_peer: string; from_peer: string; offer: RTCSessionDescriptionInit }
+  | { type: 'mesh:answer'; room_id: string; to_peer: string; from_peer: string; answer: RTCSessionDescriptionInit }
+  | { type: 'mesh:ice'; room_id: string; to_peer: string; from_peer: string; candidate: RTCIceCandidateInit }
+  // Call Merge (merge 1:1 calls into group)
+  | { type: 'call:merge'; call_addresses: string[]; signature: string; from_pubkey: string; from_address: string; nonce: string; timestamp: number }
+  | { type: 'call:merged'; room: GroupCallRoom };
 
 // Phase 4: Creator/Business Mode
 export type BusinessCategory = 'consulting' | 'tech' | 'music' | 'legal' | 'coaching' | 'health' | 'education' | 'creative' | 'other';

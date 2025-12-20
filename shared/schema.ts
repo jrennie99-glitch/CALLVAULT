@@ -623,5 +623,48 @@ export const insertPersistentMessageSchema = createInsertSchema(persistentMessag
 export type InsertPersistentMessage = z.infer<typeof insertPersistentMessageSchema>;
 export type PersistentMessage = typeof persistentMessages.$inferSelect;
 
+// Call rooms for group calls (mesh WebRTC)
+export const callRooms = pgTable("call_rooms", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  roomCode: text("room_code").notNull().unique(), // Short code for sharing
+  hostAddress: text("host_address").notNull(),
+  name: text("name"), // Optional room name
+  isVideo: boolean("is_video").default(true),
+  isLocked: boolean("is_locked").default(false), // Host can lock room
+  maxParticipants: integer("max_participants").notNull().default(10),
+  status: text("status").notNull().default("active"), // 'active' | 'ended'
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  endedAt: timestamp("ended_at"),
+});
+
+export const insertCallRoomSchema = createInsertSchema(callRooms).omit({
+  id: true,
+  createdAt: true,
+  endedAt: true,
+});
+export type InsertCallRoom = z.infer<typeof insertCallRoomSchema>;
+export type CallRoom = typeof callRooms.$inferSelect;
+
+// Call room participants
+export const callRoomParticipants = pgTable("call_room_participants", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  roomId: varchar("room_id").notNull(),
+  userAddress: text("user_address").notNull(),
+  displayName: text("display_name"),
+  isHost: boolean("is_host").default(false),
+  isMuted: boolean("is_muted").default(false),
+  isVideoOff: boolean("is_video_off").default(false),
+  joinedAt: timestamp("joined_at").defaultNow().notNull(),
+  leftAt: timestamp("left_at"),
+});
+
+export const insertCallRoomParticipantSchema = createInsertSchema(callRoomParticipants).omit({
+  id: true,
+  joinedAt: true,
+  leftAt: true,
+});
+export type InsertCallRoomParticipant = z.infer<typeof insertCallRoomParticipantSchema>;
+export type CallRoomParticipant = typeof callRoomParticipants.$inferSelect;
+
 // Re-export chat models for Gemini integration
 export * from "./models/chat";

@@ -25,6 +25,8 @@ import {
   callTokenNonces, type CallTokenNonce,
   tokenMetrics, type TokenMetric,
   persistentMessages,
+  callRooms, type CallRoom, type InsertCallRoom,
+  callRoomParticipants, type CallRoomParticipant, type InsertCallRoomParticipant,
 } from "@shared/schema";
 import { randomUUID, createHash } from "crypto";
 import { db } from "./db";
@@ -238,6 +240,18 @@ export interface IStorage {
   getPendingMessages(toAddress: string): Promise<{ id: string; fromAddress: string; toAddress: string; convoId: string; content: string; mediaType: string | null; mediaUrl: string | null; createdAt: Date }[]>;
   markMessageDelivered(messageId: string): Promise<void>;
   markMessageRead(messageId: string): Promise<void>;
+
+  // Call Rooms (group calls)
+  createCallRoom(hostAddress: string, isVideo: boolean, name?: string, maxParticipants?: number): Promise<{ id: string; roomCode: string }>;
+  getCallRoom(roomId: string): Promise<{ id: string; roomCode: string; hostAddress: string; name: string | null; isVideo: boolean; isLocked: boolean; maxParticipants: number; status: string; createdAt: Date } | undefined>;
+  getCallRoomByCode(roomCode: string): Promise<{ id: string; roomCode: string; hostAddress: string; name: string | null; isVideo: boolean; isLocked: boolean; maxParticipants: number; status: string; createdAt: Date } | undefined>;
+  updateCallRoom(roomId: string, updates: { isLocked?: boolean; status?: string; endedAt?: Date }): Promise<void>;
+  addRoomParticipant(roomId: string, userAddress: string, displayName?: string, isHost?: boolean): Promise<{ id: string }>;
+  removeRoomParticipant(roomId: string, userAddress: string): Promise<void>;
+  getRoomParticipants(roomId: string): Promise<{ userAddress: string; displayName: string | null; isHost: boolean; isMuted: boolean; isVideoOff: boolean; joinedAt: Date }[]>;
+  getRoomParticipantCount(roomId: string): Promise<number>;
+  isUserInRoom(roomId: string, userAddress: string): Promise<boolean>;
+  updateParticipantMedia(roomId: string, userAddress: string, updates: { isMuted?: boolean; isVideoOff?: boolean }): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1790,6 +1804,127 @@ export class DatabaseStorage implements IStorage {
     await db.update(persistentMessages)
       .set({ status: 'read', readAt: new Date() })
       .where(eq(persistentMessages.id, messageId));
+  }
+
+  // Call Rooms (group calls)
+  async createCallRoom(hostAddress: string, isVideo: boolean, name?: string, maxParticipants: number = 10): Promise<{ id: string; roomCode: string }> {
+    const roomCode = `room_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    const [room] = await db.insert(callRooms).values({
+      roomCode,
+      hostAddress,
+      name: name || null,
+      isVideo,
+      maxParticipants,
+      status: 'active',
+    }).returning();
+    return { id: room.id, roomCode: room.roomCode };
+  }
+
+  async getCallRoom(roomId: string): Promise<{ id: string; roomCode: string; hostAddress: string; name: string | null; isVideo: boolean; isLocked: boolean; maxParticipants: number; status: string; createdAt: Date } | undefined> {
+    const [room] = await db.select({
+      id: callRooms.id,
+      roomCode: callRooms.roomCode,
+      hostAddress: callRooms.hostAddress,
+      name: callRooms.name,
+      isVideo: callRooms.isVideo,
+      isLocked: callRooms.isLocked,
+      maxParticipants: callRooms.maxParticipants,
+      status: callRooms.status,
+      createdAt: callRooms.createdAt,
+    }).from(callRooms).where(eq(callRooms.id, roomId));
+    return room ? { ...room, isVideo: room.isVideo ?? true, isLocked: room.isLocked ?? false } : undefined;
+  }
+
+  async getCallRoomByCode(roomCode: string): Promise<{ id: string; roomCode: string; hostAddress: string; name: string | null; isVideo: boolean; isLocked: boolean; maxParticipants: number; status: string; createdAt: Date } | undefined> {
+    const [room] = await db.select({
+      id: callRooms.id,
+      roomCode: callRooms.roomCode,
+      hostAddress: callRooms.hostAddress,
+      name: callRooms.name,
+      isVideo: callRooms.isVideo,
+      isLocked: callRooms.isLocked,
+      maxParticipants: callRooms.maxParticipants,
+      status: callRooms.status,
+      createdAt: callRooms.createdAt,
+    }).from(callRooms).where(eq(callRooms.roomCode, roomCode));
+    return room ? { ...room, isVideo: room.isVideo ?? true, isLocked: room.isLocked ?? false } : undefined;
+  }
+
+  async updateCallRoom(roomId: string, updates: { isLocked?: boolean; status?: string; endedAt?: Date }): Promise<void> {
+    await db.update(callRooms).set(updates).where(eq(callRooms.id, roomId));
+  }
+
+  async addRoomParticipant(roomId: string, userAddress: string, displayName?: string, isHost: boolean = false): Promise<{ id: string }> {
+    const [participant] = await db.insert(callRoomParticipants).values({
+      roomId,
+      userAddress,
+      displayName: displayName || null,
+      isHost,
+    }).returning();
+    return { id: participant.id };
+  }
+
+  async removeRoomParticipant(roomId: string, userAddress: string): Promise<void> {
+    await db.update(callRoomParticipants)
+      .set({ leftAt: new Date() })
+      .where(and(
+        eq(callRoomParticipants.roomId, roomId),
+        eq(callRoomParticipants.userAddress, userAddress),
+        sql`${callRoomParticipants.leftAt} IS NULL`
+      ));
+  }
+
+  async getRoomParticipants(roomId: string): Promise<{ userAddress: string; displayName: string | null; isHost: boolean; isMuted: boolean; isVideoOff: boolean; joinedAt: Date }[]> {
+    const participants = await db.select({
+      userAddress: callRoomParticipants.userAddress,
+      displayName: callRoomParticipants.displayName,
+      isHost: callRoomParticipants.isHost,
+      isMuted: callRoomParticipants.isMuted,
+      isVideoOff: callRoomParticipants.isVideoOff,
+      joinedAt: callRoomParticipants.joinedAt,
+    }).from(callRoomParticipants).where(
+      and(
+        eq(callRoomParticipants.roomId, roomId),
+        sql`${callRoomParticipants.leftAt} IS NULL`
+      )
+    );
+    return participants.map(p => ({
+      ...p,
+      isHost: p.isHost ?? false,
+      isMuted: p.isMuted ?? false,
+      isVideoOff: p.isVideoOff ?? false,
+    }));
+  }
+
+  async getRoomParticipantCount(roomId: string): Promise<number> {
+    const [result] = await db.select({ count: sql<number>`count(*)` })
+      .from(callRoomParticipants)
+      .where(and(
+        eq(callRoomParticipants.roomId, roomId),
+        sql`${callRoomParticipants.leftAt} IS NULL`
+      ));
+    return result?.count || 0;
+  }
+
+  async isUserInRoom(roomId: string, userAddress: string): Promise<boolean> {
+    const [participant] = await db.select({ id: callRoomParticipants.id })
+      .from(callRoomParticipants)
+      .where(and(
+        eq(callRoomParticipants.roomId, roomId),
+        eq(callRoomParticipants.userAddress, userAddress),
+        sql`${callRoomParticipants.leftAt} IS NULL`
+      ));
+    return !!participant;
+  }
+
+  async updateParticipantMedia(roomId: string, userAddress: string, updates: { isMuted?: boolean; isVideoOff?: boolean }): Promise<void> {
+    await db.update(callRoomParticipants)
+      .set(updates)
+      .where(and(
+        eq(callRoomParticipants.roomId, roomId),
+        eq(callRoomParticipants.userAddress, userAddress),
+        sql`${callRoomParticipants.leftAt} IS NULL`
+      ));
   }
 }
 

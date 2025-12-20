@@ -1,0 +1,129 @@
+REPLIT AGENT — ADD CALL WAITING + 3-WAY + GROUP AUDIO/VIDEO (UP TO 10) + CALL MERGE
+App: Call Vault (CV) already built.
+
+ABSOLUTE RULES
+- DO NOT delete/rename/remove any existing feature, route, UI, DB table, auth, crypto identity, or payments.
+- Keep 1:1 voice/video working exactly as-is.
+- Add these features incrementally behind feature flags so we can roll out safely.
+- Maintain Ed25519 signature verification for all call signaling events.
+- Ensure mobile-first UX (WhatsApp-like).
+
+CURRENT STATE (CONFIRMED)
+- 1:1 voice/video works
+- Group chat text-only exists
+- No 3-way, no call waiting, no group audio/video
+
+GOALS
+A) Add Call Waiting (phone-like)
+B) Add Group Calls (3–10 participants) for audio+video
+C) Add Call Merge (merge active call with incoming call to a group call)
+D) Enforce plan limits:
+   - Free: no group calling, no call waiting merge
+   - Pro ($9): group up to 6 participants
+   - Business ($29): group up to 10 participants
+E) Seamless UX: no scary errors, silent retries.
+
+ARCHITECTURE (SMALL GROUPS)
+Use WebRTC MESH for up to 10 participants.
+- Each participant maintains a peer connection to every other participant.
+- Use existing signaling server for offers/answers/ICE, extended with room + peer targeting.
+- Default video quality for group calls: 360p, lower bitrate when participants > 4.
+
+A) CALL WAITING (MANDATORY)
+1) Add in-call state machine:
+   - IDLE, OUTGOING, RINGING, ACTIVE, HOLDING, ON_HOLD, WAITING_INCOMING, MERGING
+2) When user is on ACTIVE call and receives a new call request:
+   - Do NOT auto-reject.
+   - Send caller a "line_busy_waiting" status (ringing continues with waiting state).
+   - Show in-call UI banner: "Incoming call from X" with buttons:
+     - Accept (Hold current)
+     - Decline
+     - Merge (if plan allows and participant limits allow)
+3) Accept behavior:
+   - Put current call on hold:
+     - mute local mic + stop local video tracks (do not close peer connection)
+     - show "On Hold"
+   - Accept new call and establish as a separate active call session
+4) Decline behavior:
+   - send "declined/busy" to caller and log event
+5) Timeout:
+   - if waiting call unanswered for N seconds, auto-decline with "no answer"
+
+SECURITY:
+- All call-waiting events must be signed and verified (Ed25519) like existing call signaling.
+
+B) GROUP CALLS (3–10) (MANDATORY)
+1) Add concept of "call_room" for group calls:
+   - room_id, host_user_id, created_at, is_locked, max_participants, active
+2) Add signaling events (signed):
+   - room:create (returns room_id)
+   - room:join (room_id)
+   - room:leave (room_id)
+   - room:participants (room_id -> list)
+   - webrtc:offer (room_id, to_peer_id)
+   - webrtc:answer (room_id, to_peer_id)
+   - webrtc:ice (room_id, to_peer_id)
+3) Flow:
+   - Host creates room, invites users (in-app invite + optional share link)
+   - Joining user connects mesh to each existing participant
+   - When a new participant joins, all existing participants connect to them
+
+UI:
+- Add "New Group Call" button (in chat list or Calls tab)
+- Choose: Audio Group / Video Group
+- Participant picker from contacts
+- Group call screen:
+  - Tiles/grid for video, active speaker highlight
+  - Controls: mute, camera, end, add, lock (host only)
+  - Participant list drawer
+
+PLAN LIMITS (SERVER ENFORCED):
+- Free: block room:create and room:join if participants > 2 (or disable entirely)
+- Pro: max_participants = 6
+- Business: max_participants = 10
+Enforce in backend before allowing join and before sending peer lists.
+
+C) CALL MERGE (MANDATORY)
+When user has:
+- Call A ACTIVE (1:1)
+- Call B WAITING (incoming) or ACTIVE (2nd call)
+Provide "Merge" button:
+1) Server checks plan limit and total participants:
+   - If merging A and B would exceed max participants, block with friendly message.
+2) Create a room_id (new group call room) and move both calls into the room:
+   - Convert Call A participants + Call B participants into one room participant list
+   - Trigger renegotiation so all peers connect mesh in the new room
+3) UX must feel instant:
+   - Show “Merging calls…” loader
+   - Keep audio uninterrupted if possible; otherwise short renegotiation mute
+
+D) TURN/STUN POLICY (KEEP COST CONTROL)
+- Keep existing STUN setup.
+- TURN only for paid/trial users (if TURN env is configured).
+- Free users remain STUN-only.
+- Group calls: if TURN is used, automatically lower video bitrate/resolution.
+- Add indicator: “Direct” vs “Relay”.
+
+E) RELIABILITY (MUST FEEL LIKE WHATSAPP)
+- Silent retries for token/timestamp issues (no user-visible crypto errors)
+- Auto reconnect signaling socket
+- ICE restart once on failure
+- If still failing, show: “Connection issue. Tap to retry.”
+
+F) TESTS / QA CHECKLIST (MUST PASS)
+1) 3-way audio works (A invites B and C)
+2) 5-way video works at 360p
+3) Pro plan blocks joining when room would exceed 6
+4) Business allows up to 10
+5) Call waiting:
+   - A on call with B, C calls A -> A sees banner -> Accept holds B -> talks to C
+6) Merge:
+   - Merge call with B and C -> 3-way group call
+7) Existing 1:1 call and messaging remains unchanged
+8) All new signaling messages are signed + verified
+
+DELIVERABLES
+- Implement all above in existing repo
+- List every file changed/added
+- Add any new ENV vars (TURN, feature flags)
+- Keep UI mobile-first and consistent with current style
