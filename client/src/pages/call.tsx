@@ -23,7 +23,7 @@ import { EarningsDashboard } from '@/components/EarningsDashboard';
 import { AdminConsole } from '@/components/AdminConsole';
 import { ChatPage } from '@/pages/chat';
 import * as cryptoLib from '@/lib/crypto';
-import * as nacl from 'tweetnacl';
+import nacl from 'tweetnacl';
 import bs58 from 'bs58';
 import { getAppSettings, addCallRecord, getContactByAddress, getContacts } from '@/lib/storage';
 import { getLocalConversations, saveLocalConversation, getOrCreateDirectConvo, saveLocalMessage, incrementUnreadCount, getPrivacySettings } from '@/lib/messageStorage';

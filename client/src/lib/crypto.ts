@@ -1,4 +1,4 @@
-import * as nacl from "tweetnacl";
+import nacl from "tweetnacl";
 import bs58 from "bs58";
 import type { CryptoIdentity, CallIntent, SignedCallIntent, Message, SignedMessage } from "@shared/types";
 

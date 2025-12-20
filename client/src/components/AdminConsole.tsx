@@ -14,7 +14,7 @@ import {
   Settings, UserCog, Ban, CheckCircle, AlertTriangle, Stethoscope
 } from 'lucide-react';
 import { toast } from 'sonner';
-import * as nacl from 'tweetnacl';
+import nacl from 'tweetnacl';
 import bs58 from 'bs58';
 
 interface CryptoIdentity {
