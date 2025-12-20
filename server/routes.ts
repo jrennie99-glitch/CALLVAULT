@@ -2866,6 +2866,119 @@ export async function registerRoutes(
     }
   });
 
+  // ===== VOICEMAIL API =====
+
+  // Get all voicemails for a user
+  app.get('/api/voicemails/:recipientAddress', async (req, res) => {
+    try {
+      const { recipientAddress } = req.params;
+      const voicemails = await storage.getVoicemails(recipientAddress);
+      res.json(voicemails);
+    } catch (error) {
+      console.error('Error fetching voicemails:', error);
+      res.status(500).json({ error: 'Failed to fetch voicemails' });
+    }
+  });
+
+  // Get unread voicemail count
+  app.get('/api/voicemails/:recipientAddress/unread-count', async (req, res) => {
+    try {
+      const { recipientAddress } = req.params;
+      const count = await storage.getUnreadVoicemailCount(recipientAddress);
+      res.json({ count });
+    } catch (error) {
+      console.error('Error fetching unread count:', error);
+      res.status(500).json({ error: 'Failed to fetch unread count' });
+    }
+  });
+
+  // Get a single voicemail
+  app.get('/api/voicemail/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const voicemail = await storage.getVoicemail(id);
+      if (!voicemail) {
+        return res.status(404).json({ error: 'Voicemail not found' });
+      }
+      res.json(voicemail);
+    } catch (error) {
+      console.error('Error fetching voicemail:', error);
+      res.status(500).json({ error: 'Failed to fetch voicemail' });
+    }
+  });
+
+  // Create a voicemail (leave a message)
+  app.post('/api/voicemails', async (req, res) => {
+    try {
+      const { recipientAddress, senderAddress, senderName, audioData, audioFormat, durationSeconds } = req.body;
+      
+      if (!recipientAddress || !senderAddress || !audioData || !durationSeconds) {
+        return res.status(400).json({ error: 'Missing required fields' });
+      }
+      
+      const voicemail = await storage.createVoicemail({
+        recipientAddress,
+        senderAddress,
+        senderName,
+        audioData,
+        audioFormat: audioFormat || 'webm',
+        durationSeconds,
+        transcriptionStatus: 'pending',
+      });
+      
+      res.status(201).json(voicemail);
+    } catch (error) {
+      console.error('Error creating voicemail:', error);
+      res.status(500).json({ error: 'Failed to create voicemail' });
+    }
+  });
+
+  // Mark voicemail as read
+  app.put('/api/voicemail/:id/read', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const voicemail = await storage.markVoicemailRead(id);
+      if (!voicemail) {
+        return res.status(404).json({ error: 'Voicemail not found' });
+      }
+      res.json(voicemail);
+    } catch (error) {
+      console.error('Error marking voicemail as read:', error);
+      res.status(500).json({ error: 'Failed to mark voicemail as read' });
+    }
+  });
+
+  // Save/unsave voicemail
+  app.put('/api/voicemail/:id/save', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { isSaved } = req.body;
+      const voicemail = await storage.updateVoicemail(id, { isSaved });
+      if (!voicemail) {
+        return res.status(404).json({ error: 'Voicemail not found' });
+      }
+      res.json(voicemail);
+    } catch (error) {
+      console.error('Error saving voicemail:', error);
+      res.status(500).json({ error: 'Failed to save voicemail' });
+    }
+  });
+
+  // Delete voicemail (soft delete)
+  app.delete('/api/voicemail/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const deleted = await storage.deleteVoicemail(id);
+      if (!deleted) {
+        return res.status(404).json({ error: 'Voicemail not found' });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error deleting voicemail:', error);
+      res.status(500).json({ error: 'Failed to delete voicemail' });
+    }
+  });
+
   // Admin: Update user plan (admin/founder only)
   app.put('/api/admin/users/:address/plan', async (req, res) => {
     try {
