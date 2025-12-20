@@ -151,6 +151,8 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
   const [newInviteMinutes, setNewInviteMinutes] = useState('30');
   const [newInvitePlan, setNewInvitePlan] = useState<string>('pro');
   const [newInviteMaxUses, setNewInviteMaxUses] = useState('');
+  const [newInviteType, setNewInviteType] = useState<string>('trial');
+  const [newInviteExpiry, setNewInviteExpiry] = useState('');
   const [isCreateInviteOpen, setIsCreateInviteOpen] = useState(false);
   const queryClient = useQueryClient();
 
@@ -362,7 +364,7 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
   });
 
   const createInviteLinkMutation = useMutation({
-    mutationFn: async (params: { trialDays: number; trialMinutes: number; grantPlan: string; maxUses?: number }) => {
+    mutationFn: async (params: { type: string; trialDays: number; trialMinutes: number; grantPlan: string; maxUses?: number; expiresAt?: string }) => {
       const timestamp = Date.now();
       const message = `admin:create-invite:${identity.address}:${timestamp}`;
       const messageBytes = new TextEncoder().encode(message);
@@ -373,10 +375,12 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           createdByAddress: identity.address,
+          type: params.type,
           trialDays: params.trialDays,
           trialMinutes: params.trialMinutes,
           grantPlan: params.grantPlan,
           maxUses: params.maxUses || null,
+          expiresAt: params.expiresAt || null,
           signature: bs58.encode(signature),
           timestamp,
         }),
@@ -447,10 +451,12 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
 
   const handleCreateInvite = () => {
     createInviteLinkMutation.mutate({
+      type: newInviteType,
       trialDays: parseInt(newInviteDays) || 7,
       trialMinutes: parseInt(newInviteMinutes) || 30,
       grantPlan: newInvitePlan,
       maxUses: newInviteMaxUses ? parseInt(newInviteMaxUses) : undefined,
+      expiresAt: newInviteExpiry || undefined,
     });
   };
 
@@ -1071,27 +1077,46 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
                   </DialogHeader>
                   <div className="space-y-4 mt-4">
                     <div>
-                      <label className="text-sm text-slate-400 mb-1 block">Trial Days</label>
-                      <Input
-                        type="number"
-                        value={newInviteDays}
-                        onChange={(e) => setNewInviteDays(e.target.value)}
-                        placeholder="7"
-                        className="bg-slate-700"
-                        data-testid="input-invite-days"
-                      />
+                      <label className="text-sm text-slate-400 mb-1 block">Invite Type</label>
+                      <Select value={newInviteType} onValueChange={setNewInviteType}>
+                        <SelectTrigger className="bg-slate-700" data-testid="select-invite-type">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="trial">Trial (limited access)</SelectItem>
+                          <SelectItem value="comp">Comp (full access, no billing)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-slate-500 mt-1">
+                        {newInviteType === 'trial' ? 'Recipients get limited trial minutes' : 'Recipients get full plan access without payment'}
+                      </p>
                     </div>
-                    <div>
-                      <label className="text-sm text-slate-400 mb-1 block">Trial Minutes</label>
-                      <Input
-                        type="number"
-                        value={newInviteMinutes}
-                        onChange={(e) => setNewInviteMinutes(e.target.value)}
-                        placeholder="30"
-                        className="bg-slate-700"
-                        data-testid="input-invite-minutes"
-                      />
-                    </div>
+                    {newInviteType === 'trial' && (
+                      <>
+                        <div>
+                          <label className="text-sm text-slate-400 mb-1 block">Trial Days</label>
+                          <Input
+                            type="number"
+                            value={newInviteDays}
+                            onChange={(e) => setNewInviteDays(e.target.value)}
+                            placeholder="7"
+                            className="bg-slate-700"
+                            data-testid="input-invite-days"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-sm text-slate-400 mb-1 block">Trial Minutes</label>
+                          <Input
+                            type="number"
+                            value={newInviteMinutes}
+                            onChange={(e) => setNewInviteMinutes(e.target.value)}
+                            placeholder="30"
+                            className="bg-slate-700"
+                            data-testid="input-invite-minutes"
+                          />
+                        </div>
+                      </>
+                    )}
                     <div>
                       <label className="text-sm text-slate-400 mb-1 block">Grant Plan</label>
                       <Select value={newInvitePlan} onValueChange={setNewInvitePlan}>
@@ -1113,6 +1138,17 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
                         placeholder="Unlimited"
                         className="bg-slate-700"
                         data-testid="input-invite-max-uses"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm text-slate-400 mb-1 block">Link Expiration (optional)</label>
+                      <Input
+                        type="date"
+                        value={newInviteExpiry}
+                        onChange={(e) => setNewInviteExpiry(e.target.value)}
+                        className="bg-slate-700"
+                        data-testid="input-invite-expiry"
+                        min={new Date().toISOString().split('T')[0]}
                       />
                     </div>
                     <Button 
@@ -1153,14 +1189,22 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
                           <Badge variant={link.isActive ? "default" : "destructive"}>
                             {link.isActive ? 'Active' : 'Inactive'}
                           </Badge>
+                          <Badge variant={link.type === 'comp' ? "secondary" : "outline"} className="capitalize">
+                            {link.type === 'comp' ? 'Comp' : 'Trial'}
+                          </Badge>
                           <Badge variant="outline" className="capitalize">
                             {link.grantPlan || 'pro'}
                           </Badge>
                         </div>
                         <div className="text-slate-400 text-sm mt-2">
-                          <span>{link.trialDays}d + {link.trialMinutes}min trial</span>
-                          {link.maxUses && <span> · Max {link.maxUses} uses</span>}
-                          <span> · Used {link.uses || 0}x</span>
+                          {link.type !== 'comp' && (
+                            <span>{link.trialDays}d + {link.trialMinutes}min trial · </span>
+                          )}
+                          {link.maxUses && <span>Max {link.maxUses} uses · </span>}
+                          <span>Used {link.uses || 0}x</span>
+                          {link.expiresAt && (
+                            <span> · Expires {new Date(link.expiresAt).toLocaleDateString()}</span>
+                          )}
                         </div>
                         <div className="text-slate-500 text-xs mt-1">
                           Created: {formatDate(link.createdAt)}

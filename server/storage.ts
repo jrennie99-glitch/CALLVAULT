@@ -811,17 +811,29 @@ export class DatabaseStorage implements IStorage {
       .set({ uses: (link.uses || 0) + 1 })
       .where(eq(inviteLinks.id, link.id));
     
-    // Grant trial to user
-    const trialEndAt = link.trialDays ? new Date(Date.now() + link.trialDays * 24 * 60 * 60 * 1000) : null;
-    await db.update(cryptoIdentities)
-      .set({
-        trialStatus: 'active',
-        trialStartAt: new Date(),
-        trialEndAt,
-        trialMinutesRemaining: link.trialMinutes || 30,
-        trialPlan: link.grantPlan || 'pro',
-      })
-      .where(eq(cryptoIdentities.address, redeemerAddress));
+    // Grant access based on invite type
+    if (link.type === 'comp') {
+      // Comp invites grant full plan access without billing
+      await db.update(cryptoIdentities)
+        .set({
+          plan: link.grantPlan || 'pro',
+          planStatus: 'active',
+          isComped: true,
+        })
+        .where(eq(cryptoIdentities.address, redeemerAddress));
+    } else {
+      // Trial invites grant limited trial access
+      const trialEndAt = link.trialDays ? new Date(Date.now() + link.trialDays * 24 * 60 * 60 * 1000) : null;
+      await db.update(cryptoIdentities)
+        .set({
+          trialStatus: 'active',
+          trialStartAt: new Date(),
+          trialEndAt,
+          trialMinutesRemaining: link.trialMinutes || 30,
+          trialPlan: link.grantPlan || 'pro',
+        })
+        .where(eq(cryptoIdentities.address, redeemerAddress));
+    }
     
     // Log the redemption
     await this.createAuditLog({
