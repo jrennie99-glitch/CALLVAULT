@@ -27,7 +27,11 @@ import {
   persistentMessages,
   callRooms, type CallRoom, type InsertCallRoom,
   callRoomParticipants, type CallRoomParticipant, type InsertCallRoomParticipant,
+  userModeSettings, type UserModeSettings, type InsertUserModeSettings,
+  planEntitlements, type PlanEntitlements, type InsertPlanEntitlements,
+  userEntitlementOverrides, type UserEntitlementOverrides, type InsertUserEntitlementOverrides,
 } from "@shared/schema";
+import type { UserMode, FeatureFlags } from "@shared/types";
 import { randomUUID, createHash } from "crypto";
 import { db } from "./db";
 import { eq, and, desc, asc, sql, gte, lte, ilike, or } from "drizzle-orm";
@@ -1925,6 +1929,197 @@ export class DatabaseStorage implements IStorage {
         eq(callRoomParticipants.userAddress, userAddress),
         sql`${callRoomParticipants.leftAt} IS NULL`
       ));
+  }
+
+  // User Mode Settings
+  async getUserModeSettings(userAddress: string): Promise<UserModeSettings | undefined> {
+    const [settings] = await db.select().from(userModeSettings)
+      .where(eq(userModeSettings.userAddress, userAddress));
+    return settings || undefined;
+  }
+
+  async createOrUpdateUserModeSettings(userAddress: string, mode: UserMode, flags?: Partial<FeatureFlags>): Promise<UserModeSettings> {
+    const existing = await this.getUserModeSettings(userAddress);
+    if (existing) {
+      const [updated] = await db.update(userModeSettings)
+        .set({ mode, flags: flags || existing.flags, updatedAt: new Date() })
+        .where(eq(userModeSettings.userAddress, userAddress))
+        .returning();
+      return updated;
+    } else {
+      const [created] = await db.insert(userModeSettings)
+        .values({ userAddress, mode, flags: flags || {} })
+        .returning();
+      return created;
+    }
+  }
+
+  async ensureUserModeSettings(userAddress: string): Promise<UserModeSettings> {
+    const existing = await this.getUserModeSettings(userAddress);
+    if (existing) return existing;
+    const [created] = await db.insert(userModeSettings)
+      .values({ userAddress, mode: 'personal', flags: {} })
+      .returning();
+    return created;
+  }
+
+  // Plan Entitlements
+  async getPlanEntitlements(planId: string): Promise<PlanEntitlements | undefined> {
+    const [entitlements] = await db.select().from(planEntitlements)
+      .where(eq(planEntitlements.planId, planId));
+    return entitlements || undefined;
+  }
+
+  async getAllPlanEntitlements(): Promise<PlanEntitlements[]> {
+    return db.select().from(planEntitlements).orderBy(asc(planEntitlements.planId));
+  }
+
+  async createOrUpdatePlanEntitlements(planId: string, entitlements: Partial<InsertPlanEntitlements>): Promise<PlanEntitlements> {
+    const existing = await this.getPlanEntitlements(planId);
+    if (existing) {
+      const [updated] = await db.update(planEntitlements)
+        .set({ ...entitlements, updatedAt: new Date() })
+        .where(eq(planEntitlements.planId, planId))
+        .returning();
+      return updated;
+    } else {
+      const [created] = await db.insert(planEntitlements)
+        .values({ planId, ...entitlements })
+        .returning();
+      return created;
+    }
+  }
+
+  async initDefaultPlanEntitlements(): Promise<void> {
+    const defaults: { planId: string; data: Partial<InsertPlanEntitlements> }[] = [
+      {
+        planId: 'free',
+        data: {
+          maxCallIds: 1,
+          maxGroupParticipants: 0,
+          allowCallWaiting: false,
+          allowCallMerge: false,
+          allowPaidCalls: false,
+          allowRoutingRules: false,
+          allowDelegation: false,
+          allowStageRooms: false,
+          allowRecording: false,
+          allowGroupCalls: false,
+          maxCallMinutesPerMonth: 30,
+          maxCallsPerDay: 2,
+          maxCallDurationMinutes: 10,
+        }
+      },
+      {
+        planId: 'pro',
+        data: {
+          maxCallIds: 3,
+          maxGroupParticipants: 6,
+          allowCallWaiting: true,
+          allowCallMerge: true,
+          allowPaidCalls: true,
+          allowRoutingRules: false,
+          allowDelegation: false,
+          allowStageRooms: false,
+          allowRecording: false,
+          allowGroupCalls: true,
+          maxCallMinutesPerMonth: null, // unlimited
+          maxCallsPerDay: null,
+          maxCallDurationMinutes: null,
+        }
+      },
+      {
+        planId: 'business',
+        data: {
+          maxCallIds: 10,
+          maxGroupParticipants: 10,
+          allowCallWaiting: true,
+          allowCallMerge: true,
+          allowPaidCalls: true,
+          allowRoutingRules: true,
+          allowDelegation: true,
+          allowStageRooms: false,
+          allowRecording: true,
+          allowGroupCalls: true,
+          maxCallMinutesPerMonth: null,
+          maxCallsPerDay: null,
+          maxCallDurationMinutes: null,
+        }
+      },
+      {
+        planId: 'enterprise',
+        data: {
+          maxCallIds: 100,
+          maxGroupParticipants: 100,
+          allowCallWaiting: true,
+          allowCallMerge: true,
+          allowPaidCalls: true,
+          allowRoutingRules: true,
+          allowDelegation: true,
+          allowStageRooms: true,
+          allowRecording: true,
+          allowGroupCalls: true,
+          maxCallMinutesPerMonth: null,
+          maxCallsPerDay: null,
+          maxCallDurationMinutes: null,
+        }
+      }
+    ];
+
+    for (const { planId, data } of defaults) {
+      const existing = await this.getPlanEntitlements(planId);
+      if (!existing) {
+        await db.insert(planEntitlements).values({ planId, ...data });
+      }
+    }
+  }
+
+  // User Entitlement Overrides (Admin)
+  async getUserEntitlementOverrides(userAddress: string): Promise<UserEntitlementOverrides | undefined> {
+    const [overrides] = await db.select().from(userEntitlementOverrides)
+      .where(eq(userEntitlementOverrides.userAddress, userAddress));
+    
+    // Check if overrides have expired
+    if (overrides && overrides.expiresAt && new Date(overrides.expiresAt) < new Date()) {
+      // Expired, delete and return undefined
+      await db.delete(userEntitlementOverrides).where(eq(userEntitlementOverrides.userAddress, userAddress));
+      return undefined;
+    }
+    
+    return overrides || undefined;
+  }
+
+  async setUserEntitlementOverrides(
+    userAddress: string, 
+    overrides: Record<string, any>, 
+    grantedBy?: string, 
+    expiresAt?: Date,
+    reason?: string
+  ): Promise<UserEntitlementOverrides> {
+    const existing = await this.getUserEntitlementOverrides(userAddress);
+    if (existing) {
+      const [updated] = await db.update(userEntitlementOverrides)
+        .set({ overrides, grantedBy, expiresAt, reason, updatedAt: new Date() })
+        .where(eq(userEntitlementOverrides.userAddress, userAddress))
+        .returning();
+      return updated;
+    } else {
+      const [created] = await db.insert(userEntitlementOverrides)
+        .values({ userAddress, overrides, grantedBy, expiresAt, reason })
+        .returning();
+      return created;
+    }
+  }
+
+  async deleteUserEntitlementOverrides(userAddress: string): Promise<boolean> {
+    const result = await db.delete(userEntitlementOverrides)
+      .where(eq(userEntitlementOverrides.userAddress, userAddress))
+      .returning();
+    return result.length > 0;
+  }
+
+  async getAllUserOverrides(): Promise<UserEntitlementOverrides[]> {
+    return db.select().from(userEntitlementOverrides).orderBy(desc(userEntitlementOverrides.updatedAt));
   }
 }
 
