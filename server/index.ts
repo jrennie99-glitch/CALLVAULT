@@ -62,6 +62,15 @@ app.use((req, res, next) => {
 (async () => {
   await registerRoutes(httpServer, app);
 
+  // Initialize default plan entitlements on startup
+  try {
+    const { initializeEntitlements } = await import('./entitlements');
+    await initializeEntitlements();
+    log('Plan entitlements initialized');
+  } catch (error) {
+    console.error('Failed to initialize plan entitlements:', error);
+  }
+
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";

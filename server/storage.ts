@@ -1964,23 +1964,56 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Update user mode with atomic plan validation (prevents race conditions)
+  // Uses single SQL query with JOIN to ensure plan hasn't changed during update
   async updateUserModeWithPlanValidation(userAddress: string, mode: UserMode, expectedPlan: string): Promise<UserModeSettings | null> {
     // Import plan validation logic
     const { getAvailableModesForPlan } = await import('./entitlements');
     
-    // Re-check plan immediately before update
-    const identity = await this.getIdentity(userAddress);
-    if (!identity || identity.plan !== expectedPlan) {
-      return null; // Plan changed, reject update
-    }
-    
-    const availableModes = getAvailableModesForPlan(identity.plan);
+    const availableModes = getAvailableModesForPlan(expectedPlan);
     if (!availableModes.includes(mode)) {
       return null; // Mode not allowed for plan
     }
     
-    // Perform the update
-    return this.createOrUpdateUserModeSettings(userAddress, mode);
+    // Atomic upsert: only succeeds if identity.plan matches expectedPlan
+    // First ensure mode settings row exists
+    const existing = await this.getUserModeSettings(userAddress);
+    
+    if (existing) {
+      // Update only if plan matches (atomic check)
+      const result = await db.execute(sql`
+        UPDATE ${userModeSettings} 
+        SET mode = ${mode}, "updatedAt" = NOW()
+        WHERE "userAddress" = ${userAddress}
+        AND EXISTS (
+          SELECT 1 FROM ${cryptoIdentities}
+          WHERE address = ${userAddress} AND plan = ${expectedPlan}
+        )
+        RETURNING *
+      `);
+      
+      if (result.rowCount === 0) {
+        return null; // Plan changed, reject
+      }
+      
+      return this.getUserModeSettings(userAddress) || null;
+    } else {
+      // Insert only if plan matches (atomic check)
+      const result = await db.execute(sql`
+        INSERT INTO ${userModeSettings} ("userAddress", mode, flags)
+        SELECT ${userAddress}, ${mode}, '{}'::jsonb
+        WHERE EXISTS (
+          SELECT 1 FROM ${cryptoIdentities}
+          WHERE address = ${userAddress} AND plan = ${expectedPlan}
+        )
+        RETURNING *
+      `);
+      
+      if (result.rowCount === 0) {
+        return null; // Plan changed or user doesn't exist
+      }
+      
+      return this.getUserModeSettings(userAddress) || null;
+    }
   }
 
   // Plan Entitlements
@@ -2136,6 +2169,48 @@ export class DatabaseStorage implements IStorage {
       .where(eq(userEntitlementOverrides.userAddress, userAddress))
       .returning();
     return result.length > 0;
+  }
+
+  // Set a single entitlement override (merges with existing overrides)
+  async setUserEntitlementOverride(
+    userAddress: string, 
+    featureKey: string, 
+    value: any, 
+    grantedBy?: string, 
+    expiresAt?: Date,
+    reason?: string
+  ): Promise<UserEntitlementOverrides> {
+    const existing = await this.getUserEntitlementOverrides(userAddress);
+    const currentOverrides = (existing?.overrides as Record<string, any>) || {};
+    
+    // Merge new override with existing
+    const newOverrides = {
+      ...currentOverrides,
+      [featureKey]: value,
+    };
+    
+    return this.setUserEntitlementOverrides(userAddress, newOverrides, grantedBy, expiresAt, reason);
+  }
+
+  // Delete a single entitlement override key
+  async deleteUserEntitlementOverride(userAddress: string, featureKey: string): Promise<boolean> {
+    const existing = await this.getUserEntitlementOverrides(userAddress);
+    if (!existing) return false;
+    
+    const currentOverrides = (existing.overrides as Record<string, any>) || {};
+    if (!(featureKey in currentOverrides)) return false;
+    
+    // Remove the key
+    delete currentOverrides[featureKey];
+    
+    // If no more overrides, delete the whole record
+    if (Object.keys(currentOverrides).length === 0) {
+      return this.deleteUserEntitlementOverrides(userAddress);
+    }
+    
+    // Otherwise update with remaining overrides
+    await this.setUserEntitlementOverrides(userAddress, currentOverrides, existing.grantedBy ?? undefined, existing.expiresAt ?? undefined, existing.reason ?? undefined);
+    return true;
   }
 
   async getAllUserOverrides(): Promise<UserEntitlementOverrides[]> {

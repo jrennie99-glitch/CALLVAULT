@@ -1942,11 +1942,11 @@ export async function registerRoutes(
   app.post('/api/admin/users/:address/entitlement-overrides', requireAdmin, async (req: any, res) => {
     try {
       const { address } = req.params;
-      const { featureKey, enabled, expiresAt, reason } = req.body;
+      const { featureKey, value, expiresAt, reason } = req.body;
       const actorAddress = req.adminIdentity.address;
       
-      if (!featureKey || typeof enabled !== 'boolean') {
-        return res.status(400).json({ error: 'featureKey and enabled are required' });
+      if (!featureKey || value === undefined) {
+        return res.status(400).json({ error: 'featureKey and value are required' });
       }
       
       // Validate featureKey against known registry
@@ -1958,6 +1958,24 @@ export async function registerRoutes(
         });
       }
       
+      // Validate value type based on featureKey
+      const numericKeys = ['maxCallIds', 'maxGroupParticipants', 'maxCallMinutesPerMonth', 'maxCallsPerDay', 'maxCallDurationMinutes'];
+      const booleanKeys = ['allowCallWaiting', 'allowCallMerge', 'allowPaidCalls', 'allowRoutingRules', 'allowDelegation', 'allowStageRooms', 'allowRecording', 'allowGroupCalls'];
+      
+      if (numericKeys.includes(featureKey)) {
+        if (value !== null && (typeof value !== 'number' || value < 0)) {
+          return res.status(400).json({ 
+            error: `${featureKey} must be a non-negative number or null`,
+          });
+        }
+      } else if (booleanKeys.includes(featureKey)) {
+        if (typeof value !== 'boolean') {
+          return res.status(400).json({ 
+            error: `${featureKey} must be a boolean`,
+          });
+        }
+      }
+      
       const identity = await storage.getIdentity(address);
       if (!identity) {
         return res.status(404).json({ error: 'User not found' });
@@ -1966,13 +1984,13 @@ export async function registerRoutes(
       const override = await storage.setUserEntitlementOverride(
         address,
         featureKey,
-        enabled,
+        value,
         actorAddress,
         expiresAt ? new Date(expiresAt) : undefined,
         reason
       );
       
-      console.log(`[ADMIN] ${actorAddress} set entitlement override for ${address}: ${featureKey}=${enabled}. Reason: ${reason || 'N/A'}`);
+      console.log(`[ADMIN] ${actorAddress} set entitlement override for ${address}: ${featureKey}=${JSON.stringify(value)}. Reason: ${reason || 'N/A'}`);
       
       res.json({
         success: true,
