@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import * as nacl from "tweetnacl";
 import bs58 from "bs58";
+import bcrypt from "bcrypt";
 import * as fs from "fs";
 import * as path from "path";
 import type { WSMessage, SignedCallIntent, CallIntent, SignedMessage, Message, Conversation, CallPolicy, ContactOverride, CallPass, BlockedUser, RoutingRule, WalletVerification, CallRequest } from "@shared/types";
@@ -12,6 +13,10 @@ import { storage } from "./storage";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
 import { FreeTierShield, FREE_TIER_LIMITS, type ShieldErrorCode } from "./freeTierShield";
 import { sendEmail, generateWelcomeEmail, generateTrialInviteEmail } from "./email";
+
+const BCRYPT_SALT_ROUNDS = 12;
+const MAX_FAILED_LOGIN_ATTEMPTS = 5;
+const LOCKOUT_DURATION_MINUTES = 15;
 
 interface ClientConnection {
   ws: WebSocket;
@@ -2037,6 +2042,254 @@ export async function registerRoutes(
     } catch (error) {
       console.error('Error searching audit logs:', error);
       res.status(500).json({ error: 'Failed to search audit logs' });
+    }
+  });
+
+  // Admin login routes (username/password authentication)
+  app.post('/api/admin/login', async (req, res) => {
+    try {
+      const { username, password } = req.body;
+      
+      if (!username || !password) {
+        return res.status(400).json({ error: 'Username and password required' });
+      }
+      
+      const credentials = await storage.getAdminCredentialsByUsername(username);
+      if (!credentials) {
+        return res.status(401).json({ error: 'Invalid username or password' });
+      }
+      
+      // Check if account is locked
+      if (credentials.lockedUntil && new Date(credentials.lockedUntil) > new Date()) {
+        const minutesRemaining = Math.ceil((new Date(credentials.lockedUntil).getTime() - Date.now()) / 60000);
+        return res.status(423).json({ 
+          error: 'Account locked',
+          message: `Too many failed attempts. Try again in ${minutesRemaining} minutes.`
+        });
+      }
+      
+      // Verify the user still has admin role
+      const identity = await storage.getIdentity(credentials.address);
+      if (!identity || !['ultra_god_admin', 'founder', 'super_admin', 'admin', 'support'].includes(identity.role)) {
+        return res.status(401).json({ error: 'Account no longer has admin privileges' });
+      }
+      
+      // Verify password
+      const passwordValid = await bcrypt.compare(password, credentials.passwordHash);
+      if (!passwordValid) {
+        // Increment failed attempts
+        await storage.incrementFailedLoginAttempts(credentials.address);
+        const updatedCreds = await storage.getAdminCredentialsByAddress(credentials.address);
+        
+        // Lock account if too many failed attempts
+        if (updatedCreds && updatedCreds.failedLoginAttempts >= MAX_FAILED_LOGIN_ATTEMPTS) {
+          const lockUntil = new Date(Date.now() + LOCKOUT_DURATION_MINUTES * 60 * 1000);
+          await storage.lockAdminAccount(credentials.address, lockUntil);
+          
+          await storage.createAuditLog({
+            actorAddress: credentials.address,
+            targetAddress: credentials.address,
+            actionType: 'ADMIN_ACCOUNT_LOCKED',
+            metadata: { reason: 'too_many_failed_attempts', lockedUntil: lockUntil.toISOString() }
+          });
+        }
+        
+        return res.status(401).json({ error: 'Invalid username or password' });
+      }
+      
+      // Reset failed attempts on successful login
+      await storage.resetFailedLoginAttempts(credentials.address);
+      
+      // Create admin session
+      const ipAddress = req.ip || req.headers['x-forwarded-for'] as string;
+      const userAgent = req.headers['user-agent'] || '';
+      const session = await storage.createAdminSession(credentials.address, ipAddress, userAgent);
+      
+      await storage.createAuditLog({
+        actorAddress: credentials.address,
+        targetAddress: credentials.address,
+        actionType: 'ADMIN_LOGIN',
+        metadata: { method: 'password', ipAddress, userAgent: userAgent.substring(0, 100) }
+      });
+      
+      res.json({
+        success: true,
+        sessionToken: session.sessionToken,
+        address: credentials.address,
+        role: identity.role
+      });
+    } catch (error) {
+      console.error('Error during admin login:', error);
+      res.status(500).json({ error: 'Login failed' });
+    }
+  });
+
+  app.post('/api/admin/logout', async (req, res) => {
+    try {
+      const sessionToken = req.headers['x-admin-session'] as string;
+      if (sessionToken) {
+        await storage.revokeAdminSession(sessionToken);
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error during admin logout:', error);
+      res.status(500).json({ error: 'Logout failed' });
+    }
+  });
+
+  app.get('/api/admin/session', async (req, res) => {
+    try {
+      const sessionToken = req.headers['x-admin-session'] as string;
+      if (!sessionToken) {
+        return res.status(401).json({ error: 'No session' });
+      }
+      
+      const session = await storage.getAdminSession(sessionToken);
+      if (!session || session.revokedAt) {
+        return res.status(401).json({ error: 'Invalid or expired session' });
+      }
+      
+      const identity = await storage.getIdentity(session.adminAddress);
+      if (!identity || !['ultra_god_admin', 'founder', 'super_admin', 'admin', 'support'].includes(identity.role)) {
+        return res.status(401).json({ error: 'Account no longer has admin privileges' });
+      }
+      
+      res.json({
+        valid: true,
+        address: session.adminAddress,
+        role: identity.role
+      });
+    } catch (error) {
+      console.error('Error verifying admin session:', error);
+      res.status(500).json({ error: 'Session verification failed' });
+    }
+  });
+
+  // Admin credential setup - create username/password for an existing admin
+  app.post('/api/admin/setup-credentials', async (req, res) => {
+    try {
+      const { address, publicKey, signature, timestamp, nonce, username, password } = req.body;
+      
+      if (!address || !publicKey || !signature || !timestamp || !nonce || !username || !password) {
+        return res.status(400).json({ error: 'Missing required fields' });
+      }
+      
+      // Verify signature
+      const payload = { action: 'setup_admin_credentials', address, timestamp, nonce, username };
+      const signatureValid = verifyGenericSignature(payload, signature, publicKey, nonce, timestamp);
+      if (!signatureValid) {
+        return res.status(401).json({ error: 'Invalid signature or expired timestamp' });
+      }
+      
+      // Verify the user has admin role
+      const identity = await storage.getIdentity(address);
+      if (!identity || !['ultra_god_admin', 'founder', 'super_admin', 'admin', 'support'].includes(identity.role)) {
+        return res.status(403).json({ error: 'Not an admin' });
+      }
+      
+      // Check if credentials already exist
+      const existingCreds = await storage.getAdminCredentialsByAddress(address);
+      if (existingCreds) {
+        return res.status(400).json({ error: 'Credentials already exist. Use change password instead.' });
+      }
+      
+      // Check if username is taken
+      const usernameExists = await storage.getAdminCredentialsByUsername(username);
+      if (usernameExists) {
+        return res.status(400).json({ error: 'Username already taken' });
+      }
+      
+      // Validate password strength
+      if (password.length < 8) {
+        return res.status(400).json({ error: 'Password must be at least 8 characters' });
+      }
+      
+      // Hash password and create credentials
+      const passwordHash = await bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
+      await storage.createAdminCredentials({
+        address,
+        username,
+        passwordHash
+      });
+      
+      await storage.createAuditLog({
+        actorAddress: address,
+        targetAddress: address,
+        actionType: 'ADMIN_CREDENTIALS_CREATED',
+        metadata: { username }
+      });
+      
+      res.json({ success: true, message: 'Admin credentials created' });
+    } catch (error) {
+      console.error('Error setting up admin credentials:', error);
+      res.status(500).json({ error: 'Failed to create credentials' });
+    }
+  });
+
+  // Check if admin has credentials set up
+  app.get('/api/admin/credentials/:address', requirePermission('users.read'), async (req, res) => {
+    try {
+      const { address } = req.params;
+      const credentials = await storage.getAdminCredentialsByAddress(address);
+      if (credentials) {
+        res.json({ hasCredentials: true, username: credentials.username });
+      } else {
+        res.status(404).json({ hasCredentials: false });
+      }
+    } catch (error) {
+      console.error('Error checking admin credentials:', error);
+      res.status(500).json({ error: 'Failed to check credentials' });
+    }
+  });
+
+  // Change admin password
+  app.post('/api/admin/change-password', async (req, res) => {
+    try {
+      const sessionToken = req.headers['x-admin-session'] as string;
+      if (!sessionToken) {
+        return res.status(401).json({ error: 'No session' });
+      }
+      
+      const session = await storage.getAdminSession(sessionToken);
+      if (!session || session.revokedAt) {
+        return res.status(401).json({ error: 'Invalid session' });
+      }
+      
+      const { currentPassword, newPassword } = req.body;
+      if (!currentPassword || !newPassword) {
+        return res.status(400).json({ error: 'Current and new password required' });
+      }
+      
+      if (newPassword.length < 8) {
+        return res.status(400).json({ error: 'New password must be at least 8 characters' });
+      }
+      
+      const credentials = await storage.getAdminCredentialsByAddress(session.adminAddress);
+      if (!credentials) {
+        return res.status(404).json({ error: 'Credentials not found' });
+      }
+      
+      // Verify current password
+      const currentValid = await bcrypt.compare(currentPassword, credentials.passwordHash);
+      if (!currentValid) {
+        return res.status(401).json({ error: 'Current password incorrect' });
+      }
+      
+      // Hash and update new password
+      const newPasswordHash = await bcrypt.hash(newPassword, BCRYPT_SALT_ROUNDS);
+      await storage.updateAdminCredentials(session.adminAddress, { passwordHash: newPasswordHash });
+      
+      await storage.createAuditLog({
+        actorAddress: session.adminAddress,
+        targetAddress: session.adminAddress,
+        actionType: 'ADMIN_PASSWORD_CHANGED',
+        metadata: {}
+      });
+      
+      res.json({ success: true, message: 'Password changed' });
+    } catch (error) {
+      console.error('Error changing password:', error);
+      res.status(500).json({ error: 'Failed to change password' });
     }
   });
 

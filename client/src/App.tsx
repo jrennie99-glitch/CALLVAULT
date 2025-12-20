@@ -13,6 +13,7 @@ import HowItWorksPage from "@/pages/how-it-works";
 import FAQPage from "@/pages/faq";
 import OnboardingPage from "@/pages/onboarding";
 import SuccessPage from "@/pages/success";
+import AdminLoginPage from "@/pages/admin-login";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -28,6 +29,7 @@ function Router() {
       <Route path="/u/:handle" component={ProfilePage} />
       <Route path="/pay/:tokenId" component={CallPage} />
       <Route path="/success" component={SuccessPage} />
+      <Route path="/admin/login" component={AdminLoginPage} />
       <Route component={NotFound} />
     </Switch>
   );

@@ -154,6 +154,15 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
   const [newInviteType, setNewInviteType] = useState<string>('trial');
   const [newInviteExpiry, setNewInviteExpiry] = useState('');
   const [isCreateInviteOpen, setIsCreateInviteOpen] = useState(false);
+  
+  const [hasAdminCredentials, setHasAdminCredentials] = useState<boolean | null>(null);
+  const [newUsername, setNewUsername] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [isSettingUpCredentials, setIsSettingUpCredentials] = useState(false);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  
   const queryClient = useQueryClient();
 
   const { data: stats, isLoading: statsLoading } = useQuery<AdminStats>({
@@ -553,7 +562,7 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="p-4">
-        <TabsList className="grid w-full grid-cols-9 bg-slate-800">
+        <TabsList className="grid w-full grid-cols-10 bg-slate-800">
           <TabsTrigger value="dashboard" data-testid="tab-admin-dashboard">
             <Activity className="w-4 h-4 mr-1" /> Stats
           </TabsTrigger>
@@ -580,6 +589,9 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
           </TabsTrigger>
           <TabsTrigger value="diagnostics" data-testid="tab-admin-diagnostics">
             <Stethoscope className="w-4 h-4 mr-1" /> Health
+          </TabsTrigger>
+          <TabsTrigger value="account" data-testid="tab-admin-account">
+            <Settings className="w-4 h-4 mr-1" /> Account
           </TabsTrigger>
         </TabsList>
 
@@ -1519,6 +1531,257 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
               Click refresh to run system diagnostics
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="account" className="mt-4 space-y-4">
+          <Card className="bg-slate-800 border-slate-700">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Settings className="w-5 h-5" />
+                Admin Login Credentials
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {hasAdminCredentials === null ? (
+                <div className="text-center py-4">
+                  <Button 
+                    onClick={async () => {
+                      try {
+                        const res = await fetch(`/api/admin/credentials/${identity.address}`, {
+                          headers: generateAdminHeaders(identity),
+                        });
+                        setHasAdminCredentials(res.ok);
+                      } catch {
+                        setHasAdminCredentials(false);
+                      }
+                    }}
+                    data-testid="button-check-credentials"
+                  >
+                    Check Credentials Status
+                  </Button>
+                </div>
+              ) : hasAdminCredentials ? (
+                <div className="space-y-4">
+                  <div className="p-4 bg-green-900/20 border border-green-800 rounded-lg">
+                    <p className="text-green-400 flex items-center gap-2">
+                      <CheckCircle className="w-4 h-4" />
+                      You have admin login credentials set up
+                    </p>
+                    <p className="text-sm text-slate-400 mt-1">
+                      You can log in to the Admin Console at /admin/login using your username and password.
+                    </p>
+                  </div>
+                  
+                  <div className="border-t border-slate-700 pt-4">
+                    <h3 className="font-medium mb-3">Change Password</h3>
+                    <div className="space-y-3">
+                      <Input
+                        type="password"
+                        placeholder="Current password"
+                        value={currentPassword}
+                        onChange={(e) => setCurrentPassword(e.target.value)}
+                        className="bg-slate-700 border-slate-600"
+                        data-testid="input-current-password"
+                      />
+                      <Input
+                        type="password"
+                        placeholder="New password (min 8 characters)"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        className="bg-slate-700 border-slate-600"
+                        data-testid="input-new-password"
+                      />
+                      <Input
+                        type="password"
+                        placeholder="Confirm new password"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        className="bg-slate-700 border-slate-600"
+                        data-testid="input-confirm-password"
+                      />
+                      <Button
+                        onClick={async () => {
+                          if (newPassword !== confirmPassword) {
+                            toast.error('Passwords do not match');
+                            return;
+                          }
+                          if (newPassword.length < 8) {
+                            toast.error('Password must be at least 8 characters');
+                            return;
+                          }
+                          setIsChangingPassword(true);
+                          try {
+                            const sessionToken = localStorage.getItem('adminSession');
+                            const res = await fetch('/api/admin/change-password', {
+                              method: 'POST',
+                              headers: {
+                                'Content-Type': 'application/json',
+                                'x-admin-session': sessionToken || '',
+                              },
+                              body: JSON.stringify({
+                                currentPassword,
+                                newPassword
+                              }),
+                            });
+                            const data = await res.json();
+                            if (res.ok) {
+                              toast.success('Password changed successfully');
+                              setCurrentPassword('');
+                              setNewPassword('');
+                              setConfirmPassword('');
+                            } else {
+                              toast.error(data.error || 'Failed to change password');
+                            }
+                          } catch {
+                            toast.error('Failed to change password');
+                          } finally {
+                            setIsChangingPassword(false);
+                          }
+                        }}
+                        disabled={isChangingPassword || !currentPassword || !newPassword || !confirmPassword}
+                        data-testid="button-change-password"
+                      >
+                        {isChangingPassword ? 'Changing...' : 'Change Password'}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="p-4 bg-yellow-900/20 border border-yellow-800 rounded-lg">
+                    <p className="text-yellow-400 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4" />
+                      No login credentials set up
+                    </p>
+                    <p className="text-sm text-slate-400 mt-1">
+                      Set up a username and password to access the Admin Console without your cryptographic keys.
+                    </p>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    <Input
+                      type="text"
+                      placeholder="Choose a username"
+                      value={newUsername}
+                      onChange={(e) => setNewUsername(e.target.value)}
+                      className="bg-slate-700 border-slate-600"
+                      autoComplete="off"
+                      data-testid="input-setup-username"
+                    />
+                    <Input
+                      type="password"
+                      placeholder="Choose a password (min 8 characters)"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      className="bg-slate-700 border-slate-600"
+                      data-testid="input-setup-password"
+                    />
+                    <Input
+                      type="password"
+                      placeholder="Confirm password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      className="bg-slate-700 border-slate-600"
+                      data-testid="input-setup-confirm-password"
+                    />
+                    <Button
+                      onClick={async () => {
+                        if (newPassword !== confirmPassword) {
+                          toast.error('Passwords do not match');
+                          return;
+                        }
+                        if (newPassword.length < 8) {
+                          toast.error('Password must be at least 8 characters');
+                          return;
+                        }
+                        if (!newUsername || newUsername.length < 3) {
+                          toast.error('Username must be at least 3 characters');
+                          return;
+                        }
+                        setIsSettingUpCredentials(true);
+                        try {
+                          const timestamp = Date.now();
+                          const nonce = bs58.encode(crypto.getRandomValues(new Uint8Array(16)));
+                          const payload = { 
+                            action: 'setup_admin_credentials', 
+                            address: identity.address, 
+                            timestamp, 
+                            nonce,
+                            username: newUsername 
+                          };
+                          const payloadBytes = new TextEncoder().encode(JSON.stringify(payload));
+                          const signature = nacl.sign.detached(payloadBytes, identity.secretKey);
+                          
+                          const res = await fetch('/api/admin/setup-credentials', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              address: identity.address,
+                              publicKey: identity.publicKeyBase58,
+                              signature: bs58.encode(signature),
+                              timestamp,
+                              nonce,
+                              username: newUsername,
+                              password: newPassword
+                            }),
+                          });
+                          const data = await res.json();
+                          if (res.ok) {
+                            toast.success('Admin credentials created successfully');
+                            setHasAdminCredentials(true);
+                            setNewUsername('');
+                            setNewPassword('');
+                            setConfirmPassword('');
+                          } else {
+                            toast.error(data.error || 'Failed to create credentials');
+                          }
+                        } catch {
+                          toast.error('Failed to create credentials');
+                        } finally {
+                          setIsSettingUpCredentials(false);
+                        }
+                      }}
+                      disabled={isSettingUpCredentials || !newUsername || !newPassword || !confirmPassword}
+                      className="w-full"
+                      data-testid="button-setup-credentials"
+                    >
+                      {isSettingUpCredentials ? 'Setting up...' : 'Create Admin Login'}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-800 border-slate-700">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Shield className="w-5 h-5" />
+                Admin Login Portal
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-slate-400 mb-4">
+                Access the Admin Console using username/password authentication at:
+              </p>
+              <div className="flex items-center gap-2">
+                <code className="bg-slate-900 px-3 py-2 rounded text-emerald-400 flex-1">
+                  {window.location.origin}/admin/login
+                </code>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    navigator.clipboard.writeText(`${window.location.origin}/admin/login`);
+                    toast.success('Link copied');
+                  }}
+                  data-testid="button-copy-admin-login-url"
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>
