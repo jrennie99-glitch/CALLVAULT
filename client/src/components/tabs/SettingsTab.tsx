@@ -732,10 +732,14 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
               </Button>
             </div>
             <div>
-              <Label className="text-slate-400 text-sm">Call ID</Label>
+              <Label className="text-slate-400 text-sm">Call ID (Your Unique Address)</Label>
               <div className="mt-1 p-3 bg-slate-900/50 rounded-lg font-mono text-xs text-emerald-400 break-all" data-testid="text-call-address">
                 {identity.address}
               </div>
+              <p className="text-slate-500 text-xs mt-2">
+                This is your unique cryptographic address. Share it with others so they can call you. 
+                For founders: copy this address and set it as the FOUNDER_ADDRESS in your app's Secrets to get admin access.
+              </p>
               <div className="flex gap-2 mt-2">
                 <Button
                   onClick={copyAddress}
