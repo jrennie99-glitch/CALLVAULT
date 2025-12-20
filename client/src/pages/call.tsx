@@ -152,11 +152,11 @@ export default function CallPage() {
 
     websocket.onerror = (error) => {
       console.error('WebSocket error:', error);
-      toast.error('Connection error');
     };
 
     websocket.onclose = () => {
       console.log('WebSocket closed');
+      toast.info('Reconnecting...', { duration: 2000 });
       setTimeout(() => {
         if (storedIdentity) {
           initWebSocket(storedIdentity);
