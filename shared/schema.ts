@@ -599,5 +599,29 @@ export const tokenMetrics = pgTable("token_metrics", {
 
 export type TokenMetric = typeof tokenMetrics.$inferSelect;
 
+// Persistent messages for offline delivery
+export const persistentMessages = pgTable("persistent_messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  fromAddress: text("from_address").notNull(),
+  toAddress: text("to_address").notNull(),
+  convoId: text("convo_id").notNull(),
+  content: text("content").notNull(),
+  mediaType: text("media_type"), // 'text' | 'image' | 'video' | 'audio' | 'voice_note'
+  mediaUrl: text("media_url"),
+  status: text("status").notNull().default("pending"), // 'pending' | 'delivered' | 'read'
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  deliveredAt: timestamp("delivered_at"),
+  readAt: timestamp("read_at"),
+});
+
+export const insertPersistentMessageSchema = createInsertSchema(persistentMessages).omit({
+  id: true,
+  createdAt: true,
+  deliveredAt: true,
+  readAt: true,
+});
+export type InsertPersistentMessage = z.infer<typeof insertPersistentMessageSchema>;
+export type PersistentMessage = typeof persistentMessages.$inferSelect;
+
 // Re-export chat models for Gemini integration
 export * from "./models/chat";

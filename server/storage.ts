@@ -24,6 +24,7 @@ import {
   voicemails, type Voicemail, type InsertVoicemail,
   callTokenNonces, type CallTokenNonce,
   tokenMetrics, type TokenMetric,
+  persistentMessages,
 } from "@shared/schema";
 import { randomUUID, createHash } from "crypto";
 import { db } from "./db";
@@ -231,6 +232,12 @@ export interface IStorage {
   createCallToken(userAddress: string, targetAddress?: string, plan?: string, allowTurn?: boolean, allowVideo?: boolean): Promise<{ token: string; nonce: string; issuedAt: Date; expiresAt: Date }>;
   verifyCallToken(token: string, markUsed?: boolean, usedByIp?: string): Promise<{ valid: boolean; reason?: string; data?: { userAddress: string; plan: string; allowTurn: boolean; allowVideo: boolean } }>;
   cleanupExpiredCallTokens(): Promise<number>;
+
+  // Persistent messages (offline delivery)
+  storeMessage(fromAddress: string, toAddress: string, convoId: string, content: string, mediaType?: string, mediaUrl?: string): Promise<{ id: string; createdAt: Date }>;
+  getPendingMessages(toAddress: string): Promise<{ id: string; fromAddress: string; toAddress: string; convoId: string; content: string; mediaType: string | null; mediaUrl: string | null; createdAt: Date }[]>;
+  markMessageDelivered(messageId: string): Promise<void>;
+  markMessageRead(messageId: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1733,6 +1740,56 @@ export class DatabaseStorage implements IStorage {
       .where(lte(callTokenNonces.expiresAt, oneDayAgo))
       .returning();
     return result.length;
+  }
+
+  async storeMessage(
+    fromAddress: string, 
+    toAddress: string, 
+    convoId: string, 
+    content: string, 
+    mediaType?: string, 
+    mediaUrl?: string
+  ): Promise<{ id: string; createdAt: Date }> {
+    const [msg] = await db.insert(persistentMessages).values({
+      fromAddress,
+      toAddress,
+      convoId,
+      content,
+      mediaType: mediaType || 'text',
+      mediaUrl: mediaUrl || null,
+      status: 'pending',
+    }).returning();
+    return { id: msg.id, createdAt: msg.createdAt };
+  }
+
+  async getPendingMessages(toAddress: string): Promise<{ id: string; fromAddress: string; toAddress: string; convoId: string; content: string; mediaType: string | null; mediaUrl: string | null; createdAt: Date }[]> {
+    return db.select({
+      id: persistentMessages.id,
+      fromAddress: persistentMessages.fromAddress,
+      toAddress: persistentMessages.toAddress,
+      convoId: persistentMessages.convoId,
+      content: persistentMessages.content,
+      mediaType: persistentMessages.mediaType,
+      mediaUrl: persistentMessages.mediaUrl,
+      createdAt: persistentMessages.createdAt,
+    }).from(persistentMessages).where(
+      and(
+        eq(persistentMessages.toAddress, toAddress),
+        eq(persistentMessages.status, 'pending')
+      )
+    ).orderBy(asc(persistentMessages.createdAt));
+  }
+
+  async markMessageDelivered(messageId: string): Promise<void> {
+    await db.update(persistentMessages)
+      .set({ status: 'delivered', deliveredAt: new Date() })
+      .where(eq(persistentMessages.id, messageId));
+  }
+
+  async markMessageRead(messageId: string): Promise<void> {
+    await db.update(persistentMessages)
+      .set({ status: 'read', readAt: new Date() })
+      .where(eq(persistentMessages.id, messageId));
   }
 }
 

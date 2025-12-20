@@ -182,6 +182,7 @@ export type WSMessage =
   | { type: 'msg:send'; data: SignedMessage }
   | { type: 'msg:incoming'; message: Message; from_pubkey: string }
   | { type: 'msg:delivered'; message_id: string; convo_id: string }
+  | { type: 'msg:queued'; message_id: string; convo_id: string }
   | { type: 'msg:read'; message_ids: string[]; convo_id: string; reader_address: string }
   | { type: 'msg:typing'; convo_id: string; from_address: string; is_typing: boolean }
   // Conversations

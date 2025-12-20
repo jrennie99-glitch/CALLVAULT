@@ -3554,6 +3554,47 @@ export async function registerRoutes(
             connections.set(address, { ws, address });
             ws.send(JSON.stringify({ type: 'success', message: 'Registered successfully' } as WSMessage));
             console.log(`Client registered: ${address}`);
+            
+            // Deliver any pending messages for this user
+            storage.getPendingMessages(address).then(async (pendingMsgs) => {
+              for (const pendingMsg of pendingMsgs) {
+                try {
+                  ws.send(JSON.stringify({
+                    type: 'msg:incoming',
+                    message: {
+                      id: pendingMsg.id,
+                      convo_id: pendingMsg.convoId,
+                      from_address: pendingMsg.fromAddress,
+                      to_address: pendingMsg.toAddress,
+                      content: pendingMsg.content,
+                      type: pendingMsg.mediaType || 'text',
+                      timestamp: pendingMsg.createdAt.getTime(),
+                      status: 'delivered'
+                    },
+                    from_pubkey: '' // Pubkey not stored for pending messages
+                  } as WSMessage));
+                  
+                  // Mark as delivered
+                  await storage.markMessageDelivered(pendingMsg.id);
+                  console.log(`Delivered pending message ${pendingMsg.id} to ${address}`);
+                  
+                  // Notify sender if online
+                  const senderConn = connections.get(pendingMsg.fromAddress);
+                  if (senderConn) {
+                    senderConn.ws.send(JSON.stringify({
+                      type: 'msg:delivered',
+                      message_id: pendingMsg.id,
+                      convo_id: pendingMsg.convoId
+                    } as WSMessage));
+                  }
+                } catch (e) {
+                  console.error('Error delivering pending message:', e);
+                }
+              }
+              if (pendingMsgs.length > 0) {
+                console.log(`Delivered ${pendingMsgs.length} pending messages to ${address}`);
+              }
+            }).catch(console.error);
             break;
           }
 
@@ -3921,6 +3962,23 @@ export async function registerRoutes(
                     message_id: msg.id,
                     convo_id: msg.convo_id
                   } as WSMessage));
+                } else {
+                  // Recipient offline - store message for later delivery
+                  storage.storeMessage(
+                    msg.from_address,
+                    recipientAddr,
+                    msg.convo_id,
+                    msg.content,
+                    msg.type,
+                    undefined // media URL for future media support
+                  ).then(() => {
+                    console.log(`Stored message for offline delivery to ${recipientAddr}`);
+                    ws.send(JSON.stringify({
+                      type: 'msg:queued',
+                      message_id: msg.id,
+                      convo_id: msg.convo_id
+                    } as WSMessage));
+                  }).catch(console.error);
                 }
               }
             } else {
@@ -3953,6 +4011,28 @@ export async function registerRoutes(
                   message_id: msg.id,
                   convo_id: msg.convo_id
                 } as WSMessage));
+              } else {
+                // Recipient offline - store message for later delivery
+                storage.storeMessage(
+                  msg.from_address,
+                  msg.to_address,
+                  dmConvo.id,
+                  msg.content,
+                  msg.type,
+                  undefined
+                ).then(() => {
+                  console.log(`Stored message for offline delivery to ${msg.to_address}`);
+                  // Still send convo:create to sender
+                  ws.send(JSON.stringify({
+                    type: 'convo:create',
+                    convo: dmConvo
+                  } as WSMessage));
+                  ws.send(JSON.stringify({
+                    type: 'msg:queued',
+                    message_id: msg.id,
+                    convo_id: msg.convo_id
+                  } as WSMessage));
+                }).catch(console.error);
               }
             }
             
