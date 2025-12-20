@@ -7,7 +7,7 @@ import bcrypt from "bcrypt";
 import * as fs from "fs";
 import * as path from "path";
 import { randomUUID } from "crypto";
-import type { WSMessage, SignedCallIntent, CallIntent, SignedMessage, Message, Conversation, CallPolicy, ContactOverride, CallPass, BlockedUser, RoutingRule, WalletVerification, CallRequest } from "@shared/types";
+import type { WSMessage, SignedCallIntent, CallIntent, SignedMessage, Message, Conversation, CallPolicy, ContactOverride, CallPass, BlockedUser, RoutingRule, WalletVerification, CallRequest, GroupCallRoom, GroupCallParticipant } from "@shared/types";
 import * as messageStore from "./messageStore";
 import * as policyStore from "./policyStore";
 import { storage } from "./storage";
@@ -22,6 +22,7 @@ const LOCKOUT_DURATION_MINUTES = 15;
 interface ClientConnection {
   ws: WebSocket;
   address: string;
+  pubkey?: string;
 }
 
 const connections = new Map<string, ClientConnection>();
@@ -3543,7 +3544,7 @@ export async function registerRoutes(
       clearInterval(pingInterval);
     });
 
-    ws.on('message', (data: Buffer) => {
+    ws.on('message', async (data: Buffer) => {
       try {
         const message: WSMessage = JSON.parse(data.toString());
 
@@ -3919,6 +3920,366 @@ export async function registerRoutes(
             const targetConnection = connections.get(message.to_address);
             if (targetConnection) {
               targetConnection.ws.send(JSON.stringify(message));
+            }
+            break;
+          }
+
+          // Call Waiting (phone-like)
+          case 'call:hold': {
+            const targetConnection = connections.get(message.to_address);
+            if (targetConnection && clientAddress) {
+              targetConnection.ws.send(JSON.stringify({
+                type: 'call:held',
+                by_address: clientAddress
+              } as WSMessage));
+            }
+            break;
+          }
+
+          case 'call:resume': {
+            const targetConnection = connections.get(message.to_address);
+            if (targetConnection && clientAddress) {
+              targetConnection.ws.send(JSON.stringify({
+                type: 'call:resumed',
+                by_address: clientAddress
+              } as WSMessage));
+            }
+            break;
+          }
+
+          case 'call:busy_waiting': {
+            const targetConnection = connections.get(message.to_address);
+            if (targetConnection && clientAddress) {
+              targetConnection.ws.send(JSON.stringify({
+                type: 'call:waiting',
+                from_address: clientAddress,
+                from_pubkey: connections.get(clientAddress)?.pubkey || '',
+                media: { audio: true, video: false }
+              } as WSMessage));
+            }
+            break;
+          }
+
+          // Group Calls (room-based mesh WebRTC)
+          case 'room:create': {
+            if (!clientAddress) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Not authenticated' } as WSMessage));
+              break;
+            }
+
+            // Check plan limits
+            const identity = await storage.getIdentity(clientAddress);
+            const plan = identity?.plan || 'free';
+            if (plan === 'free') {
+              ws.send(JSON.stringify({ type: 'room:error', message: 'Upgrade to Pro to use group calls' } as WSMessage));
+              break;
+            }
+
+            const maxParticipants = plan === 'business' ? 10 : 6;
+            const requestedMax = Math.min(maxParticipants, 10);
+
+            try {
+              const room = await storage.createCallRoom(
+                clientAddress,
+                message.is_video,
+                message.name,
+                requestedMax
+              );
+
+              // Add host as first participant
+              await storage.addRoomParticipant(room.id, clientAddress, undefined, true);
+
+              const roomData: GroupCallRoom = {
+                id: room.id,
+                room_code: room.roomCode,
+                host_address: clientAddress,
+                name: message.name,
+                is_video: message.is_video,
+                is_locked: false,
+                max_participants: requestedMax,
+                status: 'active',
+                created_at: Date.now()
+              };
+
+              ws.send(JSON.stringify({ type: 'room:created', room: roomData } as WSMessage));
+
+              // Send invites to participants
+              for (const addr of message.participant_addresses || []) {
+                const participantConn = connections.get(addr);
+                if (participantConn) {
+                  participantConn.ws.send(JSON.stringify({
+                    type: 'room:invite',
+                    room_id: room.id,
+                    to_address: addr,
+                    from_address: clientAddress,
+                    is_video: message.is_video
+                  } as WSMessage));
+                }
+              }
+            } catch (error) {
+              console.error('Error creating room:', error);
+              ws.send(JSON.stringify({ type: 'room:error', message: 'Failed to create room' } as WSMessage));
+            }
+            break;
+          }
+
+          case 'room:join': {
+            if (!clientAddress) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Not authenticated' } as WSMessage));
+              break;
+            }
+
+            try {
+              // Validate joiner's plan allows group calls
+              const joinerIdentity = await storage.getIdentity(clientAddress);
+              const joinerPlan = joinerIdentity?.plan || 'free';
+              if (joinerPlan === 'free') {
+                ws.send(JSON.stringify({ type: 'room:error', room_id: message.room_id, message: 'Upgrade to Pro to join group calls' } as WSMessage));
+                break;
+              }
+
+              const room = await storage.getCallRoom(message.room_id);
+              if (!room) {
+                ws.send(JSON.stringify({ type: 'room:error', room_id: message.room_id, message: 'Room not found' } as WSMessage));
+                break;
+              }
+
+              if (room.status !== 'active') {
+                ws.send(JSON.stringify({ type: 'room:error', room_id: message.room_id, message: 'Room has ended' } as WSMessage));
+                break;
+              }
+
+              if (room.isLocked) {
+                ws.send(JSON.stringify({ type: 'room:error', room_id: message.room_id, message: 'Room is locked', reason: 'locked' } as WSMessage));
+                break;
+              }
+
+              const participantCount = await storage.getRoomParticipantCount(message.room_id);
+              if (participantCount >= room.maxParticipants) {
+                ws.send(JSON.stringify({ type: 'room:error', room_id: message.room_id, message: 'Room is full', reason: 'full' } as WSMessage));
+                break;
+              }
+
+              // Check if already in room
+              const alreadyIn = await storage.isUserInRoom(message.room_id, clientAddress);
+              if (!alreadyIn) {
+                await storage.addRoomParticipant(message.room_id, clientAddress);
+              }
+
+              // Get all participants
+              const participants = await storage.getRoomParticipants(message.room_id);
+
+              const roomData: GroupCallRoom = {
+                id: room.id,
+                room_code: room.roomCode,
+                host_address: room.hostAddress,
+                name: room.name || undefined,
+                is_video: room.isVideo,
+                is_locked: room.isLocked,
+                max_participants: room.maxParticipants,
+                status: room.status as 'active' | 'ended',
+                created_at: room.createdAt.getTime()
+              };
+
+              const participantData: GroupCallParticipant[] = participants.map(p => ({
+                user_address: p.userAddress,
+                display_name: p.displayName || undefined,
+                is_host: p.isHost,
+                is_muted: p.isMuted,
+                is_video_off: p.isVideoOff,
+                joined_at: p.joinedAt.getTime()
+              }));
+
+              ws.send(JSON.stringify({
+                type: 'room:joined',
+                room: roomData,
+                participants: participantData
+              } as WSMessage));
+
+              // Notify other participants
+              const newParticipant: GroupCallParticipant = {
+                user_address: clientAddress,
+                is_host: false,
+                is_muted: false,
+                is_video_off: false,
+                joined_at: Date.now()
+              };
+
+              for (const p of participants) {
+                if (p.userAddress !== clientAddress) {
+                  const pConn = connections.get(p.userAddress);
+                  if (pConn) {
+                    pConn.ws.send(JSON.stringify({
+                      type: 'room:participant_joined',
+                      room_id: message.room_id,
+                      participant: newParticipant
+                    } as WSMessage));
+                  }
+                }
+              }
+            } catch (error) {
+              console.error('Error joining room:', error);
+              ws.send(JSON.stringify({ type: 'room:error', room_id: message.room_id, message: 'Failed to join room' } as WSMessage));
+            }
+            break;
+          }
+
+          case 'room:leave': {
+            if (!clientAddress) break;
+
+            try {
+              await storage.removeRoomParticipant(message.room_id, message.from_address || clientAddress);
+
+              // Notify other participants
+              const participants = await storage.getRoomParticipants(message.room_id);
+              for (const p of participants) {
+                const pConn = connections.get(p.userAddress);
+                if (pConn) {
+                  pConn.ws.send(JSON.stringify({
+                    type: 'room:participant_left',
+                    room_id: message.room_id,
+                    user_address: message.from_address || clientAddress
+                  } as WSMessage));
+                }
+              }
+
+              // End room if empty
+              if (participants.length === 0) {
+                await storage.updateCallRoom(message.room_id, { status: 'ended', endedAt: new Date() });
+              }
+            } catch (error) {
+              console.error('Error leaving room:', error);
+            }
+            break;
+          }
+
+          case 'room:lock': {
+            if (!clientAddress) break;
+
+            try {
+              const room = await storage.getCallRoom(message.room_id);
+              if (room && room.hostAddress === clientAddress) {
+                await storage.updateCallRoom(message.room_id, { isLocked: message.locked });
+
+                // Notify all participants
+                const participants = await storage.getRoomParticipants(message.room_id);
+                for (const p of participants) {
+                  const pConn = connections.get(p.userAddress);
+                  if (pConn) {
+                    pConn.ws.send(JSON.stringify({
+                      type: 'room:lock',
+                      room_id: message.room_id,
+                      locked: message.locked
+                    } as WSMessage));
+                  }
+                }
+              }
+            } catch (error) {
+              console.error('Error locking room:', error);
+            }
+            break;
+          }
+
+          case 'room:end': {
+            if (!clientAddress) break;
+
+            try {
+              const room = await storage.getCallRoom(message.room_id);
+              if (room && room.hostAddress === clientAddress) {
+                await storage.updateCallRoom(message.room_id, { status: 'ended', endedAt: new Date() });
+
+                // Notify all participants
+                const participants = await storage.getRoomParticipants(message.room_id);
+                for (const p of participants) {
+                  await storage.removeRoomParticipant(message.room_id, p.userAddress);
+                  const pConn = connections.get(p.userAddress);
+                  if (pConn) {
+                    pConn.ws.send(JSON.stringify({
+                      type: 'room:ended',
+                      room_id: message.room_id
+                    } as WSMessage));
+                  }
+                }
+              }
+            } catch (error) {
+              console.error('Error ending room:', error);
+            }
+            break;
+          }
+
+          // Mesh WebRTC signaling for group calls
+          case 'mesh:offer':
+          case 'mesh:answer':
+          case 'mesh:ice': {
+            const targetConnection = connections.get(message.to_peer);
+            if (targetConnection) {
+              targetConnection.ws.send(JSON.stringify(message));
+            }
+            break;
+          }
+
+          // Call Merge (merge 1:1 calls into group)
+          case 'call:merge': {
+            if (!clientAddress) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Not authenticated' } as WSMessage));
+              break;
+            }
+
+            // Check plan limits
+            const mergeIdentity = await storage.getIdentity(clientAddress);
+            const mergePlan = mergeIdentity?.plan || 'free';
+            if (mergePlan === 'free') {
+              ws.send(JSON.stringify({ type: 'room:error', message: 'Upgrade to Pro to use group calls' } as WSMessage));
+              break;
+            }
+
+            const mergeMaxParticipants = mergePlan === 'business' ? 10 : 6;
+
+            try {
+              // Create a new room for merged call
+              const room = await storage.createCallRoom(
+                clientAddress,
+                true, // video by default for merge
+                'Merged Call',
+                mergeMaxParticipants
+              );
+
+              // Add initiator as host
+              await storage.addRoomParticipant(room.id, clientAddress, undefined, true);
+
+              // Add all merged participants
+              for (const addr of message.call_addresses || []) {
+                if (addr !== clientAddress) {
+                  await storage.addRoomParticipant(room.id, addr);
+                }
+              }
+
+              const roomData: GroupCallRoom = {
+                id: room.id,
+                room_code: room.roomCode,
+                host_address: clientAddress,
+                name: 'Merged Call',
+                is_video: true,
+                is_locked: false,
+                max_participants: mergeMaxParticipants,
+                status: 'active',
+                created_at: Date.now()
+              };
+
+              // Notify all participants about the merge
+              ws.send(JSON.stringify({ type: 'call:merged', room: roomData } as WSMessage));
+
+              for (const addr of message.call_addresses || []) {
+                if (addr !== clientAddress) {
+                  const pConn = connections.get(addr);
+                  if (pConn) {
+                    pConn.ws.send(JSON.stringify({ type: 'call:merged', room: roomData } as WSMessage));
+                  }
+                }
+              }
+            } catch (error) {
+              console.error('Error merging calls:', error);
+              ws.send(JSON.stringify({ type: 'room:error', message: 'Failed to merge calls' } as WSMessage));
             }
             break;
           }
