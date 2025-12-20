@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
-import * as nacl from "tweetnacl";
+import nacl from "tweetnacl";
 import bs58 from "bs58";
 import bcrypt from "bcrypt";
 import * as fs from "fs";
