@@ -69,11 +69,35 @@ Preferred communication style: Simple, everyday language.
     - **API Endpoints**: `/api/freeze-mode/:address` (GET/PUT), `/api/freeze-mode/:address/setup-complete`, `/api/contacts/:owner/always-allowed`, `/api/contacts/:owner/:contact/always-allowed`.
     - **Key Files**: `client/src/components/FreezeModeSetupModal.tsx`, integration in SettingsTab and ContactsTab.
 
+- **PWA Support (Phase 12)**: Progressive Web App for mobile installation:
+    - **Manifest**: `manifest.json` with app name, icons, theme colors, and standalone display mode.
+    - **Service Worker**: `sw.js` caches static assets, offline fallback page, network-first for API/WebSocket.
+    - **Install Prompt**: `InstallPrompt.tsx` component shows install banner when app is installable.
+    - **Offline Page**: `/offline.html` displays friendly message when user is offline.
+    - **Meta Tags**: Apple touch icon, status bar style, viewport configured in `index.html`.
+- **Admin Diagnostics**: System health monitoring in Admin Console:
+    - **Diagnostics Tab**: Real-time system status checks accessible via "Health" tab in Admin Console.
+    - **Checks**: Database connectivity, Stripe configuration, free tier gating status, RBAC system, active calls, security events.
+    - **API Endpoint**: `/api/admin/diagnostics` (requires `system.settings` permission).
+- **Admin Bootstrap**: First-time admin creation:
+    - **Env Var Method**: Set `FOUNDER_ADDRESS` environment variable with user's call address.
+    - **API Method**: POST `/api/bootstrap-admin` with `CV_BOOTSTRAP_SECRET` for one-time admin creation.
+    - **Safety**: Bootstrap endpoint can only be used once and only when no admin exists.
+
 ### Security Measures
 - Ed25519 signature verification for call initiation and admin actions.
 - Timestamp freshness (60-second window) and nonce replay protection (5-minute expiry).
 - Rate limiting (10 calls/min per caller).
 - Optional biometric app lock (WebAuthn).
+
+## Environment Variables
+- `FOUNDER_ADDRESS`: Call address to automatically promote to founder role on registration.
+- `CV_BOOTSTRAP_SECRET`: Secret for one-time admin bootstrap via API.
+- `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`: Stripe API credentials.
+- `STRIPE_PRO_PRICE_ID`, `STRIPE_BUSINESS_PRICE_ID`: Stripe price IDs for subscription plans.
+- `ENABLE_CRYPTO_PAYMENTS`: Enable Base network crypto payments.
+- `ENABLE_SOLANA_PAYMENTS`: Enable Solana network crypto payments.
+- `SOLANA_CLUSTER`: Solana cluster (mainnet-beta or devnet).
 
 ## External Dependencies
 - **WebRTC**: Google STUN servers, optional TURN server.

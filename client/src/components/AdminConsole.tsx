@@ -11,7 +11,7 @@ import {
   Users, Shield, Clock, Activity, Search, 
   UserX, UserCheck, Crown, Eye, FileText,
   ArrowLeft, RefreshCw, Gift, Link, Copy, Plus, Trash2, Wallet,
-  Settings, UserCog, Ban, CheckCircle, AlertTriangle
+  Settings, UserCog, Ban, CheckCircle, AlertTriangle, Stethoscope
 } from 'lucide-react';
 import { toast } from 'sonner';
 import * as nacl from 'tweetnacl';
@@ -255,6 +255,29 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
       if (!res.ok) throw new Error('Failed to fetch permissions');
       return res.json();
     },
+  });
+
+  interface DiagnosticsData {
+    timestamp: string;
+    overallStatus: 'ok' | 'warning' | 'error';
+    checks: Record<string, {
+      status: 'ok' | 'warning' | 'error';
+      message?: string;
+      error?: string;
+      [key: string]: any;
+    }>;
+  }
+
+  const { data: diagnostics, isLoading: diagnosticsLoading, refetch: refetchDiagnostics } = useQuery<DiagnosticsData>({
+    queryKey: ['admin-diagnostics'],
+    queryFn: async () => {
+      const res = await fetch('/api/admin/diagnostics', {
+        headers: generateAdminHeaders(identity),
+      });
+      if (!res.ok) throw new Error('Failed to fetch diagnostics');
+      return res.json();
+    },
+    enabled: activeTab === 'diagnostics',
   });
 
   const { data: adminsList, isLoading: adminsLoading, refetch: refetchAdmins } = useQuery<AdminWithPermissions[]>({
@@ -524,7 +547,7 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="p-4">
-        <TabsList className="grid w-full grid-cols-8 bg-slate-800">
+        <TabsList className="grid w-full grid-cols-9 bg-slate-800">
           <TabsTrigger value="dashboard" data-testid="tab-admin-dashboard">
             <Activity className="w-4 h-4 mr-1" /> Stats
           </TabsTrigger>
@@ -548,6 +571,9 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
           </TabsTrigger>
           <TabsTrigger value="logs" data-testid="tab-admin-logs">
             <FileText className="w-4 h-4 mr-1" /> Logs
+          </TabsTrigger>
+          <TabsTrigger value="diagnostics" data-testid="tab-admin-diagnostics">
+            <Stethoscope className="w-4 h-4 mr-1" /> Health
           </TabsTrigger>
         </TabsList>
 
@@ -1353,6 +1379,102 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="diagnostics" className="mt-4 space-y-4">
+          <div className="flex justify-between items-center">
+            <h2 className="text-lg font-semibold">System Diagnostics</h2>
+            <Button variant="ghost" size="sm" onClick={() => refetchDiagnostics()} data-testid="button-refresh-diagnostics">
+              <RefreshCw className="w-4 h-4 mr-1" /> Refresh
+            </Button>
+          </div>
+
+          {diagnosticsLoading ? (
+            <div className="text-center py-8 text-slate-400">Running diagnostics...</div>
+          ) : diagnostics ? (
+            <>
+              <Card className={`border-2 ${
+                diagnostics.overallStatus === 'ok' ? 'bg-green-900/20 border-green-500' :
+                diagnostics.overallStatus === 'warning' ? 'bg-yellow-900/20 border-yellow-500' :
+                'bg-red-900/20 border-red-500'
+              }`}>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    {diagnostics.overallStatus === 'ok' && <CheckCircle className="w-5 h-5 text-green-400" />}
+                    {diagnostics.overallStatus === 'warning' && <AlertTriangle className="w-5 h-5 text-yellow-400" />}
+                    {diagnostics.overallStatus === 'error' && <Ban className="w-5 h-5 text-red-400" />}
+                    Overall Status: {diagnostics.overallStatus.toUpperCase()}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-xs text-slate-400">
+                    Last checked: {new Date(diagnostics.timestamp).toLocaleString()}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {Object.entries(diagnostics.checks).map(([key, check]) => (
+                  <Card key={key} className="bg-slate-800 border-slate-700">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm flex items-center gap-2">
+                        {check.status === 'ok' && <CheckCircle className="w-4 h-4 text-green-400" />}
+                        {check.status === 'warning' && <AlertTriangle className="w-4 h-4 text-yellow-400" />}
+                        {check.status === 'error' && <Ban className="w-4 h-4 text-red-400" />}
+                        {key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {check.message && (
+                        <div className="text-sm text-slate-300 mb-2">{check.message}</div>
+                      )}
+                      {check.error && (
+                        <div className="text-sm text-red-400 mb-2">{check.error}</div>
+                      )}
+                      {check.userCount !== undefined && (
+                        <div className="text-xs text-slate-400">Users: {check.userCount}</div>
+                      )}
+                      {check.count !== undefined && (
+                        <div className="text-xs text-slate-400">Count: {check.count}</div>
+                      )}
+                      {check.details && (
+                        <div className="mt-2 text-xs text-slate-400 space-y-1">
+                          {Object.entries(check.details).map(([k, v]) => (
+                            <div key={k}>
+                              {k}: {v ? '✓' : '✗'}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {check.limits && (
+                        <div className="mt-2 text-xs text-slate-400 space-y-1">
+                          {Object.entries(check.limits).map(([k, v]) => (
+                            <div key={k}>
+                              {k.replace(/([A-Z])/g, ' $1')}: {String(v)}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {check.events && check.events.length > 0 && (
+                        <div className="mt-2 max-h-32 overflow-y-auto">
+                          {check.events.map((event: any, idx: number) => (
+                            <div key={idx} className="text-xs text-slate-400 py-1 border-b border-slate-600 last:border-0">
+                              <Badge variant="outline" className="mr-1 text-xs">{event.action}</Badge>
+                              <span className="text-slate-500">{new Date(event.time).toLocaleTimeString()}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="text-center py-8 text-slate-400">
+              Click refresh to run system diagnostics
+            </div>
+          )}
         </TabsContent>
       </Tabs>
     </div>
