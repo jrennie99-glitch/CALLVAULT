@@ -2708,8 +2708,19 @@ export async function registerRoutes(
       
       // Verify actor is admin
       const actorIdentity = await storage.getIdentity(createdByAddress);
-      if (!actorIdentity || (actorIdentity.role !== 'admin' && actorIdentity.role !== 'founder')) {
+      if (!actorIdentity || (actorIdentity.role !== 'admin' && actorIdentity.role !== 'founder' && actorIdentity.role !== 'super_admin')) {
         return res.status(403).json({ error: 'Admin access required' });
+      }
+      
+      // Verify signature cryptographically
+      const message = `admin:create-invite:${createdByAddress}:${timestamp}`;
+      const messageBytes = new TextEncoder().encode(message);
+      const signatureBytes = bs58.decode(signature);
+      const pubKeyBytes = bs58.decode(createdByAddress.replace('call:', '').split(':')[0]);
+      
+      const isValid = nacl.sign.detached.verify(messageBytes, signatureBytes, pubKeyBytes);
+      if (!isValid) {
+        return res.status(401).json({ error: 'Invalid signature' });
       }
       
       // Generate unique code

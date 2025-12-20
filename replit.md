@@ -83,6 +83,17 @@ Preferred communication style: Simple, everyday language.
     - **Env Var Method**: Set `FOUNDER_ADDRESS` environment variable with user's call address.
     - **API Method**: POST `/api/bootstrap-admin` with `CV_BOOTSTRAP_SECRET` for one-time admin creation.
     - **Safety**: Bootstrap endpoint can only be used once and only when no admin exists.
+- **Payment Success Flow (Phase 13)**: Post-payment user onboarding:
+    - **Success Page**: `/success` page verifies Stripe session and shows platform-specific PWA install instructions.
+    - **Session Verification**: `/api/billing/verify-session` endpoint validates Stripe checkout sessions.
+    - **Welcome Emails**: Automatic "Access Ready" emails sent via Resend or SendGrid after payment verification.
+    - **Key Files**: `client/src/pages/success.tsx`, `server/email.ts`.
+- **Enhanced Invite System**: Admin-controlled trial and comp invites:
+    - **Invite Types**: `trial` (limited access with time/minutes) and `comp` (full plan access without billing).
+    - **Link Expiration**: Optional expiration date for invite links.
+    - **Usage Tracking**: Max uses, current uses, and per-user redemption tracking.
+    - **Signature Verification**: Invite creation requires cryptographic signature verification.
+    - **Admin UI**: Invites tab in Admin Console for creating/managing invites with type selector.
 
 ### Security Measures
 - Ed25519 signature verification for call initiation and admin actions.
@@ -98,6 +109,9 @@ Preferred communication style: Simple, everyday language.
 - `ENABLE_CRYPTO_PAYMENTS`: Enable Base network crypto payments.
 - `ENABLE_SOLANA_PAYMENTS`: Enable Solana network crypto payments.
 - `SOLANA_CLUSTER`: Solana cluster (mainnet-beta or devnet).
+- `RESEND_API_KEY` or `SENDGRID_API_KEY`: Email service API key for welcome emails.
+- `EMAIL_FROM`: Sender address for emails (default: noreply@callvault.app).
+- `APP_URL`: Base URL for the app (used in emails).
 
 ## External Dependencies
 - **WebRTC**: Google STUN servers, optional TURN server.

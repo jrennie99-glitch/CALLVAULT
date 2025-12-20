@@ -36,7 +36,7 @@ export default function SuccessPage() {
     if (sessionId) {
       verifySession(sessionId);
     } else {
-      setVerifyResult({ success: true, plan: 'Pro' });
+      setVerifyResult({ success: false, error: 'No session ID provided. Please complete payment first.' });
       setIsLoading(false);
     }
   }, []);
