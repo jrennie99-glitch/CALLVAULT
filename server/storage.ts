@@ -225,6 +225,7 @@ export interface IStorage {
   // Token metrics (observability)
   recordTokenMetric(eventType: string, userAddress?: string, userAgent?: string, ipAddress?: string, details?: string): Promise<void>;
   getTokenMetrics(since: Date, eventType?: string): Promise<{ eventType: string; count: number }[]>;
+  getTokenLogs(since: Date, limit?: number): Promise<{ id: string; eventType: string; userAddress: string | null; ipAddress: string | null; details: string | null; createdAt: Date }[]>;
 
   // Call token nonces (server-issued tokens with replay protection)
   createCallToken(userAddress: string, targetAddress?: string, plan?: string, allowTurn?: boolean, allowVideo?: boolean): Promise<{ token: string; nonce: string; issuedAt: Date; expiresAt: Date }>;
@@ -1630,6 +1631,23 @@ export class DatabaseStorage implements IStorage {
     return results;
   }
 
+  async getTokenLogs(since: Date, limit: number = 100): Promise<{ id: string; eventType: string; userAddress: string | null; ipAddress: string | null; details: string | null; createdAt: Date }[]> {
+    const results = await db.select({
+      id: tokenMetrics.id,
+      eventType: tokenMetrics.eventType,
+      userAddress: tokenMetrics.userAddress,
+      ipAddress: tokenMetrics.ipAddress,
+      details: tokenMetrics.details,
+      createdAt: tokenMetrics.createdAt
+    })
+      .from(tokenMetrics)
+      .where(gte(tokenMetrics.createdAt, since))
+      .orderBy(desc(tokenMetrics.createdAt))
+      .limit(limit);
+    
+    return results;
+  }
+
   // Call token nonces implementation
   async createCallToken(
     userAddress: string, 
@@ -1642,7 +1660,7 @@ export class DatabaseStorage implements IStorage {
     const nonce = randomUUID();
     const nonceHash = createHash('sha256').update(nonce).digest('hex');
     const now = new Date();
-    const expiresAt = new Date(now.getTime() + 5 * 60 * 1000); // 5 minutes TTL
+    const expiresAt = new Date(now.getTime() + 10 * 60 * 1000); // 10 minutes TTL
 
     await db.insert(callTokenNonces).values({
       token,

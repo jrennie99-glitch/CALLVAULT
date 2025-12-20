@@ -12,7 +12,14 @@ Preferred communication style: Simple, everyday language.
 - **Backend**: Node.js, Express, TypeScript, WebSocket server (`ws` library).
 - **Real-time Communication**: WebRTC with custom WebSocket signaling for offer/answer/ICE, Google STUN servers (optional TURN).
 - **Cryptographic Identity**: Ed25519 keypairs (tweetnacl) for identity and authentication, client-side storage, `call:<base58(pubkey)>:<base58(random8bytes)>` address format.
-- **Call Token System**: Server-issued tokens with server-time synchronization, bidirectional clock skew tolerance (5 min), database-backed replay protection, and silent retry on client-side.
+- **Call Token System**: Server-issued tokens with seamless auto-recovery:
+    - **Token TTL**: 10 minutes for replay protection window.
+    - **Clock Skew Tolerance**: ±2 minutes (MAX_CLOCK_SKEW) for signature timestamp validation.
+    - **Token Generation**: Fresh token minted ONLY when user taps Call/Video button (not on page load).
+    - **Silent Retry**: 3 automatic retries with exponential backoff (200ms, 600ms, 1200ms) before showing error.
+    - **Error UX**: "Connection handshake failed. Tap to retry." dialog after all retries exhausted (never "Secure session expired").
+    - **Fresh Nonces**: Every call attempt uses a fresh token and nonce - no token reuse.
+    - **Admin Logs**: `/api/admin/token-logs` endpoint for viewing detailed token failure logs.
 
 ### Key Features
 - **Call Features**: Video/voice calls, in-call controls, call timer, connection status, incoming call modal, ICE restart, network change detection.

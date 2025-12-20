@@ -83,7 +83,11 @@ export function CallView({
   // Server time synchronization for reliable timestamps
   const serverTimeOffsetRef = useRef<number>(0);
   const callRetryCountRef = useRef<number>(0);
-  const MAX_CALL_RETRIES = 1; // Silent retry once before showing error
+  const MAX_CALL_RETRIES = 3; // Silent retries with exponential backoff
+  const RETRY_DELAYS = [200, 600, 1200]; // Exponential backoff: 200ms, 600ms, 1200ms
+  
+  // Connection handshake failure state (shown after all retries exhausted)
+  const [showHandshakeError, setShowHandshakeError] = useState(false);
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -369,38 +373,44 @@ export function CallView({
   const initiateCall = async () => {
     if (!identity || !ws) return;
 
+    // Reset handshake error state on new attempt
+    setShowHandshakeError(false);
     setConnectionStatus('Preparing secure session...');
 
     // Fetch fresh token from server (token generated at call time, not page load)
+    // Every call attempt uses a fresh token/nonce
     const tokenData = await fetchCallToken();
     
     if (!tokenData) {
-      // Check if we should retry silently
+      // Check if we should retry silently with exponential backoff
       if (callRetryCountRef.current < MAX_CALL_RETRIES) {
+        const delay = RETRY_DELAYS[callRetryCountRef.current] || 1200;
         callRetryCountRef.current++;
-        console.log(`Call token fetch failed, retrying (attempt ${callRetryCountRef.current})...`);
-        // Wait a moment and retry
-        await new Promise(resolve => setTimeout(resolve, 500));
+        console.log(`[CallToken] Token fetch failed, retrying (attempt ${callRetryCountRef.current}/${MAX_CALL_RETRIES}) after ${delay}ms...`);
+        setConnectionStatus('Reconnecting...');
+        await new Promise(resolve => setTimeout(resolve, delay));
         return initiateCall();
       }
       
-      toast.error('Unable to start secure session. Please try again.');
-      handleEndCall();
+      // All retries exhausted - show handshake error with retry button
+      console.error('[CallToken] All retry attempts exhausted for token fetch');
+      setShowHandshakeError(true);
       return;
     }
 
     // Reset retry counter on success
     callRetryCountRef.current = 0;
 
-    // Use server-adjusted timestamp for the call intent
+    // Use server-adjusted timestamp for the call intent (using SERVER TIME)
     const serverAdjustedTime = getServerAdjustedTimestamp(serverTimeOffsetRef.current);
 
+    // Generate fresh nonce for this specific call attempt
     const intent = {
       from_pubkey: identity.publicKeyBase58,
       from_address: identity.address,
       to_address: destinationAddress,
       timestamp: serverAdjustedTime,
-      nonce: crypto.generateNonce(),
+      nonce: crypto.generateNonce(), // Fresh nonce every call attempt
       media: {
         audio: true,
         video: isVideoCall
@@ -419,24 +429,38 @@ export function CallView({
     setConnectionStatus('Ringing...');
   };
   
-  // Handle call errors with silent retry logic
+  // Handle call errors with silent retry logic (3 retries with exponential backoff)
   const handleCallError = async (errorMessage: string, reason?: string) => {
-    // Check if this is a retryable error (expired token)
-    if (reason === 'token_expired' && callRetryCountRef.current < MAX_CALL_RETRIES) {
+    // Check if this is a retryable error (expired token, signature, timestamp issues)
+    const isRetryableError = 
+      reason === 'token_expired' || 
+      errorMessage.includes('expired') || 
+      errorMessage.includes('signature') || 
+      errorMessage.includes('timestamp');
+    
+    if (isRetryableError && callRetryCountRef.current < MAX_CALL_RETRIES) {
+      const delay = RETRY_DELAYS[callRetryCountRef.current] || 1200;
       callRetryCountRef.current++;
-      console.log(`Token expired, silently retrying (attempt ${callRetryCountRef.current})...`);
+      console.log(`[CallToken] Retryable error "${reason || errorMessage}", silently retrying (attempt ${callRetryCountRef.current}/${MAX_CALL_RETRIES}) after ${delay}ms...`);
       setConnectionStatus('Reconnecting...');
       
-      // Fetch fresh token and retry
-      const newToken = await fetchCallToken();
-      if (newToken) {
-        return initiateCall();
-      }
+      // Wait with exponential backoff
+      await new Promise(resolve => setTimeout(resolve, delay));
+      
+      // Fetch fresh token and retry (never reuse tokens)
+      return initiateCall();
     }
     
-    // Show user-friendly error after retries exhausted
-    toast.error('Secure session expired - please try again');
-    handleEndCall();
+    // All retries exhausted - show handshake error with retry button (NOT a toast)
+    console.error(`[CallToken] All retry attempts exhausted. Last error: ${reason || errorMessage}`);
+    setShowHandshakeError(true);
+  };
+  
+  // Retry handler for handshake error (fresh token on each tap)
+  const handleRetryCall = () => {
+    callRetryCountRef.current = 0; // Reset counter for new user-initiated attempt
+    setShowHandshakeError(false);
+    initiateCall(); // Will fetch fresh token
   };
 
   // STUN-only ICE servers (used for initial connection attempt)
@@ -998,6 +1022,42 @@ export function CallView({
             >
               <Zap className="w-4 h-4 mr-2" />
               Upgrade Now
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Connection Handshake Error - shown only after all silent retries fail */}
+      <Dialog open={showHandshakeError} onOpenChange={setShowHandshakeError}>
+        <DialogContent className="bg-slate-800 border-slate-700 text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg">
+              <PhoneOff className="w-5 h-5 text-amber-400" />
+              Connection Issue
+            </DialogTitle>
+            <DialogDescription className="text-slate-400">
+              Connection handshake failed. Tap to retry.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex flex-col gap-2 sm:flex-row">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowHandshakeError(false);
+                handleEndCall();
+              }}
+              className="border-slate-600 text-slate-300 hover:bg-slate-700"
+              data-testid="button-cancel-call"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleRetryCall}
+              className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700"
+              data-testid="button-retry-call"
+            >
+              <PhoneCall className="w-4 h-4 mr-2" />
+              Retry
             </Button>
           </DialogFooter>
         </DialogContent>

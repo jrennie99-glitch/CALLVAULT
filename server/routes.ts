@@ -29,10 +29,10 @@ const recentNonces = new Map<string, number>();
 // Trial nonces are now persisted in database (trialNoncesTable) for replay protection across restarts
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 
-const NONCE_EXPIRY = 5 * 60 * 1000;
-const TIMESTAMP_FRESHNESS = 5 * 60 * 1000; // 5 minutes - allows for clock drift between devices
+const NONCE_EXPIRY = 15 * 60 * 1000; // 15 minutes - nonce expiry (longer than token TTL for cleanup)
+const TIMESTAMP_FRESHNESS = 10 * 60 * 1000; // 10 minutes - token lifetime for signature freshness
 const MAX_CLOCK_SKEW = 2 * 60 * 1000; // 2 minutes - bidirectional tolerance for device clock drift
-const CALL_TOKEN_TTL = 5 * 60 * 1000; // 5 minutes - server-issued token lifetime
+const CALL_TOKEN_TTL = 10 * 60 * 1000; // 10 minutes - server-issued token lifetime
 const RATE_LIMIT_WINDOW = 60 * 1000;
 const RATE_LIMIT_MAX_CALLS = 10;
 
@@ -81,46 +81,51 @@ function checkRateLimit(fromAddress: string): boolean {
   return true;
 }
 
-function verifySignature(signedIntent: SignedCallIntent): boolean {
+interface VerifyResult {
+  valid: boolean;
+  reason?: string;
+}
+
+function verifySignatureWithDetails(signedIntent: SignedCallIntent): VerifyResult {
   try {
     if (!signedIntent || typeof signedIntent !== 'object') {
-      console.error('Invalid signedIntent: not an object');
-      return false;
+      return { valid: false, reason: 'invalid_structure' };
     }
     
     const { intent, signature } = signedIntent;
     
     if (!intent || typeof intent !== 'object') {
-      console.error('Invalid intent: missing or not an object');
-      return false;
+      return { valid: false, reason: 'missing_intent' };
     }
     
     if (!signature || typeof signature !== 'string') {
-      console.error('Invalid signature: missing or not a string');
-      return false;
+      return { valid: false, reason: 'missing_signature' };
     }
     
-    if (!intent.from_pubkey || !intent.timestamp || !intent.nonce) {
-      console.error('Missing required intent fields:', { 
-        from_pubkey: !!intent.from_pubkey, 
-        timestamp: !!intent.timestamp, 
-        nonce: !!intent.nonce 
-      });
-      return false;
+    if (!intent.from_pubkey) {
+      return { valid: false, reason: 'missing_pubkey' };
+    }
+    
+    if (!intent.timestamp) {
+      return { valid: false, reason: 'missing_timestamp' };
+    }
+    
+    if (!intent.nonce) {
+      return { valid: false, reason: 'missing_nonce' };
     }
     
     const now = Date.now();
     
-    // Bidirectional clock skew tolerance: allow client to be ahead or behind by MAX_CLOCK_SKEW
+    // Clock skew check: intent timestamp must be within ±MAX_CLOCK_SKEW (2 minutes) of server time
+    // This prevents timing attacks while allowing for reasonable clock drift
     const timeDiff = Math.abs(now - intent.timestamp);
-    if (timeDiff > TIMESTAMP_FRESHNESS) {
-      console.log('Timestamp validation failed: timeDiff =', timeDiff, 'ms, max allowed =', TIMESTAMP_FRESHNESS);
-      return false;
+    if (timeDiff > MAX_CLOCK_SKEW) {
+      console.log(`[verify] Clock skew exceeded: timeDiff=${timeDiff}ms, max=${MAX_CLOCK_SKEW}ms, serverNow=${now}, intentTs=${intent.timestamp}`);
+      return { valid: false, reason: 'clock_skew_exceeded' };
     }
     
     if (recentNonces.has(intent.nonce)) {
-      console.log('Nonce already used:', intent.nonce);
-      return false;
+      return { valid: false, reason: 'nonce_replay' };
     }
     
     const sortedIntent = JSON.stringify(intent, Object.keys(intent).sort());
@@ -132,13 +137,19 @@ function verifySignature(signedIntent: SignedCallIntent): boolean {
     
     if (valid) {
       recentNonces.set(intent.nonce, intent.timestamp);
+      return { valid: true };
     }
     
-    return valid;
+    return { valid: false, reason: 'signature_mismatch' };
   } catch (error) {
-    console.error('Signature verification error:', error);
-    return false;
+    console.error('[verify] Exception during signature verification:', error);
+    return { valid: false, reason: 'verification_exception' };
   }
+}
+
+// Legacy wrapper for backward compatibility
+function verifySignature(signedIntent: SignedCallIntent): boolean {
+  return verifySignatureWithDetails(signedIntent).valid;
 }
 
 function verifyMessageSignature(signedMessage: SignedMessage): boolean {
@@ -146,10 +157,10 @@ function verifyMessageSignature(signedMessage: SignedMessage): boolean {
     const { message, signature, from_pubkey } = signedMessage;
     const now = Date.now();
     
-    // Bidirectional clock skew tolerance
+    // Clock skew check: message timestamp must be within ±MAX_CLOCK_SKEW (2 minutes) of server time
     const timeDiff = Math.abs(now - message.timestamp);
-    if (timeDiff > TIMESTAMP_FRESHNESS) {
-      console.log('Message timestamp validation failed: timeDiff =', timeDiff, 'ms');
+    if (timeDiff > MAX_CLOCK_SKEW) {
+      console.log('[verifyMessage] Clock skew exceeded: timeDiff =', timeDiff, 'ms, max =', MAX_CLOCK_SKEW);
       return false;
     }
     
@@ -180,10 +191,10 @@ function verifyGenericSignature(payload: any, signature: string, from_pubkey: st
   try {
     const now = Date.now();
     
-    // Bidirectional clock skew tolerance
+    // Clock skew check: timestamp must be within ±MAX_CLOCK_SKEW (2 minutes) of server time
     const timeDiff = Math.abs(now - timestamp);
-    if (timeDiff > TIMESTAMP_FRESHNESS) {
-      console.log('Generic signature timestamp validation failed: timeDiff =', timeDiff, 'ms');
+    if (timeDiff > MAX_CLOCK_SKEW) {
+      console.log('[verifyGeneric] Clock skew exceeded: timeDiff =', timeDiff, 'ms, max =', MAX_CLOCK_SKEW);
       return false;
     }
     
@@ -387,9 +398,9 @@ export async function registerRoutes(
           : 'verify_invalid';
         await recordTokenMetric(eventType, result.data?.userAddress, userAgent, clientIp, result.reason);
 
-        // Return user-friendly error
+        // Return technical error (user never sees this - client handles retry)
         const errorMessage = result.reason === 'token_expired' 
-          ? 'Secure session expired - please try again'
+          ? 'Session token expired'
           : result.reason === 'token_replay'
           ? 'This session has already been used'
           : 'Invalid session token';
@@ -2742,6 +2753,43 @@ export async function registerRoutes(
     }
   });
 
+  // Admin token logs endpoint - detailed failure logs for debugging
+  app.get('/api/admin/token-logs', requirePermission('audit.read'), async (req, res) => {
+    try {
+      const hoursBack = parseInt(req.query.hours as string) || 24;
+      const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
+      const since = new Date(Date.now() - hoursBack * 60 * 60 * 1000);
+      
+      const logs = await storage.getTokenLogs(since, limit);
+      
+      // Group by eventType for summary
+      const summary: Record<string, number> = {};
+      logs.forEach(log => {
+        summary[log.eventType] = (summary[log.eventType] || 0) + 1;
+      });
+      
+      res.json({
+        timeRange: {
+          from: since.toISOString(),
+          to: new Date().toISOString(),
+          hoursBack
+        },
+        summary,
+        logs: logs.map(log => ({
+          id: log.id,
+          eventType: log.eventType,
+          userAddress: log.userAddress ? `${log.userAddress.slice(0, 20)}...` : null,
+          ipAddress: log.ipAddress,
+          details: log.details,
+          createdAt: log.createdAt
+        }))
+      });
+    } catch (error) {
+      console.error('Error fetching token logs:', error);
+      res.status(500).json({ error: 'Failed to fetch token logs' });
+    }
+  });
+
   // Get user's free tier remaining limits
   app.get('/api/free-tier/limits/:address', async (req, res) => {
     try {
@@ -3489,13 +3537,26 @@ export async function registerRoutes(
           case 'call:init': {
             const { data: signedIntent, pass_id } = message;
             
+            // Validate signedIntent structure before accessing properties
+            if (!signedIntent || !signedIntent.intent) {
+              console.error('[call:init] Invalid signedIntent structure:', JSON.stringify(signedIntent).slice(0, 200));
+              ws.send(JSON.stringify({ type: 'error', message: 'Invalid call data', reason: 'invalid_structure' } as WSMessage));
+              return;
+            }
+            
             if (!checkRateLimit(signedIntent.intent.from_address)) {
               ws.send(JSON.stringify({ type: 'error', message: 'Rate limit exceeded' } as WSMessage));
               return;
             }
             
-            if (!verifySignature(signedIntent)) {
-              ws.send(JSON.stringify({ type: 'error', message: 'Invalid signature or expired timestamp' } as WSMessage));
+            const verifyResult = verifySignatureWithDetails(signedIntent);
+            if (!verifyResult.valid) {
+              console.log(`[call:init] Signature verification failed: ${verifyResult.reason} for ${signedIntent.intent.from_address?.slice(0, 20)}...`);
+              ws.send(JSON.stringify({ 
+                type: 'error', 
+                message: 'Invalid signature or expired timestamp',
+                reason: verifyResult.reason || 'verification_failed'
+              } as WSMessage));
               return;
             }
             
@@ -3926,8 +3987,8 @@ export async function registerRoutes(
             const { data, signature, from_pubkey, from_address, nonce, timestamp } = message;
             
             const now = Date.now();
-            const timeDiff = now - timestamp;
-            if (timeDiff < 0 || timeDiff > TIMESTAMP_FRESHNESS) {
+            const timeDiff = Math.abs(now - timestamp);
+            if (timeDiff > MAX_CLOCK_SKEW) {
               ws.send(JSON.stringify({ type: 'error', message: 'Invalid timestamp' } as WSMessage));
               return;
             }
