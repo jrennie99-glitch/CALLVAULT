@@ -1,6 +1,26 @@
 import { storage } from "./storage";
 import type { EffectiveEntitlements, UserMode, FeatureFlags } from "@shared/types";
 
+export const VALID_ENTITLEMENT_KEYS = new Set([
+  'maxCallIds',
+  'maxGroupParticipants',
+  'maxCallMinutesPerMonth',
+  'maxCallsPerDay',
+  'maxCallDurationMinutes',
+  'allowCallWaiting',
+  'allowCallMerge',
+  'allowPaidCalls',
+  'allowRoutingRules',
+  'allowDelegation',
+  'allowStageRooms',
+  'allowRecording',
+  'allowGroupCalls',
+]);
+
+export function isValidEntitlementKey(key: string): boolean {
+  return VALID_ENTITLEMENT_KEYS.has(key);
+}
+
 const DEFAULT_FEATURE_FLAGS: FeatureFlags = {
   FEATURE_MODE_SWITCHER: true,
   FEATURE_MULTIPLE_CALL_IDS: false,

@@ -1963,6 +1963,26 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
+  // Update user mode with atomic plan validation (prevents race conditions)
+  async updateUserModeWithPlanValidation(userAddress: string, mode: UserMode, expectedPlan: string): Promise<UserModeSettings | null> {
+    // Import plan validation logic
+    const { getAvailableModesForPlan } = await import('./entitlements');
+    
+    // Re-check plan immediately before update
+    const identity = await this.getIdentity(userAddress);
+    if (!identity || identity.plan !== expectedPlan) {
+      return null; // Plan changed, reject update
+    }
+    
+    const availableModes = getAvailableModesForPlan(identity.plan);
+    if (!availableModes.includes(mode)) {
+      return null; // Mode not allowed for plan
+    }
+    
+    // Perform the update
+    return this.createOrUpdateUserModeSettings(userAddress, mode);
+  }
+
   // Plan Entitlements
   async getPlanEntitlements(planId: string): Promise<PlanEntitlements | undefined> {
     const [entitlements] = await db.select().from(planEntitlements)

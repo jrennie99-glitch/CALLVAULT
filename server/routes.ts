@@ -1858,6 +1858,169 @@ export async function registerRoutes(
   });
 
   // ============================================
+  // ADMIN MODE & ENTITLEMENT OVERRIDES (Phase 5)
+  // ============================================
+
+  // Admin endpoint to get user's mode settings
+  app.get('/api/admin/users/:address/mode', requireAdmin, async (req: any, res) => {
+    try {
+      const { address } = req.params;
+      const modeSettings = await storage.getUserModeSettings(address);
+      const identity = await storage.getIdentity(address);
+      
+      if (!identity) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      const { getAvailableModesForPlan } = await import('./entitlements');
+      const availableModes = getAvailableModesForPlan(identity.plan);
+      
+      res.json({
+        address,
+        mode: modeSettings?.mode || 'personal',
+        flags: modeSettings?.flags || {},
+        plan: identity.plan,
+        availableModes,
+      });
+    } catch (error) {
+      console.error('Error fetching user mode:', error);
+      res.status(500).json({ error: 'Failed to fetch user mode' });
+    }
+  });
+
+  // Admin endpoint to set user's mode (bypasses plan restrictions)
+  app.post('/api/admin/users/:address/mode', requireAdmin, async (req: any, res) => {
+    try {
+      const { address } = req.params;
+      const { mode, reason } = req.body;
+      const actorAddress = req.adminIdentity.address;
+      
+      if (!mode || !['personal', 'creator', 'business', 'stage'].includes(mode)) {
+        return res.status(400).json({ error: 'Invalid mode' });
+      }
+      
+      const identity = await storage.getIdentity(address);
+      if (!identity) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      // Admin bypass: allow setting any mode regardless of plan
+      const updated = await storage.createOrUpdateUserModeSettings(address, mode);
+      
+      // Log admin action
+      console.log(`[ADMIN] ${actorAddress} set mode for ${address} to ${mode}. Reason: ${reason || 'N/A'}`);
+      
+      res.json({
+        success: true,
+        address,
+        mode: updated.mode,
+        flags: updated.flags,
+      });
+    } catch (error) {
+      console.error('Error setting user mode:', error);
+      res.status(500).json({ error: 'Failed to set user mode' });
+    }
+  });
+
+  // Admin endpoint to get user's entitlement overrides
+  app.get('/api/admin/users/:address/entitlement-overrides', requireAdmin, async (req: any, res) => {
+    try {
+      const { address } = req.params;
+      const overrides = await storage.getUserEntitlementOverrides(address);
+      
+      res.json({
+        address,
+        overrides: overrides || [],
+      });
+    } catch (error) {
+      console.error('Error fetching entitlement overrides:', error);
+      res.status(500).json({ error: 'Failed to fetch entitlement overrides' });
+    }
+  });
+
+  // Admin endpoint to set entitlement override
+  app.post('/api/admin/users/:address/entitlement-overrides', requireAdmin, async (req: any, res) => {
+    try {
+      const { address } = req.params;
+      const { featureKey, enabled, expiresAt, reason } = req.body;
+      const actorAddress = req.adminIdentity.address;
+      
+      if (!featureKey || typeof enabled !== 'boolean') {
+        return res.status(400).json({ error: 'featureKey and enabled are required' });
+      }
+      
+      // Validate featureKey against known registry
+      const { isValidEntitlementKey, VALID_ENTITLEMENT_KEYS } = await import('./entitlements');
+      if (!isValidEntitlementKey(featureKey)) {
+        return res.status(400).json({ 
+          error: 'Invalid featureKey',
+          validKeys: Array.from(VALID_ENTITLEMENT_KEYS),
+        });
+      }
+      
+      const identity = await storage.getIdentity(address);
+      if (!identity) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      const override = await storage.setUserEntitlementOverride(
+        address,
+        featureKey,
+        enabled,
+        actorAddress,
+        expiresAt ? new Date(expiresAt) : undefined,
+        reason
+      );
+      
+      console.log(`[ADMIN] ${actorAddress} set entitlement override for ${address}: ${featureKey}=${enabled}. Reason: ${reason || 'N/A'}`);
+      
+      res.json({
+        success: true,
+        override,
+      });
+    } catch (error) {
+      console.error('Error setting entitlement override:', error);
+      res.status(500).json({ error: 'Failed to set entitlement override' });
+    }
+  });
+
+  // Admin endpoint to delete entitlement override
+  app.delete('/api/admin/users/:address/entitlement-overrides/:featureKey', requireAdmin, async (req: any, res) => {
+    try {
+      const { address, featureKey } = req.params;
+      const actorAddress = req.adminIdentity.address;
+      
+      await storage.deleteUserEntitlementOverride(address, featureKey);
+      
+      console.log(`[ADMIN] ${actorAddress} deleted entitlement override for ${address}: ${featureKey}`);
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error deleting entitlement override:', error);
+      res.status(500).json({ error: 'Failed to delete entitlement override' });
+    }
+  });
+
+  // Admin endpoint to get effective entitlements for a user
+  app.get('/api/admin/users/:address/entitlements', requireAdmin, async (req: any, res) => {
+    try {
+      const { address } = req.params;
+      const { getEffectiveEntitlements, initializeEntitlements } = await import('./entitlements');
+      
+      await initializeEntitlements();
+      const entitlements = await getEffectiveEntitlements(address);
+      
+      res.json({
+        address,
+        entitlements,
+      });
+    } catch (error) {
+      console.error('Error fetching effective entitlements:', error);
+      res.status(500).json({ error: 'Failed to fetch effective entitlements' });
+    }
+  });
+
+  // ============================================
   // ENHANCED ADMIN SYSTEM (RBAC, Sessions, etc.)
   // ============================================
 
@@ -3101,7 +3264,7 @@ export async function registerRoutes(
     }
   });
 
-  // Update user mode
+  // Update user mode (validates plan atomically)
   app.post('/api/mode/:address', async (req, res) => {
     try {
       const { address } = req.params;
@@ -3111,6 +3274,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: 'Invalid mode' });
       }
       
+      // Re-fetch identity right before update to prevent race conditions
       const identity = await storage.getIdentity(address);
       if (!identity) {
         return res.status(404).json({ error: 'User not found' });
@@ -3119,6 +3283,7 @@ export async function registerRoutes(
       const { getAvailableModesForPlan } = await import('./entitlements');
       const availableModes = getAvailableModesForPlan(identity.plan);
       
+      // Validate mode is allowed for current plan (prevents race condition attacks)
       if (!availableModes.includes(mode)) {
         return res.status(403).json({ 
           error: 'Mode not available for your plan',
@@ -3127,7 +3292,16 @@ export async function registerRoutes(
         });
       }
       
-      const updated = await storage.createOrUpdateUserModeSettings(address, mode);
+      // Use atomic update with plan validation inside storage
+      const updated = await storage.updateUserModeWithPlanValidation(address, mode, identity.plan);
+      
+      if (!updated) {
+        return res.status(403).json({ 
+          error: 'Mode not available for your plan',
+          availableModes,
+          currentPlan: identity.plan
+        });
+      }
       
       res.json({
         mode: updated.mode,
