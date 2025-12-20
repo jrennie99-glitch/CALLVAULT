@@ -384,3 +384,75 @@ export interface CallScreeningRequest {
   timestamp: number;
   status: 'pending' | 'accepted' | 'declined';
 }
+
+// Phase 5: User Modes + Feature Flags + Plan Gating
+export type UserMode = 'personal' | 'creator' | 'business' | 'stage';
+
+export const USER_MODES: { value: UserMode; label: string; description: string }[] = [
+  { value: 'personal', label: 'Personal', description: 'Simple calling and messaging for everyday use' },
+  { value: 'creator', label: 'Creator', description: 'Accept paid calls and manage your audience' },
+  { value: 'business', label: 'Business', description: 'Multiple lines, routing rules, and delegation' },
+  { value: 'stage', label: 'Stage', description: 'Broadcast rooms and large audience calls' },
+];
+
+export type FeatureFlag =
+  | 'FEATURE_MODE_SWITCHER'
+  | 'FEATURE_MULTIPLE_CALL_IDS'
+  | 'FEATURE_GROUP_CALLS'
+  | 'FEATURE_CALL_WAITING'
+  | 'FEATURE_CALL_MERGE'
+  | 'FEATURE_ROUTING_RULES'
+  | 'FEATURE_DELEGATION'
+  | 'FEATURE_STAGE_ROOMS'
+  | 'FEATURE_PAID_CALLS'
+  | 'FEATURE_RECORDING';
+
+export interface FeatureFlags {
+  FEATURE_MODE_SWITCHER: boolean;
+  FEATURE_MULTIPLE_CALL_IDS: boolean;
+  FEATURE_GROUP_CALLS: boolean;
+  FEATURE_CALL_WAITING: boolean;
+  FEATURE_CALL_MERGE: boolean;
+  FEATURE_ROUTING_RULES: boolean;
+  FEATURE_DELEGATION: boolean;
+  FEATURE_STAGE_ROOMS: boolean;
+  FEATURE_PAID_CALLS: boolean;
+  FEATURE_RECORDING: boolean;
+}
+
+export interface EffectiveEntitlements {
+  // User info
+  userAddress: string;
+  plan: string;
+  mode: UserMode;
+  
+  // Limits
+  maxCallIds: number;
+  maxGroupParticipants: number;
+  maxCallMinutesPerMonth: number | null;
+  maxCallsPerDay: number | null;
+  maxCallDurationMinutes: number | null;
+  
+  // Feature access
+  allowCallWaiting: boolean;
+  allowCallMerge: boolean;
+  allowPaidCalls: boolean;
+  allowRoutingRules: boolean;
+  allowDelegation: boolean;
+  allowStageRooms: boolean;
+  allowRecording: boolean;
+  allowGroupCalls: boolean;
+  
+  // Computed feature flags for UI visibility
+  flags: FeatureFlags;
+  
+  // Admin override info
+  hasOverrides: boolean;
+  overrideExpiresAt?: number;
+}
+
+export interface UserModeInfo {
+  mode: UserMode;
+  availableModes: UserMode[];
+  flags: Partial<FeatureFlags>;
+}

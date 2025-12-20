@@ -666,5 +666,68 @@ export const insertCallRoomParticipantSchema = createInsertSchema(callRoomPartic
 export type InsertCallRoomParticipant = z.infer<typeof insertCallRoomParticipantSchema>;
 export type CallRoomParticipant = typeof callRoomParticipants.$inferSelect;
 
+// User Mode Settings - for PERSONAL/CREATOR/BUSINESS/STAGE modes
+export const userModeSettings = pgTable("user_mode_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userAddress: text("user_address").notNull().unique(),
+  mode: text("mode").notNull().default("personal"), // 'personal' | 'creator' | 'business' | 'stage'
+  flags: jsonb("flags").default({}), // Feature flags overrides
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertUserModeSettingsSchema = createInsertSchema(userModeSettings).omit({
+  id: true,
+  updatedAt: true,
+});
+export type InsertUserModeSettings = z.infer<typeof insertUserModeSettingsSchema>;
+export type UserModeSettings = typeof userModeSettings.$inferSelect;
+
+// Plan Entitlements - defines what each plan tier can do
+export const planEntitlements = pgTable("plan_entitlements", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  planId: text("plan_id").notNull().unique(), // 'free' | 'pro' | 'business' | 'enterprise'
+  maxCallIds: integer("max_call_ids").notNull().default(1),
+  maxGroupParticipants: integer("max_group_participants").notNull().default(0),
+  allowCallWaiting: boolean("allow_call_waiting").default(false),
+  allowCallMerge: boolean("allow_call_merge").default(false),
+  allowPaidCalls: boolean("allow_paid_calls").default(false),
+  allowRoutingRules: boolean("allow_routing_rules").default(false),
+  allowDelegation: boolean("allow_delegation").default(false),
+  allowStageRooms: boolean("allow_stage_rooms").default(false),
+  allowRecording: boolean("allow_recording").default(false),
+  allowGroupCalls: boolean("allow_group_calls").default(false),
+  maxCallMinutesPerMonth: integer("max_call_minutes_per_month"),
+  maxCallsPerDay: integer("max_calls_per_day"),
+  maxCallDurationMinutes: integer("max_call_duration_minutes"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertPlanEntitlementsSchema = createInsertSchema(planEntitlements).omit({
+  id: true,
+  updatedAt: true,
+});
+export type InsertPlanEntitlements = z.infer<typeof insertPlanEntitlementsSchema>;
+export type PlanEntitlements = typeof planEntitlements.$inferSelect;
+
+// User Entitlement Overrides - Admin can override specific entitlements per user
+export const userEntitlementOverrides = pgTable("user_entitlement_overrides", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userAddress: text("user_address").notNull().unique(),
+  overrides: jsonb("overrides").default({}), // Partial entitlement overrides
+  grantedBy: text("granted_by"), // Admin address who granted
+  expiresAt: timestamp("expires_at"), // Optional expiration
+  reason: text("reason"), // Why the override was granted
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertUserEntitlementOverridesSchema = createInsertSchema(userEntitlementOverrides).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertUserEntitlementOverrides = z.infer<typeof insertUserEntitlementOverridesSchema>;
+export type UserEntitlementOverrides = typeof userEntitlementOverrides.$inferSelect;
+
 // Re-export chat models for Gemini integration
 export * from "./models/chat";

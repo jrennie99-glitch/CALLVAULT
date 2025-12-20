@@ -1,0 +1,121 @@
+REPLIT AGENT — ADD “MODES + FEATURE FLAGS + PLAN GATING” TO CALL VAULT (CV)
+IMPORTANT: The app is already built. DO NOT remove, rename, or change any existing features, pages, APIs, DB tables, auth, crypto identity, calling, messaging, admin console, or payments. ONLY ADD new code in a backwards-compatible way.
+
+GOAL
+Add a clean “Mode System” so Call Vault stays simple like WhatsApp, while still supporting advanced features behind modes/tier gates.
+Modes must ONLY control visibility and limits — not break existing behavior.
+
+MODES (USER-FACING)
+1) PERSONAL (default)
+2) CREATOR (Paid Line)
+3) BUSINESS (Phone System)
+4) STAGE (Broadcast / Large Rooms)
+
+KEY RULES
+- Existing features must continue working exactly as they do now.
+- If a user never touches Modes, the app must behave exactly as it does today.
+- Modes should be implemented as an additive layer using feature flags + UI visibility + server enforcement.
+- Admin can override mode/flags per user.
+
+WHAT TO BUILD
+
+A) DATA MODEL (ADD ONLY)
+Add a new table/collection: user_mode_settings
+- user_id (unique)
+- mode ENUM: PERSONAL | CREATOR | BUSINESS | STAGE
+- flags JSON (feature flags)
+- updated_at
+
+Add a new table/collection: plan_entitlements (or add to existing plan config)
+- plan_id (FREE/PRO/BUSINESS/STAGE)
+- max_call_ids
+- max_group_participants
+- allow_call_waiting
+- allow_call_merge
+- allow_paid_calls
+- allow_routing_rules
+- allow_delegation
+- allow_stage_rooms
+- allow_recording
+- updated_at
+
+B) SERVER-SIDE ENTITLEMENT CHECKS (MANDATORY)
+Create a single helper module (e.g., entitlements.ts / entitlements.py) that:
+1) Resolves user plan (existing Stripe subscription logic)
+2) Resolves user mode (default PERSONAL)
+3) Returns effective entitlements = plan limits + mode restrictions + admin overrides
+
+IMPORTANT:
+- Do not change existing endpoints logic; wrap them.
+- Add checks in a backwards-compatible way:
+  - If an endpoint already works today, it must still work today for the same users.
+  - Only restrict NEW features by entitlement flags.
+
+C) FEATURE FLAGS (ADDITIVE)
+Create a feature flag registry:
+- FEATURE_MODE_SWITCHER
+- FEATURE_MULTIPLE_CALL_IDS
+- FEATURE_GROUP_CALLS
+- FEATURE_CALL_WAITING
+- FEATURE_CALL_MERGE
+- FEATURE_ROUTING_RULES
+- FEATURE_DELEGATION
+- FEATURE_STAGE_ROOMS
+
+Default behavior:
+- All existing current features remain enabled as they are.
+- New features default OFF unless enabled by plan/mode/admin.
+
+D) UI (MOBILE-FIRST, NO BREAKING CHANGES)
+1) Add a “Mode” selector screen in Settings:
+   - Shows current mode
+   - Explains modes in 1 sentence each
+   - Only show modes that user is eligible for based on plan
+2) Add a subtle badge on profile/settings: “Mode: Personal/Creator/Business/Stage”
+3) Do NOT remove any existing nav items. Only hide/show NEW items based on flags:
+   - Creator tools menu
+   - Business tools menu
+   - Stage/Rooms menu
+4) Add “Upgrade” CTA when user taps a locked mode/feature.
+
+E) ADMIN CONSOLE (SUPER ADMIN)
+Add admin capabilities:
+- Set user mode
+- Toggle feature flags per user
+- Grant temporary access (timer)
+- View entitlements computed for a user (debug view)
+
+F) MODES DEFINITION (VISIBILITY + DEFAULTS)
+PERSONAL:
+- show: 1:1 calling, messaging, freeze, blocklist, biometrics
+- allow: group calls only if plan allows (Pro/Business), but keep default simple UI
+CREATOR:
+- show: paid calls, queue, pricing per Call ID (existing paid calls feature)
+- hide: business delegation, routing rules unless plan allows
+BUSINESS:
+- show: multiple Call IDs (if implemented), routing rules, delegation, analytics
+STAGE:
+- show: rooms, speaker controls, moderation (if implemented later)
+NOTE: Stage features can remain placeholders if not built yet, but mode system must support it.
+
+G) SAFE MIGRATION
+- For all existing users, create user_mode_settings with mode=PERSONAL automatically (on login if missing).
+- No data loss, no forced changes.
+
+H) TESTS / ACCEPTANCE
+- User with no mode settings: app behaves exactly as before.
+- Switching mode changes visibility only; existing calls/messages still function.
+- Admin can override and user sees immediate change.
+- No existing pages/routes removed.
+- No “secure session expired” errors should be introduced.
+
+DELIVERABLES
+- Implement mode settings model + API endpoints:
+  - GET /api/me/mode
+  - POST /api/me/mode
+  - GET /api/me/entitlements
+- Implement entitlements helper and integrate into NEW feature endpoints
+- Implement settings UI for mode switch
+- Implement admin UI controls
+
+DO NOT IMPLEMENT NEW CALLING FEATURES HERE (3-way/call waiting/etc.) — ONLY implement the Mode + entitlement foundation so we can safely roll out features next without UX bloat.
