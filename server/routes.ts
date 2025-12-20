@@ -29,7 +29,7 @@ const recentNonces = new Map<string, number>();
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 
 const NONCE_EXPIRY = 5 * 60 * 1000;
-const TIMESTAMP_FRESHNESS = 60 * 1000;
+const TIMESTAMP_FRESHNESS = 5 * 60 * 1000; // 5 minutes - allows for clock drift between devices
 const RATE_LIMIT_WINDOW = 60 * 1000;
 const RATE_LIMIT_MAX_CALLS = 10;
 
