@@ -3039,7 +3039,7 @@ export async function registerRoutes(
     }
   });
 
-  // Get user entitlements (public)
+  // Get user entitlements (public) - Legacy endpoint
   app.get('/api/entitlements/:address', async (req, res) => {
     try {
       const { address } = req.params;
@@ -3069,6 +3069,90 @@ export async function registerRoutes(
       });
     } catch (error) {
       console.error('Error fetching entitlements:', error);
+      res.status(500).json({ error: 'Failed to fetch entitlements' });
+    }
+  });
+
+  // USER MODE ENDPOINTS (Phase 5)
+  
+  // Get user mode and available modes
+  app.get('/api/mode/:address', async (req, res) => {
+    try {
+      const { address } = req.params;
+      const identity = await storage.getIdentity(address);
+      
+      if (!identity) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      const modeSettings = await storage.ensureUserModeSettings(address);
+      const { getAvailableModesForPlan } = await import('./entitlements');
+      const availableModes = getAvailableModesForPlan(identity.plan);
+      
+      res.json({
+        mode: modeSettings.mode,
+        flags: modeSettings.flags,
+        availableModes,
+        plan: identity.plan,
+      });
+    } catch (error) {
+      console.error('Error fetching user mode:', error);
+      res.status(500).json({ error: 'Failed to fetch user mode' });
+    }
+  });
+
+  // Update user mode
+  app.post('/api/mode/:address', async (req, res) => {
+    try {
+      const { address } = req.params;
+      const { mode } = req.body;
+      
+      if (!mode || !['personal', 'creator', 'business', 'stage'].includes(mode)) {
+        return res.status(400).json({ error: 'Invalid mode' });
+      }
+      
+      const identity = await storage.getIdentity(address);
+      if (!identity) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      const { getAvailableModesForPlan } = await import('./entitlements');
+      const availableModes = getAvailableModesForPlan(identity.plan);
+      
+      if (!availableModes.includes(mode)) {
+        return res.status(403).json({ 
+          error: 'Mode not available for your plan',
+          availableModes,
+          currentPlan: identity.plan
+        });
+      }
+      
+      const updated = await storage.createOrUpdateUserModeSettings(address, mode);
+      
+      res.json({
+        mode: updated.mode,
+        flags: updated.flags,
+        availableModes,
+      });
+    } catch (error) {
+      console.error('Error updating user mode:', error);
+      res.status(500).json({ error: 'Failed to update user mode' });
+    }
+  });
+
+  // Get effective entitlements (full Phase 5 entitlements)
+  app.get('/api/me/entitlements/:address', async (req, res) => {
+    try {
+      const { address } = req.params;
+      const { getEffectiveEntitlements, initializeEntitlements } = await import('./entitlements');
+      
+      // Initialize defaults if not present
+      await initializeEntitlements();
+      
+      const entitlements = await getEffectiveEntitlements(address);
+      res.json(entitlements);
+    } catch (error) {
+      console.error('Error fetching effective entitlements:', error);
       res.status(500).json({ error: 'Failed to fetch entitlements' });
     }
   });

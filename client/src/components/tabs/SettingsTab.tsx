@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { User, Shield, Wifi, ChevronDown, ChevronUp, Copy, RefreshCw, Fingerprint, Eye, EyeOff, MessageSquare, CheckCheck, Clock, Phone, Ban, Bot, Wallet, ChevronRight, Ticket, Briefcase, BarChart3, Crown, Lock, Sparkles, CreditCard, ExternalLink, Snowflake } from 'lucide-react';
 import { FreezeModeSetupModal } from '@/components/FreezeModeSetupModal';
+import { ModeSettings } from '@/components/ModeSettings';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -297,6 +298,10 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
           </div>
         </CardContent>
       </Card>
+
+      {identity && (
+        <ModeSettings myAddress={identity.address} />
+      )}
 
       <Card className="bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-purple-500/20">
         <CardHeader>
