@@ -34,7 +34,7 @@ const TIMESTAMP_FRESHNESS = 10 * 60 * 1000; // 10 minutes - token lifetime for s
 const MAX_CLOCK_SKEW = 2 * 60 * 1000; // 2 minutes - bidirectional tolerance for device clock drift
 const CALL_TOKEN_TTL = 10 * 60 * 1000; // 10 minutes - server-issued token lifetime
 const RATE_LIMIT_WINDOW = 60 * 1000;
-const RATE_LIMIT_MAX_CALLS = 10;
+const RATE_LIMIT_MAX_CALLS = 60; // Allow more attempts to accommodate retries
 
 function cleanupExpiredNonces() {
   const now = Date.now();
