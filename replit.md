@@ -15,6 +15,14 @@ Preferred communication style: Simple, everyday language.
 
 ### Key Features
 - **Call Features**: Video/voice calls, in-call controls (mute, camera, speakerphone), call timer, connection status, incoming call modal, ICE restart, network change detection.
+- **STUN-First, TURN Fallback (Phase 15)**: Smart connection routing to optimize costs and reliability:
+    - **STUN-Only Start**: All calls start with STUN servers only (no TURN cost).
+    - **8-Second Timeout**: If STUN fails to connect within 8 seconds, triggers fallback logic.
+    - **Paid User Fallback**: Pro/Business/Trial users automatically retry with TURN servers enabled.
+    - **Free User Modal**: Shows upgrade prompt with "Try Again" and "Switch to Audio" options.
+    - **Connection Route Indicator**: Live "Direct" or "Relay" badge on call screen.
+    - **Server-Side Gating**: `/api/call-session-token` mints short-lived tokens with `allowTurn` based on plan.
+    - **ENV Vars**: `TURN_URL`, `TURN_URLS`, `TURN_USERNAME`/`TURN_USER`, `TURN_CREDENTIAL`/`TURN_PASS`.
 - **User Experience**: Mobile-first design, bottom tab navigation, contacts-first onboarding, auto-generated avatars, PWA support.
 - **Monetization (Creator/Business Mode)**:
     - **Creator Profiles**: Customizable public profiles, availability settings, time-zone aware scheduling.
@@ -121,6 +129,10 @@ Preferred communication style: Simple, everyday language.
 - `RESEND_API_KEY` or `SENDGRID_API_KEY`: Email service API key for welcome emails.
 - `EMAIL_FROM`: Sender address for emails (default: noreply@callvault.app).
 - `APP_URL`: Base URL for the app (used in emails).
+- `TURN_URL`: TURN server URL (e.g., `turn:your-turn-server.com:3478`).
+- `TURN_URLS`: Comma-separated list of TURN URLs for multiple servers.
+- `TURN_USER` or `TURN_USERNAME`: TURN server username.
+- `TURN_PASS` or `TURN_CREDENTIAL`: TURN server password/credential.
 
 ## External Dependencies
 - **WebRTC**: Google STUN servers, optional TURN server.

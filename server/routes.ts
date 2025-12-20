@@ -6,6 +6,7 @@ import bs58 from "bs58";
 import bcrypt from "bcrypt";
 import * as fs from "fs";
 import * as path from "path";
+import { randomUUID } from "crypto";
 import type { WSMessage, SignedCallIntent, CallIntent, SignedMessage, Message, Conversation, CallPolicy, ContactOverride, CallPass, BlockedUser, RoutingRule, WalletVerification, CallRequest } from "@shared/types";
 import * as messageStore from "./messageStore";
 import * as policyStore from "./policyStore";
@@ -193,6 +194,7 @@ export async function registerRoutes(
 ): Promise<Server> {
   ensureUploadsDir();
   
+  // Legacy turn-config endpoint (kept for backwards compatibility)
   app.get('/api/turn-config', (_req, res) => {
     const turnUrl = process.env.TURN_URL;
     const turnUser = process.env.TURN_USER;
@@ -207,6 +209,132 @@ export async function registerRoutes(
     } else {
       res.json({});
     }
+  });
+
+  // Call session token endpoint - mints a short-lived token with plan-based permissions
+  const callSessionTokens = new Map<string, { 
+    userAddress: string;
+    plan: string;
+    allowTurn: boolean;
+    allowVideo: boolean;
+    expiresAt: number;
+  }>();
+
+  // Cleanup expired tokens every minute
+  setInterval(() => {
+    const now = Date.now();
+    callSessionTokens.forEach((data, token) => {
+      if (now > data.expiresAt) {
+        callSessionTokens.delete(token);
+      }
+    });
+  }, 60000);
+
+  app.post('/api/call-session-token', async (req, res) => {
+    try {
+      const { address } = req.body;
+      if (!address) {
+        return res.status(400).json({ error: 'Address required' });
+      }
+
+      // Get user's plan and entitlements
+      const user = await storage.getIdentity(address);
+      let plan = 'free';
+      let allowTurn = false;
+      let allowVideo = true; // Default to allow video, but TURN requires paid plan
+
+      if (user) {
+        // Check subscription status
+        if (user.stripeSubscriptionStatus === 'active' || user.stripeSubscriptionStatus === 'trialing') {
+          plan = user.plan || 'pro';
+          allowTurn = true;
+        }
+        // Check trial access
+        else if (user.trialStatus === 'active' && user.trialEndAt && new Date(user.trialEndAt) > new Date()) {
+          plan = user.trialPlan || 'pro';
+          allowTurn = true;
+        }
+        // Check if comped
+        else if (user.isComped) {
+          plan = user.plan || 'pro';
+          allowTurn = true;
+        }
+        // Check admin/founder status
+        else if (user.role === 'admin' || user.role === 'super_admin' || user.role === 'ultra_god_admin' || user.role === 'founder') {
+          plan = 'business';
+          allowTurn = true;
+        }
+      }
+
+      // Check if TURN is configured on server
+      const turnConfigured = !!(process.env.TURN_URL && process.env.TURN_USER && process.env.TURN_PASS);
+      
+      // Generate token
+      const token = randomUUID();
+      const expiresAt = Date.now() + 2 * 60 * 1000; // 2 minutes
+
+      callSessionTokens.set(token, {
+        userAddress: address,
+        plan,
+        allowTurn: allowTurn && turnConfigured,
+        allowVideo,
+        expiresAt
+      });
+
+      // Build ICE servers config
+      const iceServers: any[] = [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+      ];
+
+      // Add TURN servers for paid users if configured
+      if (allowTurn && turnConfigured) {
+        const turnUrls = process.env.TURN_URLS 
+          ? process.env.TURN_URLS.split(',').map(u => u.trim())
+          : [process.env.TURN_URL!];
+        
+        iceServers.push({
+          urls: turnUrls,
+          username: process.env.TURN_USERNAME || process.env.TURN_USER,
+          credential: process.env.TURN_CREDENTIAL || process.env.TURN_PASS
+        });
+      }
+
+      res.json({
+        token,
+        expiresAt,
+        plan,
+        allowTurn: allowTurn && turnConfigured,
+        allowVideo,
+        turnConfigured,
+        iceServers
+      });
+    } catch (error) {
+      console.error('Call session token error:', error);
+      res.status(500).json({ error: 'Failed to generate call session token' });
+    }
+  });
+
+  // Validate call session token
+  app.get('/api/call-session-token/:token', (req, res) => {
+    const { token } = req.params;
+    const session = callSessionTokens.get(token);
+    
+    if (!session) {
+      return res.status(404).json({ error: 'Token not found or expired' });
+    }
+    
+    if (Date.now() > session.expiresAt) {
+      callSessionTokens.delete(token);
+      return res.status(401).json({ error: 'Token expired' });
+    }
+    
+    res.json({
+      valid: true,
+      plan: session.plan,
+      allowTurn: session.allowTurn,
+      allowVideo: session.allowVideo
+    });
   });
 
   app.post('/api/upload', (req, res) => {

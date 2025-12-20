@@ -1,0 +1,69 @@
+REPLIT AGENT — ADD “STUN FIRST, TURN FALLBACK (PAID ONLY)” + SMART FAILOVER (DO NOT BREAK EXISTING)
+
+RULES:
+- DO NOT delete/rename/remove any existing features.
+- ONLY ADD code.
+- Keep existing UI/UX, just add the missing fallback + plan gating.
+- Goal: Free users never trigger TURN cost; Paid/Trial users get reliable calls.
+
+WHAT TO IMPLEMENT
+
+A) ICE SERVER CONFIG (STUN ALWAYS, TURN OPTIONAL)
+1) Keep existing STUN servers.
+2) Add optional TURN from ENV:
+   TURN_URLS (comma-separated)
+   TURN_USERNAME
+   TURN_CREDENTIAL
+3) Build iceServers dynamically:
+   - Free plan: STUN only
+   - Pro/Business/Trial: STUN + TURN (if env vars present)
+
+B) CONNECTION FAILOVER LOGIC (REAL)
+In the call setup flow:
+1) Start the call with STUN-only configuration.
+2) Watch ICE connection state:
+   - if state becomes "failed" or "disconnected" for > 8 seconds:
+     a) If user is Pro/Business/Trial AND TURN env is configured:
+        - retry with TURN enabled (ICE restart OR rebuild RTCPeerConnection)
+        - show “Improving connection…” (non-blocking)
+     b) If user is Free:
+        - do NOT enable TURN
+        - show a friendly modal:
+          “This network blocks direct calling. Upgrade for Relay Mode (reliable on mobile data).”
+        - provide “Try again” and “Switch to audio-only” options
+
+C) VIDEO COST CONTROL (FREE vs PAID)
+1) Free: audio-only by default
+   - block enabling video tracks on Free, OR allow video only when connection is direct (no TURN)
+2) Paid/Trial: allow video + TURN fallback
+
+D) DIAGNOSTICS (ADMIN + USER)
+1) Record per-call:
+   - connection_route: direct(host/srflx) or relay(turn)
+   - network_hint: wifi/cellular if available
+2) Add a small status indicator on the call screen:
+   - “Direct” or “Relay”
+3) Add admin dashboard table “Call Quality”:
+   - % relay usage
+   - top users by relay minutes
+
+E) SERVER-SIDE ENFORCEMENT (NO CLIENT CHEATING)
+1) Add a server endpoint to mint a short-lived “CALL_SESSION_TOKEN” containing:
+   - user_id
+   - plan
+   - allow_turn (true/false)
+   - allow_video (true/false)
+   - expires in 2 minutes
+2) Client must request token before starting a call.
+3) If plan=Free, server always returns allow_turn=false.
+
+F) ACCEPTANCE TESTS
+- Free user on restrictive network: STUN attempt fails → upgrade modal → no TURN used.
+- Paid user on same network: STUN fails → auto retry with TURN → call connects.
+- Video is blocked on Free unless direct-only rule is satisfied (whichever you implement).
+- Existing call flows and UI remain intact.
+
+DELIVERABLES
+- List files changed
+- Add required ENV vars
+- Make sure this runs in Replit production mode
