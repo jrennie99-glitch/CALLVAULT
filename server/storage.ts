@@ -21,6 +21,7 @@ import {
   ipBlocklist, type IpBlocklistEntry,
   adminSessions, type AdminSession,
   adminCredentials, type AdminCredentials, type InsertAdminCredentials,
+  voicemails, type Voicemail, type InsertVoicemail,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, asc, sql, gte, lte, ilike, or } from "drizzle-orm";
@@ -208,6 +209,15 @@ export interface IStorage {
   incrementFailedLoginAttempts(address: string): Promise<AdminCredentials | undefined>;
   resetFailedLoginAttempts(address: string): Promise<AdminCredentials | undefined>;
   lockAdminAccount(address: string, untilDate: Date): Promise<AdminCredentials | undefined>;
+
+  // Voicemail
+  getVoicemails(recipientAddress: string): Promise<Voicemail[]>;
+  getVoicemail(id: string): Promise<Voicemail | undefined>;
+  createVoicemail(voicemail: InsertVoicemail): Promise<Voicemail>;
+  updateVoicemail(id: string, updates: Partial<Voicemail>): Promise<Voicemail | undefined>;
+  markVoicemailRead(id: string): Promise<Voicemail | undefined>;
+  deleteVoicemail(id: string): Promise<boolean>;
+  getUnreadVoicemailCount(recipientAddress: string): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1526,6 +1536,58 @@ export class DatabaseStorage implements IStorage {
       .where(eq(adminCredentials.address, address))
       .returning();
     return updated || undefined;
+  }
+
+  // Voicemail implementation
+  async getVoicemails(recipientAddress: string): Promise<Voicemail[]> {
+    return db.select().from(voicemails)
+      .where(and(
+        eq(voicemails.recipientAddress, recipientAddress),
+        sql`${voicemails.deletedAt} IS NULL`
+      ))
+      .orderBy(desc(voicemails.createdAt));
+  }
+
+  async getVoicemail(id: string): Promise<Voicemail | undefined> {
+    const [voicemail] = await db.select().from(voicemails).where(eq(voicemails.id, id));
+    return voicemail || undefined;
+  }
+
+  async createVoicemail(voicemail: InsertVoicemail): Promise<Voicemail> {
+    const [created] = await db.insert(voicemails).values(voicemail).returning();
+    return created;
+  }
+
+  async updateVoicemail(id: string, updates: Partial<Voicemail>): Promise<Voicemail | undefined> {
+    const [updated] = await db.update(voicemails).set(updates).where(eq(voicemails.id, id)).returning();
+    return updated || undefined;
+  }
+
+  async markVoicemailRead(id: string): Promise<Voicemail | undefined> {
+    const [updated] = await db.update(voicemails)
+      .set({ isRead: true, readAt: new Date() })
+      .where(eq(voicemails.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteVoicemail(id: string): Promise<boolean> {
+    const [deleted] = await db.update(voicemails)
+      .set({ deletedAt: new Date() })
+      .where(eq(voicemails.id, id))
+      .returning();
+    return !!deleted;
+  }
+
+  async getUnreadVoicemailCount(recipientAddress: string): Promise<number> {
+    const [result] = await db.select({ count: sql<number>`count(*)` })
+      .from(voicemails)
+      .where(and(
+        eq(voicemails.recipientAddress, recipientAddress),
+        eq(voicemails.isRead, false),
+        sql`${voicemails.deletedAt} IS NULL`
+      ));
+    return Number(result?.count || 0);
   }
 }
 

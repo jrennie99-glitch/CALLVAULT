@@ -540,3 +540,30 @@ export const ipBlocklist = pgTable("ip_blocklist", {
 });
 
 export type IpBlocklistEntry = typeof ipBlocklist.$inferSelect;
+
+// Voicemail messages
+export const voicemails = pgTable("voicemails", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  recipientAddress: text("recipient_address").notNull(), // Who receives the voicemail
+  senderAddress: text("sender_address").notNull(), // Who left the voicemail
+  senderName: text("sender_name"), // Optional display name
+  audioData: text("audio_data").notNull(), // Base64 encoded audio
+  audioFormat: text("audio_format").notNull().default("webm"), // 'webm' | 'mp3' | 'wav'
+  durationSeconds: integer("duration_seconds").notNull(),
+  transcription: text("transcription"), // AI-generated text transcription
+  transcriptionStatus: text("transcription_status").default("pending"), // 'pending' | 'processing' | 'completed' | 'failed'
+  isRead: boolean("is_read").default(false),
+  isSaved: boolean("is_saved").default(false), // User can save important voicemails
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  readAt: timestamp("read_at"),
+  deletedAt: timestamp("deleted_at"), // Soft delete
+});
+
+export const insertVoicemailSchema = createInsertSchema(voicemails).omit({
+  id: true,
+  createdAt: true,
+  readAt: true,
+  deletedAt: true,
+});
+export type InsertVoicemail = z.infer<typeof insertVoicemailSchema>;
+export type Voicemail = typeof voicemails.$inferSelect;
