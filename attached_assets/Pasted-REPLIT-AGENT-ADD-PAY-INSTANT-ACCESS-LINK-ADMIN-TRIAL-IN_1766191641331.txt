@@ -1,0 +1,190 @@
+REPLIT AGENT — ADD “PAY → INSTANT ACCESS LINK” + “ADMIN TRIAL INVITES” (DO NOT BREAK EXISTING APP)
+
+APP: Call Vault (CV) — ALREADY BUILT.
+NON-NEGOTIABLE:
+- DO NOT delete/rename/remove any existing features, routes, pages, APIs, styling, DB tables, or behavior.
+- ONLY ADD code and integrate cleanly.
+- Stripe ONLY (no crypto, no Base/Solana/EVM).
+- All checks must be server-side (no client-only gating).
+- Production-ready: validation, rate limits, audit logs, secure secrets handling.
+
+GOAL
+1) When a user pays (Stripe subscription), they immediately receive:
+   - On-screen “Success” page with install instructions + “Open Call Vault” button
+   - An email containing the install link (your app URL) and instructions
+   - (Optional) a short-lived “welcome token” link that can auto-login or auto-activate access
+2) Admin can generate and send FREE TRIAL invites:
+   - time-limited (expires by date/time)
+   - optionally usage-limited (minutes, calls)
+   - one-time or multi-use
+   - can be revoked
+3) Admin can also generate “Comp Access” (free paid-tier) for specific users with expiration timers.
+
+IMPORTANT CONCEPT
+- The “download link” for the app is just the PWA URL (APP_URL). After payment/trial, we send this link automatically.
+- Users install on iPhone via Safari → Share → Add to Home Screen.
+- Android via Chrome → Install.
+
+STEP 0 — DETECT CURRENT STACK
+- Identify frontend, backend, DB, and auth.
+- Reuse existing auth and user model.
+
+A) STRIPE CHECKOUT + SUCCESS FLOW (MANDATORY)
+
+A1) Stripe Checkout Session
+- When user clicks “Upgrade/Subscribe”, create a Stripe Checkout Session for the selected plan.
+- Configure:
+  success_url = `${APP_URL}/success?session_id={CHECKOUT_SESSION_ID}`
+  cancel_url  = `${APP_URL}/pricing` (or existing pricing route)
+- Store mapping between app user and Stripe customer/session in DB.
+
+A2) Success Page (/success)
+Create /success page that:
+- Reads session_id query param
+- Calls server endpoint /api/billing/verify-session?session_id=...
+- Server verifies with Stripe that the session is paid/subscription active and belongs to the authenticated user (or links via email if your flow supports it)
+- On success:
+  - Activate the user plan in DB
+  - Show “Install Call Vault” screen (device-aware)
+  - Show “Open Call Vault” button → `${APP_URL}/`
+  - Show “Add to Home Screen” instructions:
+    iOS: Open in Safari → Share → Add to Home Screen
+    Android: Tap Install prompt / 3 dots → Install app
+
+A3) Stripe Webhooks (authoritative)
+Implement webhook endpoint /api/billing/webhook that:
+- Validates STRIPE_WEBHOOK_SECRET
+- Handles events:
+  - checkout.session.completed
+  - customer.subscription.created/updated/deleted
+  - invoice.paid / invoice.payment_failed (optional)
+- Updates local DB subscription status + plan
+- Is idempotent (store event_id processed)
+
+A4) Send “Access Ready” Email AFTER payment
+When webhook confirms payment OR on success verification:
+- Send email to user with:
+  - Subject: “Your Call Vault app is ready”
+  - Body includes:
+    - Install link: APP_URL
+    - Instructions for iPhone/Android
+    - Support link/contact
+- Use existing email system if present; if not, add a minimal email provider:
+  Option 1: Resend
+  Option 2: SendGrid
+  Option 3: SMTP
+Choose the simplest supported in current stack.
+Add ENV vars accordingly.
+
+REQUIRED ENV VARS
+- APP_URL
+- STRIPE_SECRET_KEY
+- STRIPE_WEBHOOK_SECRET
+- STRIPE_PRICE_PRO_MONTHLY
+- STRIPE_PRICE_BUSINESS_MONTHLY
+- (Email) one of:
+  RESEND_API_KEY  OR  SENDGRID_API_KEY  OR SMTP_HOST/SMTP_USER/SMTP_PASS/SMTP_PORT
+
+OPTIONAL “WELCOME TOKEN” LINK (RECOMMENDED)
+- Generate a short-lived signed token (JWT or HMAC) after payment:
+  `${APP_URL}/welcome?token=...`
+- Token expires in 15 minutes and can:
+  - auto-complete onboarding
+  - confirm access
+  - optionally auto-login if your auth supports magic links
+- Must be one-time use (store token hash; mark used).
+
+B) ADMIN TRIAL INVITES + COMP ACCESS (MANDATORY)
+
+B1) Admin UI Pages
+Add to /admin:
+- /admin/invites  (create/manage invites)
+- /admin/users/[id] (grant trial/comp/plan)
+
+B2) Invite Types
+Create “Invite” records in DB:
+Fields:
+- id
+- code (random, unguessable)
+- type: TRIAL | COMP | ACCESS
+- plan_grant: FREE | PRO | BUSINESS
+- expires_at
+- max_uses
+- uses_count
+- minutes_cap (optional)
+- calls_cap (optional)
+- created_by_admin_id
+- revoked_at
+- created_at
+
+Invite URLs
+- Invite link: `${APP_URL}/invite/${code}`
+
+B3) Invite Redemption Flow
+Create route/page: /invite/[code]
+Behavior:
+- Validates code server-side:
+  - not revoked
+  - not expired
+  - uses_count < max_uses
+- If user is not logged in:
+  - show signup/login
+  - after login, redeem invite
+- On redeem:
+  - apply plan + trial timers to the user:
+    - trial_end_at = expires_at (or a trial duration)
+    - comp_end_at if type COMP
+    - set usage caps if provided
+  - increment uses_count
+  - log audit event
+
+B4) Admin Controls
+Admin can:
+- Create invites:
+  - preset buttons: “24h Trial”, “7d Trial”, “14d Trial”
+  - custom: expiry date/time
+  - set max uses: 1 (one-time) or N
+  - set limits: minutes_cap / calls_cap
+- Revoke invite
+- Copy link button
+- View redeemers list
+- Extend/reduce trial for a user
+- Revoke access instantly (downgrade + terminate sessions)
+All actions must write to audit_logs.
+
+C) COST PROTECTION (FREE/TRIAL SHOULD NOT COST YOU)
+Enforce server-side gates on high-cost features (calls/realtime):
+- Free:
+  - very limited minutes/month + max call duration
+  - max concurrent calls = 1
+  - rate limit call attempts
+  - if TURN/relay exists: TURN only for paid plans
+- Trials:
+  - same as Pro features but with strict cap (minutes_cap) and expiry
+- Paid:
+  - higher caps
+If caps exceeded:
+- Block call start/join and show upgrade screen
+- Log event
+
+Implement:
+- usage tracking: minutes_used_this_month, calls_started, last_reset_at
+- reset job: monthly reset
+- middleware guard on call endpoints:
+  requirePlan + enforceCaps
+
+D) QA / ACCEPTANCE TESTS (MUST PASS)
+1) After Stripe payment, user lands on /success and sees install instructions + “Open Call Vault”
+2) User receives an email with APP_URL and install steps
+3) Admin can generate a 7-day trial link and send it
+4) User redeems invite → trial activated → features unlocked until expiry
+5) Admin can revoke trial/access and user loses access immediately
+6) Free/trial users cannot exceed caps (server enforces)
+7) No existing features break
+
+DELIVERABLES
+- Implement everything above inside existing repo
+- List exact files changed/added
+- Provide ENV vars list for Replit Secrets
+- Provide quick click-through test checklist
+- Keep UI consistent and mobile-friendly

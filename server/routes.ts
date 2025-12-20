@@ -11,6 +11,7 @@ import * as policyStore from "./policyStore";
 import { storage } from "./storage";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
 import { FreeTierShield, FREE_TIER_LIMITS, type ShieldErrorCode } from "./freeTierShield";
+import { sendEmail, generateWelcomeEmail, generateTrialInviteEmail } from "./email";
 
 interface ClientConnection {
   ws: WebSocket;
@@ -1018,8 +1019,8 @@ export async function registerRoutes(
         payment_method_types: ['card'],
         line_items: [{ price: priceId, quantity: 1 }],
         mode: 'subscription',
-        success_url: successUrl || `${baseUrl}/settings?success=true`,
-        cancel_url: cancelUrl || `${baseUrl}/settings?canceled=true`,
+        success_url: successUrl || `${baseUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: cancelUrl || `${baseUrl}/pricing`,
         metadata: { userAddress }
       });
 
@@ -1059,6 +1060,84 @@ export async function registerRoutes(
     } catch (error) {
       console.error('Error creating portal session:', error);
       res.status(500).json({ error: 'Failed to create portal session' });
+    }
+  });
+
+  // Verify Stripe Checkout Session
+  app.get('/api/billing/verify-session', async (req, res) => {
+    try {
+      const { session_id } = req.query;
+      
+      if (!session_id || typeof session_id !== 'string') {
+        return res.status(400).json({ error: 'Missing session_id' });
+      }
+
+      const stripe = await getUncachableStripeClient();
+      const session = await stripe.checkout.sessions.retrieve(session_id, {
+        expand: ['subscription', 'customer']
+      });
+      
+      if (session.payment_status !== 'paid') {
+        return res.status(400).json({ error: 'Payment not completed' });
+      }
+      
+      const userAddress = session.metadata?.userAddress;
+      if (!userAddress) {
+        return res.status(400).json({ error: 'Invalid session - missing user' });
+      }
+      
+      const identity = await storage.getIdentity(userAddress);
+      if (!identity) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      // Determine plan from price
+      const subscription = session.subscription as any;
+      let plan = 'pro';
+      if (subscription?.items?.data?.[0]?.price?.id === process.env.STRIPE_BUSINESS_PRICE_ID) {
+        plan = 'business';
+      }
+      
+      // Update user plan if not already updated by webhook
+      if (identity.plan !== plan || identity.planStatus !== 'active') {
+        await storage.updateIdentity(userAddress, {
+          plan,
+          planStatus: 'active',
+          stripeSubscriptionId: subscription?.id || identity.stripeSubscriptionId
+        } as any);
+      }
+      
+      // Send welcome email
+      const host = req.get('host') || 'localhost:5000';
+      const protocol = req.get('x-forwarded-proto') || 'http';
+      const appUrl = process.env.APP_URL || `${protocol}://${host}`;
+      
+      const customerEmail = (session.customer as any)?.email || identity.email;
+      if (customerEmail) {
+        const emailContent = generateWelcomeEmail(appUrl, plan.charAt(0).toUpperCase() + plan.slice(1));
+        await sendEmail({
+          to: customerEmail,
+          subject: emailContent.subject,
+          html: emailContent.html,
+          text: emailContent.text
+        });
+      }
+      
+      await storage.createAuditLog({
+        actorAddress: userAddress,
+        targetAddress: userAddress,
+        actionType: 'SUBSCRIPTION_VERIFIED',
+        metadata: { plan, sessionId: session_id },
+      });
+      
+      res.json({ 
+        success: true, 
+        plan: plan.charAt(0).toUpperCase() + plan.slice(1),
+        email: customerEmail
+      });
+    } catch (error) {
+      console.error('Error verifying session:', error);
+      res.status(500).json({ error: 'Failed to verify session' });
     }
   });
 

@@ -12,6 +12,7 @@ import PricingPage from "@/pages/pricing";
 import HowItWorksPage from "@/pages/how-it-works";
 import FAQPage from "@/pages/faq";
 import OnboardingPage from "@/pages/onboarding";
+import SuccessPage from "@/pages/success";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -26,6 +27,7 @@ function Router() {
       <Route path="/invite/:code" component={InvitePage} />
       <Route path="/u/:handle" component={ProfilePage} />
       <Route path="/pay/:tokenId" component={CallPage} />
+      <Route path="/success" component={SuccessPage} />
       <Route component={NotFound} />
     </Switch>
   );
