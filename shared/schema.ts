@@ -567,3 +567,6 @@ export const insertVoicemailSchema = createInsertSchema(voicemails).omit({
 });
 export type InsertVoicemail = z.infer<typeof insertVoicemailSchema>;
 export type Voicemail = typeof voicemails.$inferSelect;
+
+// Re-export chat models for Gemini integration
+export * from "./models/chat";

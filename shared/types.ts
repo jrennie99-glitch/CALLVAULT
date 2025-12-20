@@ -23,7 +23,7 @@ export interface SignedCallIntent {
 }
 
 // Message types
-export type MessageType = 'text' | 'image' | 'file' | 'voice';
+export type MessageType = 'text' | 'image' | 'file' | 'voice' | 'video' | 'video_message';
 export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
 
 export interface Message {
@@ -37,6 +37,9 @@ export interface Message {
   attachment_url?: string;
   attachment_name?: string;
   attachment_size?: number;
+  attachment_duration?: number; // Duration in seconds for voice/video messages
+  attachment_thumbnail?: string; // Base64 thumbnail for video
+  transcription?: string; // AI-generated transcription for voice/video messages
   reply_to?: string;
   nonce: string;
   status?: MessageStatus;

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useRoute } from 'wouter';
-import { ArrowLeft, Send, Paperclip, Mic, Image, File, X, Play, Pause, Check, CheckCheck, Users, MoreVertical, Phone, Video } from 'lucide-react';
+import { ArrowLeft, Send, Paperclip, Mic, Image, File, X, Play, Pause, Check, CheckCheck, Users, MoreVertical, Phone, Video, VideoIcon, Camera } from 'lucide-react';
 import { Avatar } from '@/components/Avatar';
 import { getContacts, type Contact } from '@/lib/storage';
 import { getLocalMessages, saveLocalMessage, updateLocalMessageStatus, getLocalConversation, clearUnreadCount, getPrivacySettings, generateMessageId } from '@/lib/messageStorage';
@@ -24,13 +24,19 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall }: ChatPageP
   const [remoteTyping, setRemoteTyping] = useState(false);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [isRecording, setIsRecording] = useState(false);
+  const [isVideoRecording, setIsVideoRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+  const videoPreviewRef = useRef<HTMLVideoElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const videoChunksRef = useRef<Blob[]>([]);
+  const videoStreamRef = useRef<MediaStream | null>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const privacySettings = getPrivacySettings();
@@ -174,7 +180,7 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall }: ChatPageP
     }, 3000);
   };
 
-  const handleFileUpload = async (file: File, type: 'image' | 'file') => {
+  const handleFileUpload = async (file: File, type: 'image' | 'file' | 'video') => {
     try {
       const res = await fetch('/api/upload', {
         method: 'POST',
@@ -267,6 +273,92 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall }: ChatPageP
     }
   };
 
+  const startVideoRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: { facingMode: 'user' } });
+      videoStreamRef.current = stream;
+      
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+      mediaRecorderRef.current = mediaRecorder;
+      videoChunksRef.current = [];
+      
+      mediaRecorder.ondataavailable = (e) => {
+        videoChunksRef.current.push(e.data);
+      };
+      
+      mediaRecorder.onstop = async () => {
+        const videoBlob = new Blob(videoChunksRef.current, { type: 'video/webm' });
+        stream.getTracks().forEach(t => t.stop());
+        setVideoPreviewUrl(null);
+        
+        const fileName = `video_message_${Date.now()}.webm`;
+        
+        try {
+          const res = await fetch('/api/upload', {
+            method: 'POST',
+            body: videoBlob,
+            headers: {
+              'Content-Type': 'video/webm',
+              'X-Filename': fileName
+            }
+          });
+          
+          if (!res.ok) throw new Error('Upload failed');
+          const { url, name, size } = await res.json();
+          sendMessage('video_message', '', url, name, size);
+        } catch (error) {
+          toast.error('Failed to send video message');
+        }
+      };
+      
+      mediaRecorder.start();
+      setIsVideoRecording(true);
+      setRecordingTime(0);
+      
+      // Show video preview
+      if (videoPreviewRef.current) {
+        videoPreviewRef.current.srcObject = stream;
+        videoPreviewRef.current.play();
+      }
+      
+      recordingIntervalRef.current = setInterval(() => {
+        setRecordingTime(t => t + 1);
+      }, 1000);
+    } catch (error) {
+      toast.error('Camera access denied');
+    }
+  };
+
+  const stopVideoRecording = () => {
+    if (mediaRecorderRef.current && isVideoRecording) {
+      mediaRecorderRef.current.stop();
+      setIsVideoRecording(false);
+      if (recordingIntervalRef.current) {
+        clearInterval(recordingIntervalRef.current);
+      }
+      if (videoStreamRef.current) {
+        videoStreamRef.current.getTracks().forEach(t => t.stop());
+        videoStreamRef.current = null;
+      }
+    }
+  };
+
+  const cancelVideoRecording = () => {
+    if (mediaRecorderRef.current && isVideoRecording) {
+      mediaRecorderRef.current.stop();
+      videoChunksRef.current = [];
+      setIsVideoRecording(false);
+      setVideoPreviewUrl(null);
+      if (recordingIntervalRef.current) {
+        clearInterval(recordingIntervalRef.current);
+      }
+      if (videoStreamRef.current) {
+        videoStreamRef.current.getTracks().forEach(t => t.stop());
+        videoStreamRef.current = null;
+      }
+    }
+  };
+
   const formatRecordingTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -318,6 +410,34 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall }: ChatPageP
       return (
         <div className="flex items-center gap-2">
           <audio controls src={msg.attachment_url} className="max-w-[200px] h-10" />
+        </div>
+      );
+    }
+    
+    if (msg.type === 'video' && msg.attachment_url) {
+      return (
+        <video 
+          src={msg.attachment_url} 
+          controls
+          className="max-w-[280px] rounded-lg"
+          preload="metadata"
+        />
+      );
+    }
+    
+    if (msg.type === 'video_message' && msg.attachment_url) {
+      return (
+        <div className="relative">
+          <video 
+            src={msg.attachment_url} 
+            controls
+            className="max-w-[200px] rounded-xl"
+            preload="metadata"
+          />
+          <div className="absolute top-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1">
+            <Camera className="w-3 h-3" />
+            <span>Video message</span>
+          </div>
         </div>
       );
     }
@@ -411,7 +531,39 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall }: ChatPageP
         <div ref={messagesEndRef} />
       </div>
 
-      {isRecording ? (
+      {isVideoRecording ? (
+        <div className="flex flex-col border-t border-slate-700 safe-area-bottom">
+          <div className="relative bg-black aspect-video max-h-[200px] w-full">
+            <video 
+              ref={videoPreviewRef}
+              autoPlay 
+              muted 
+              playsInline
+              className="w-full h-full object-cover"
+            />
+            <div className="absolute top-3 left-3 bg-red-500/80 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1">
+              <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
+              <span>REC {formatRecordingTime(recordingTime)}</span>
+            </div>
+          </div>
+          <div className="flex items-center justify-center gap-6 p-4 bg-slate-800">
+            <button
+              onClick={cancelVideoRecording}
+              className="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center text-red-400"
+              data-testid="button-cancel-video-recording"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <button
+              onClick={stopVideoRecording}
+              className="w-14 h-14 rounded-full bg-emerald-500 flex items-center justify-center text-white"
+              data-testid="button-send-video-recording"
+            >
+              <Send className="w-6 h-6" />
+            </button>
+          </div>
+        </div>
+      ) : isRecording ? (
         <div className="flex items-center gap-4 p-4 bg-slate-800 border-t border-slate-700 safe-area-bottom">
           <button
             onClick={cancelRecording}
@@ -444,7 +596,7 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall }: ChatPageP
             </button>
             
             {showAttachMenu && (
-              <div className="absolute bottom-12 left-0 bg-slate-800 rounded-xl shadow-xl border border-slate-700 py-2 min-w-[140px]">
+              <div className="absolute bottom-12 left-0 bg-slate-800 rounded-xl shadow-xl border border-slate-700 py-2 min-w-[160px]">
                 <button
                   onClick={() => imageInputRef.current?.click()}
                   className="w-full flex items-center gap-3 px-4 py-2 text-white hover:bg-slate-700 text-left"
@@ -452,6 +604,25 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall }: ChatPageP
                 >
                   <Image className="w-5 h-5 text-emerald-400" />
                   <span>Photo</span>
+                </button>
+                <button
+                  onClick={() => videoInputRef.current?.click()}
+                  className="w-full flex items-center gap-3 px-4 py-2 text-white hover:bg-slate-700 text-left"
+                  data-testid="button-attach-video"
+                >
+                  <VideoIcon className="w-5 h-5 text-purple-400" />
+                  <span>Video</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setShowAttachMenu(false);
+                    startVideoRecording();
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-2 text-white hover:bg-slate-700 text-left"
+                  data-testid="button-video-message"
+                >
+                  <Camera className="w-5 h-5 text-pink-400" />
+                  <span>Video Message</span>
                 </button>
                 <button
                   onClick={() => fileInputRef.current?.click()}
@@ -473,6 +644,17 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall }: ChatPageP
             onChange={(e) => {
               const file = e.target.files?.[0];
               if (file) handleFileUpload(file, 'image');
+              e.target.value = '';
+            }}
+          />
+          <input
+            type="file"
+            ref={videoInputRef}
+            accept="video/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleFileUpload(file, 'video');
               e.target.value = '';
             }}
           />

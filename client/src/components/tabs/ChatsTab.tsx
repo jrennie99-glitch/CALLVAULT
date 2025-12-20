@@ -48,6 +48,8 @@ export function ChatsTab({ myAddress, onSelectChat, onCreateGroup, conversations
     if (!msg) return 'No messages yet';
     switch (msg.type) {
       case 'image': return '📷 Photo';
+      case 'video': return '🎬 Video';
+      case 'video_message': return '📹 Video message';
       case 'file': return `📎 ${msg.attachment_name || 'File'}`;
       case 'voice': return '🎤 Voice message';
       default: return msg.content.slice(0, 50) + (msg.content.length > 50 ? '...' : '');
