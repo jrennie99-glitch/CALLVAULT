@@ -305,20 +305,28 @@ export function AddTab({ myAddress, onContactAdded, onStartCall, onNavigateToInv
                 <Scanner
                   key="qr-scanner"
                   onScan={handleScan}
-                  onError={(error) => {
+                  onError={(error: any) => {
                     console.error('Scanner error:', error);
-                    setScannerError('Camera access denied. Please allow camera access in your browser settings.');
+                    if (error?.name === 'NotAllowedError') {
+                      setScannerError('Camera access denied. Please allow camera access in your browser settings.');
+                    } else if (error?.name === 'NotFoundError') {
+                      setScannerError('No camera found on this device.');
+                    } else {
+                      setScannerError('Unable to access camera. Please try again.');
+                    }
                   }}
                   constraints={{
-                    facingMode: 'environment'
+                    facingMode: 'environment',
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
                   }}
                   styles={{
                     container: { width: '100%', height: '100%' },
                     video: { width: '100%', height: '100%', objectFit: 'cover' }
                   }}
                   components={{
-                    audio: false,
-                    torch: false
+                    torch: false,
+                    finder: true
                   }}
                 />
               )}
