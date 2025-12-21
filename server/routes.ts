@@ -3551,7 +3551,7 @@ export async function registerRoutes(
       const { getAvailableModesForPlan } = await import('./entitlements');
       
       // Founders, admins, and comped users get all modes
-      const hasFullAccess = identity.role === 'founder' || identity.role === 'admin' || identity.comped === true;
+      const hasFullAccess = identity.role === 'founder' || identity.role === 'admin' || identity.isComped === true;
       const allModes: UserMode[] = ['personal', 'creator', 'business', 'stage'];
       const availableModes = hasFullAccess ? allModes : getAvailableModesForPlan(identity.plan);
       
@@ -3561,7 +3561,7 @@ export async function registerRoutes(
         availableModes,
         plan: hasFullAccess ? 'founder' : identity.plan,
         isFounder: identity.role === 'founder',
-        isComped: identity.comped === true,
+        isComped: identity.isComped === true,
       });
     } catch (error) {
       console.error('Error fetching user mode:', error);
@@ -3588,7 +3588,7 @@ export async function registerRoutes(
       const { getAvailableModesForPlan } = await import('./entitlements');
       
       // Founders, admins, and comped users get all modes
-      const hasFullAccess = identity.role === 'founder' || identity.role === 'admin' || identity.comped === true;
+      const hasFullAccess = identity.role === 'founder' || identity.role === 'admin' || identity.isComped === true;
       const allModes: UserMode[] = ['personal', 'creator', 'business', 'stage'];
       const availableModes = hasFullAccess ? allModes : getAvailableModesForPlan(identity.plan);
       
