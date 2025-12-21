@@ -3549,13 +3549,19 @@ export async function registerRoutes(
       
       const modeSettings = await storage.ensureUserModeSettings(address);
       const { getAvailableModesForPlan } = await import('./entitlements');
-      const availableModes = getAvailableModesForPlan(identity.plan);
+      
+      // Founders, admins, and comped users get all modes
+      const hasFullAccess = identity.role === 'founder' || identity.role === 'admin' || identity.comped === true;
+      const allModes: UserMode[] = ['personal', 'creator', 'business', 'stage'];
+      const availableModes = hasFullAccess ? allModes : getAvailableModesForPlan(identity.plan);
       
       res.json({
         mode: modeSettings.mode,
         flags: modeSettings.flags,
         availableModes,
-        plan: identity.plan,
+        plan: hasFullAccess ? 'founder' : identity.plan,
+        isFounder: identity.role === 'founder',
+        isComped: identity.comped === true,
       });
     } catch (error) {
       console.error('Error fetching user mode:', error);
@@ -3580,7 +3586,11 @@ export async function registerRoutes(
       }
       
       const { getAvailableModesForPlan } = await import('./entitlements');
-      const availableModes = getAvailableModesForPlan(identity.plan);
+      
+      // Founders, admins, and comped users get all modes
+      const hasFullAccess = identity.role === 'founder' || identity.role === 'admin' || identity.comped === true;
+      const allModes: UserMode[] = ['personal', 'creator', 'business', 'stage'];
+      const availableModes = hasFullAccess ? allModes : getAvailableModesForPlan(identity.plan);
       
       // Validate mode is allowed for current plan (prevents race condition attacks)
       if (!availableModes.includes(mode)) {
@@ -3591,8 +3601,10 @@ export async function registerRoutes(
         });
       }
       
-      // Use atomic update with plan validation inside storage
-      const updated = await storage.updateUserModeWithPlanValidation(address, mode, identity.plan);
+      // Use atomic update with plan validation inside storage (skip validation for full access users)
+      const updated = hasFullAccess 
+        ? await storage.updateUserMode(address, mode)
+        : await storage.updateUserModeWithPlanValidation(address, mode, identity.plan);
       
       if (!updated) {
         return res.status(403).json({ 

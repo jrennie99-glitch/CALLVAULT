@@ -54,6 +54,8 @@ export function ModeSettings({ myAddress, onModeChange }: ModeSettingsProps) {
   const [currentMode, setCurrentMode] = useState<UserMode>('personal');
   const [availableModes, setAvailableModes] = useState<UserMode[]>(['personal']);
   const [currentPlan, setCurrentPlan] = useState<string>('free');
+  const [isFounder, setIsFounder] = useState(false);
+  const [isComped, setIsComped] = useState(false);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
 
@@ -69,6 +71,8 @@ export function ModeSettings({ myAddress, onModeChange }: ModeSettingsProps) {
         setCurrentMode(data.mode);
         setAvailableModes(data.availableModes || ['personal']);
         setCurrentPlan(data.plan || 'free');
+        setIsFounder(data.isFounder || false);
+        setIsComped(data.isComped || false);
       }
     } catch (error) {
       console.error('Failed to fetch mode settings:', error);
@@ -76,6 +80,8 @@ export function ModeSettings({ myAddress, onModeChange }: ModeSettingsProps) {
       setLoading(false);
     }
   };
+  
+  const hasFullAccess = isFounder || isComped || currentPlan === 'founder';
 
   const handleModeSelect = async (mode: UserMode) => {
     if (!availableModes.includes(mode)) {
@@ -198,7 +204,13 @@ export function ModeSettings({ myAddress, onModeChange }: ModeSettingsProps) {
           );
         })}
 
-        {currentPlan === 'free' && (
+        {hasFullAccess ? (
+          <div className="mt-4 p-4 bg-gradient-to-r from-amber-500/10 to-yellow-500/10 border border-amber-500/20 rounded-xl">
+            <p className="text-sm text-amber-300 font-medium">
+              {isFounder ? '🏆 Founder Access' : '✨ Full Access'} - All modes unlocked
+            </p>
+          </div>
+        ) : currentPlan === 'free' && (
           <div className="mt-4 p-4 bg-gradient-to-r from-purple-500/10 to-pink-500/10 border border-purple-500/20 rounded-xl">
             <p className="text-sm text-slate-300">
               Upgrade to <span className="text-purple-400 font-medium">Pro</span> or{' '}
