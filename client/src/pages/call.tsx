@@ -258,9 +258,9 @@ export default function CallPage() {
   const wsLastPong = useRef<number>(Date.now());
   const [wsConnected, setWsConnected] = useState(false);
   
-  // Heartbeat interval: send ping every 15 seconds, expect response within 10s
-  const WS_HEARTBEAT_INTERVAL = 15000;
-  const WS_HEARTBEAT_TIMEOUT = 10000;
+  // Heartbeat interval: send ping every 30 seconds, expect response within 15s
+  const WS_HEARTBEAT_INTERVAL = 30000;
+  const WS_HEARTBEAT_TIMEOUT = 15000;
   
   const initWebSocket = (storedIdentity: CryptoIdentity) => {
     // Clear any pending reconnect and heartbeat
@@ -333,13 +333,13 @@ export default function CallPage() {
         wsHeartbeatInterval.current = null;
       }
       
-      // Fast reconnect: 100ms, 200ms, 500ms, 1s, 2s, max 5s
-      const delay = Math.min(100 * Math.pow(2, wsReconnectAttempt.current), 5000);
+      // Gentle reconnect: 500ms, 1s, 2s, 4s, max 10s
+      const delay = Math.min(500 * Math.pow(2, wsReconnectAttempt.current), 10000);
       wsReconnectAttempt.current++;
       
-      // Only show toast after multiple quick attempts
-      if (wsReconnectAttempt.current > 3) {
-        toast.info('Reconnecting...', { duration: 1500 });
+      // Only show toast after many failed attempts (avoid noise)
+      if (wsReconnectAttempt.current === 5) {
+        toast.info('Connection interrupted, reconnecting...', { duration: 2000 });
       }
       
       wsReconnectTimeout.current = setTimeout(() => {
