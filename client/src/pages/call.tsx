@@ -139,13 +139,25 @@ export default function CallPage() {
     }
   };
 
+  const wsReconnectAttempt = useRef(0);
+  const wsReconnectTimeout = useRef<NodeJS.Timeout | null>(null);
+  const [wsConnected, setWsConnected] = useState(false);
+  
   const initWebSocket = (storedIdentity: CryptoIdentity) => {
+    // Clear any pending reconnect
+    if (wsReconnectTimeout.current) {
+      clearTimeout(wsReconnectTimeout.current);
+      wsReconnectTimeout.current = null;
+    }
+    
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws`;
     const websocket = new WebSocket(wsUrl);
 
     websocket.onopen = () => {
       console.log('WebSocket connected');
+      setWsConnected(true);
+      wsReconnectAttempt.current = 0; // Reset reconnect attempts on successful connection
       websocket.send(JSON.stringify({ type: 'register', address: storedIdentity.address }));
     };
 
@@ -156,20 +168,65 @@ export default function CallPage() {
 
     websocket.onerror = (error) => {
       console.error('WebSocket error:', error);
+      setWsConnected(false);
     };
 
     websocket.onclose = () => {
       console.log('WebSocket closed');
-      toast.info('Reconnecting...', { duration: 2000 });
-      setTimeout(() => {
+      setWsConnected(false);
+      
+      // Exponential backoff: 500ms, 1s, 2s, 4s, 8s, max 15s
+      const delay = Math.min(500 * Math.pow(2, wsReconnectAttempt.current), 15000);
+      wsReconnectAttempt.current++;
+      
+      // Only show toast after first few quick attempts
+      if (wsReconnectAttempt.current > 2) {
+        toast.info('Reconnecting...', { duration: 2000 });
+      }
+      
+      wsReconnectTimeout.current = setTimeout(() => {
         if (storedIdentity) {
           initWebSocket(storedIdentity);
         }
-      }, 3000);
+      }, delay);
     };
 
     setWs(websocket);
+    
+    return websocket;
   };
+  
+  // Reconnect on visibility change (when app comes back to foreground)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && identity && (!ws || ws.readyState !== WebSocket.OPEN)) {
+        console.log('App visible, reconnecting WebSocket...');
+        wsReconnectAttempt.current = 0; // Reset for immediate connection
+        initWebSocket(identity);
+      }
+    };
+    
+    const handleOnline = () => {
+      if (identity && (!ws || ws.readyState !== WebSocket.OPEN)) {
+        console.log('Network online, reconnecting WebSocket...');
+        wsReconnectAttempt.current = 0;
+        initWebSocket(identity);
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('online', handleOnline);
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('online', handleOnline);
+      // Clear pending reconnect timeout on unmount
+      if (wsReconnectTimeout.current) {
+        clearTimeout(wsReconnectTimeout.current);
+        wsReconnectTimeout.current = null;
+      }
+    };
+  }, [identity, ws]);
 
   const handleWebSocketMessage = useCallback((message: WSMessage) => {
     if (message.type === 'call:incoming') {
