@@ -3359,13 +3359,25 @@ export async function registerRoutes(
 
   // IDENTITY VAULT ENDPOINTS (Cross-browser sync)
   
-  // Store encrypted identity in vault
+  // Store encrypted identity in vault (requires signature verification)
   app.post('/api/identity/vault', async (req, res) => {
     try {
-      const { publicKeyBase58, encryptedKeypair, salt, hint } = req.body;
+      const { publicKeyBase58, encryptedKeypair, salt, hint, signature, nonce, timestamp } = req.body;
       
       if (!publicKeyBase58 || !encryptedKeypair || !salt) {
         return res.status(400).json({ error: 'Missing required fields' });
+      }
+      
+      if (!signature || !nonce || !timestamp) {
+        return res.status(400).json({ error: 'Missing authentication fields (signature, nonce, timestamp)' });
+      }
+      
+      // Verify signature to prove ownership of the keypair
+      const payload = { publicKeyBase58, encryptedKeypair, salt, hint, nonce, timestamp };
+      const isValid = verifyGenericSignature(payload, signature, publicKeyBase58, nonce, timestamp);
+      
+      if (!isValid) {
+        return res.status(401).json({ error: 'Invalid signature - cannot verify ownership of this identity' });
       }
       
       // Check if vault already exists

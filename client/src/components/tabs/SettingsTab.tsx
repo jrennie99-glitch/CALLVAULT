@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { User, Shield, Wifi, ChevronDown, ChevronUp, Copy, RefreshCw, Fingerprint, Eye, EyeOff, MessageSquare, CheckCheck, Clock, Phone, Ban, Bot, Wallet, ChevronRight, Ticket, Briefcase, BarChart3, Crown, Lock, Sparkles, CreditCard, ExternalLink, Snowflake, Download, Upload } from 'lucide-react';
+import { User, Shield, Wifi, ChevronDown, ChevronUp, Copy, RefreshCw, Fingerprint, Eye, EyeOff, MessageSquare, CheckCheck, Clock, Phone, Ban, Bot, Wallet, ChevronRight, Ticket, Briefcase, BarChart3, Crown, Lock, Sparkles, CreditCard, ExternalLink, Snowflake, Download, Upload, Cloud, CloudOff, Check } from 'lucide-react';
 import { FreezeModeSetupModal } from '@/components/FreezeModeSetupModal';
 import { ModeSettings } from '@/components/ModeSettings';
 import { Button } from '@/components/ui/button';
@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { getUserProfile, saveUserProfile, getAppSettings, saveAppSettings } from '@/lib/storage';
-import { exportIdentity, importIdentity } from '@/lib/crypto';
+import { exportIdentity, importIdentity, encryptIdentityForVault, decryptIdentityFromVault, saveIdentity, signPayload, generateNonce } from '@/lib/crypto';
 import { getPrivacySettings, savePrivacySettings, type PrivacySettings } from '@/lib/messageStorage';
 import { enrollBiometric, disableBiometric, isPlatformAuthenticatorAvailable, isInIframe, isIOS } from '@/lib/biometric';
 import { toast } from 'sonner';
@@ -55,6 +55,15 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
   const [isTogglingFreezeMode, setIsTogglingFreezeMode] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [importBackupText, setImportBackupText] = useState('');
+  
+  // Identity vault state
+  const [vaultExists, setVaultExists] = useState(false);
+  const [vaultHint, setVaultHint] = useState<string | null>(null);
+  const [showVaultSetupDialog, setShowVaultSetupDialog] = useState(false);
+  const [vaultPin, setVaultPin] = useState('');
+  const [vaultPinConfirm, setVaultPinConfirm] = useState('');
+  const [vaultPinHint, setVaultPinHint] = useState('');
+  const [isCreatingVault, setIsCreatingVault] = useState(false);
 
   useEffect(() => {
     isPlatformAuthenticatorAvailable().then(setBiometricAvailable);
@@ -88,6 +97,79 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
         .catch(() => {});
     }
   }, [identity?.address]);
+
+  // Check if identity vault exists
+  useEffect(() => {
+    if (identity?.publicKeyBase58) {
+      fetch(`/api/identity/vault-exists/${identity.publicKeyBase58}`)
+        .then(res => res.json())
+        .then(data => {
+          setVaultExists(data.exists || false);
+          setVaultHint(data.hint || null);
+        })
+        .catch(() => {});
+    }
+  }, [identity?.publicKeyBase58]);
+
+  const handleCreateVault = async () => {
+    if (!identity) return;
+    
+    if (vaultPin.length < 6) {
+      toast.error('PIN must be at least 6 digits');
+      return;
+    }
+    
+    if (vaultPin !== vaultPinConfirm) {
+      toast.error('PINs do not match');
+      return;
+    }
+    
+    setIsCreatingVault(true);
+    try {
+      const { encryptedData, salt } = await encryptIdentityForVault(identity, vaultPin);
+      
+      // Create signed payload to prove ownership
+      const nonce = generateNonce();
+      const timestamp = Date.now();
+      const hint = vaultPinHint || null;
+      const payload = {
+        publicKeyBase58: identity.publicKeyBase58,
+        encryptedKeypair: encryptedData,
+        salt,
+        hint,
+        nonce,
+        timestamp
+      };
+      const signature = signPayload(identity.secretKey, payload);
+      
+      const res = await fetch('/api/identity/vault', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...payload,
+          signature,
+        })
+      });
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to create vault');
+      }
+      
+      setVaultExists(true);
+      setVaultHint(vaultPinHint || null);
+      setShowVaultSetupDialog(false);
+      setVaultPin('');
+      setVaultPinConfirm('');
+      setVaultPinHint('');
+      toast.success('Cloud sync enabled! Your identity is now backed up.');
+    } catch (error) {
+      console.error('Failed to create vault:', error);
+      toast.error('Failed to enable cloud sync');
+    } finally {
+      setIsCreatingVault(false);
+    }
+  };
 
   const handleUpgradeToPro = async () => {
     if (!identity?.address) return;
@@ -904,6 +986,61 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
                 </Button>
               </div>
             </div>
+            <div className="border-t border-slate-700 pt-4 mt-4">
+              <div className="flex items-center justify-between mb-2">
+                <Label className="text-slate-400 text-sm flex items-center gap-2">
+                  <Cloud className="w-4 h-4" />
+                  Cloud Sync
+                </Label>
+                {vaultExists && (
+                  <Badge className="bg-emerald-500/20 text-emerald-400 text-xs">
+                    <Check className="w-3 h-3 mr-1" />
+                    Enabled
+                  </Badge>
+                )}
+              </div>
+              <p className="text-slate-500 text-xs mt-1 mb-3">
+                {vaultExists 
+                  ? 'Your identity is backed up to the cloud. You can restore it on any device using your PIN.'
+                  : 'Enable cloud sync to access your identity from any device. Your data is encrypted with a PIN that only you know.'}
+              </p>
+              {vaultExists ? (
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 p-3 bg-slate-900/50 rounded-lg">
+                    <p className="text-emerald-400 text-sm font-medium flex items-center gap-2">
+                      <Cloud className="w-4 h-4" />
+                      Cloud sync is active
+                    </p>
+                    {vaultHint && (
+                      <p className="text-slate-500 text-xs mt-1">
+                        Hint: {vaultHint}
+                      </p>
+                    )}
+                  </div>
+                  <Button
+                    onClick={() => setShowVaultSetupDialog(true)}
+                    variant="ghost"
+                    size="sm"
+                    className="text-slate-400 hover:text-white"
+                    data-testid="button-update-vault-pin"
+                  >
+                    <RefreshCw className="w-4 h-4 mr-1" />
+                    Update PIN
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  onClick={() => setShowVaultSetupDialog(true)}
+                  variant="outline"
+                  size="sm"
+                  className="border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/10"
+                  data-testid="button-enable-cloud-sync"
+                >
+                  <Cloud className="w-4 h-4 mr-2" />
+                  Enable Cloud Sync
+                </Button>
+              )}
+            </div>
           </CardContent>
         )}
       </Card>
@@ -1061,6 +1198,93 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
                 data-testid="button-confirm-import"
               >
                 Restore Identity
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showVaultSetupDialog} onOpenChange={setShowVaultSetupDialog}>
+        <DialogContent className="bg-slate-800 border-slate-700 max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <Cloud className="w-5 h-5 text-cyan-400" />
+              {vaultExists ? 'Update Cloud Sync PIN' : 'Enable Cloud Sync'}
+            </DialogTitle>
+            <DialogDescription className="text-slate-400">
+              {vaultExists 
+                ? 'Create a new PIN to protect your cloud backup.'
+                : 'Create a 6+ digit PIN to encrypt your identity. You\'ll need this PIN to restore your identity on other devices.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <div>
+              <Label className="text-slate-300 text-sm">PIN (minimum 6 digits)</Label>
+              <Input
+                type="password"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={vaultPin}
+                onChange={(e) => setVaultPin(e.target.value.replace(/\D/g, ''))}
+                placeholder="Enter PIN"
+                className="mt-1 bg-slate-900/50 border-slate-600 text-white"
+                data-testid="input-vault-pin"
+              />
+            </div>
+            <div>
+              <Label className="text-slate-300 text-sm">Confirm PIN</Label>
+              <Input
+                type="password"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={vaultPinConfirm}
+                onChange={(e) => setVaultPinConfirm(e.target.value.replace(/\D/g, ''))}
+                placeholder="Re-enter PIN"
+                className="mt-1 bg-slate-900/50 border-slate-600 text-white"
+                data-testid="input-vault-pin-confirm"
+              />
+            </div>
+            <div>
+              <Label className="text-slate-300 text-sm">Hint (optional)</Label>
+              <Input
+                type="text"
+                value={vaultPinHint}
+                onChange={(e) => setVaultPinHint(e.target.value)}
+                placeholder="e.g., Birthday year"
+                className="mt-1 bg-slate-900/50 border-slate-600 text-white"
+                maxLength={50}
+                data-testid="input-vault-hint"
+              />
+              <p className="text-xs text-slate-500 mt-1">
+                This hint will be visible when recovering your identity.
+              </p>
+            </div>
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+              <p className="text-amber-400 text-xs">
+                <strong>Important:</strong> If you forget your PIN, you cannot recover your identity from the cloud. Make sure to also keep a backup export.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <Button 
+                variant="outline" 
+                className="flex-1" 
+                onClick={() => {
+                  setShowVaultSetupDialog(false);
+                  setVaultPin('');
+                  setVaultPinConfirm('');
+                  setVaultPinHint('');
+                }}
+                data-testid="button-cancel-vault-setup"
+              >
+                Cancel
+              </Button>
+              <Button 
+                className="flex-1 bg-cyan-500 hover:bg-cyan-600"
+                onClick={handleCreateVault}
+                disabled={isCreatingVault || vaultPin.length < 6 || vaultPin !== vaultPinConfirm}
+                data-testid="button-enable-vault"
+              >
+                {isCreatingVault ? 'Encrypting...' : (vaultExists ? 'Update PIN' : 'Enable Sync')}
               </Button>
             </div>
           </div>

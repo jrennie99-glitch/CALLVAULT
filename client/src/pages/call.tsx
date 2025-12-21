@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { BottomNav, type TabType } from '@/components/BottomNav';
 import { TopBar } from '@/components/TopBar';
 import { LockScreen } from '@/components/LockScreen';
+import { WelcomeScreen } from '@/components/WelcomeScreen';
 import { CallView } from '@/components/CallView';
 import { IncomingCallModal } from '@/components/IncomingCallModal';
 import { FAB } from '@/components/FAB';
@@ -41,6 +42,7 @@ const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
 
 export default function CallPage() {
   const [identity, setIdentity] = useState<CryptoIdentity | null>(null);
+  const [showWelcome, setShowWelcome] = useState(false);
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     const contacts = getContacts();
@@ -84,32 +86,40 @@ export default function CallPage() {
       setIsLocked(true);
     }
 
-    let storedIdentity = cryptoLib.loadIdentity();
+    const storedIdentity = cryptoLib.loadIdentity();
     if (!storedIdentity) {
-      storedIdentity = cryptoLib.generateIdentity();
-      cryptoLib.saveIdentity(storedIdentity);
+      // No identity found - show welcome screen with option to create or restore
+      setShowWelcome(true);
+      return;
     }
-    setIdentity(storedIdentity);
+    
+    initializeWithIdentity(storedIdentity);
+  }, []);
+
+  const initializeWithIdentity = (newIdentity: CryptoIdentity) => {
+    setIdentity(newIdentity);
+    setShowWelcome(false);
     
     // Register identity with server (enables founder detection, plan tracking, etc.)
-    registerIdentityWithServer(storedIdentity);
+    registerIdentityWithServer(newIdentity);
     
     // Sync existing contacts to server for mutual contact verification
-    syncAllContactsToServer(storedIdentity.address);
+    syncAllContactsToServer(newIdentity.address);
 
     fetchTurnConfig();
-    initWebSocket(storedIdentity);
+    initWebSocket(newIdentity);
     loadConversations();
 
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js')
         .then(registration => {
-          // Subscribe to push notifications if supported
-          setupPushNotifications(registration, storedIdentity.address);
+          setupPushNotifications(registration, newIdentity.address);
         })
         .catch(console.error);
     }
+  };
 
+  useEffect(() => {
     return () => {
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach(track => track.stop());
@@ -650,6 +660,10 @@ export default function CallPage() {
   const handleSettingsNavigate = (screen: SettingsScreen) => {
     setSettingsScreen(screen);
   };
+
+  if (showWelcome) {
+    return <WelcomeScreen onIdentityCreated={initializeWithIdentity} />;
+  }
 
   if (isLocked) {
     return <LockScreen onUnlock={() => setIsLocked(false)} />;
