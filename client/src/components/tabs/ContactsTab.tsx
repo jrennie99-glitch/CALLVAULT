@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Search, User, Video, Phone, Trash2, ChevronLeft, UserPlus, QrCode, MessageSquare, Shield, Ban, Check, Ticket, Snowflake } from 'lucide-react';
+import { Search, User, Video, Phone, Trash2, ChevronLeft, UserPlus, QrCode, MessageSquare, Shield, Ban, Check, Ticket, Snowflake, Send, Copy, Share2 } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { getContacts, deleteContact, type Contact } from '@/lib/storage';
+import { getContacts, deleteContact, getUserProfile, type Contact } from '@/lib/storage';
 import { Avatar } from '@/components/Avatar';
 import { getLocalOverrides, saveLocalOverride, deleteLocalOverride, isLocallyBlocked, addToLocalBlocklist, removeFromLocalBlocklist, getLocalPasses, saveLocalPass } from '@/lib/policyStorage';
 import { toast } from 'sonner';
@@ -17,6 +17,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
 
 type PermissionStatus = 'allowed' | 'blocked' | 'default';
 
@@ -44,6 +53,12 @@ export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR, onOpenCha
   const [, forceUpdate] = useState({});
   const [alwaysAllowedContacts, setAlwaysAllowedContacts] = useState<Set<string>>(new Set());
   const [isTogglingAlwaysAllowed, setIsTogglingAlwaysAllowed] = useState(false);
+  const [showInviteDialog, setShowInviteDialog] = useState(false);
+  const [inviteContactName, setInviteContactName] = useState('');
+  const [inviteUrl, setInviteUrl] = useState('');
+  const [isCreatingInvite, setIsCreatingInvite] = useState(false);
+  
+  const userProfile = getUserProfile();
 
   useEffect(() => {
     if (ownerAddress) {
@@ -113,6 +128,76 @@ export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR, onOpenCha
       setSelectedContact(null);
       forceUpdate({});
     }
+  };
+
+  const handleCreateInvite = async () => {
+    if (!ownerAddress || !inviteContactName.trim()) {
+      toast.error('Please enter a contact name');
+      return;
+    }
+    
+    setIsCreatingInvite(true);
+    try {
+      const res = await fetch('/api/contact-invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          creatorAddress: ownerAddress,
+          contactName: inviteContactName.trim(),
+          creatorDisplayName: userProfile.displayName || 'Call Vault User',
+        }),
+      });
+      
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({ error: 'Failed to create invite' }));
+        throw new Error(error.error || 'Failed to create invite');
+      }
+      
+      const data = await res.json();
+      setInviteUrl(data.inviteUrl);
+    } catch (error) {
+      console.error('Error creating invite:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to create invite');
+    } finally {
+      setIsCreatingInvite(false);
+    }
+  };
+
+  const handleShareInvite = async () => {
+    if (!inviteUrl) return;
+    
+    const shareText = `Hey ${inviteContactName}! Join me on Call Vault for secure video calls. ${inviteUrl}`;
+    
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'Call Vault Invite',
+          text: shareText,
+        });
+        toast.success('Invite shared!');
+        handleCloseInviteDialog();
+      } catch (error) {
+        if ((error as Error).name !== 'AbortError') {
+          console.error('Share failed:', error);
+        }
+      }
+    } else {
+      await navigator.clipboard.writeText(shareText);
+      toast.success('Invite copied to clipboard!');
+    }
+  };
+
+  const handleCopyInvite = async () => {
+    if (!inviteUrl) return;
+    const shareText = `Hey ${inviteContactName}! Join me on Call Vault for secure video calls. ${inviteUrl}`;
+    await navigator.clipboard.writeText(shareText);
+    toast.success('Invite copied!');
+  };
+
+  const handleCloseInviteDialog = () => {
+    setShowInviteDialog(false);
+    setInviteContactName('');
+    setInviteUrl('');
   };
 
   if (selectedContact) {
@@ -378,29 +463,40 @@ export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR, onOpenCha
               : 'Try a different search term'}
           </p>
           {contacts.length === 0 && (
-            <div className="flex gap-3">
+            <div className="flex flex-col gap-3">
+              <div className="flex gap-3">
+                <Button
+                  onClick={onNavigateToAdd}
+                  className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700"
+                  data-testid="button-add-contact-empty-contacts"
+                >
+                  <UserPlus className="w-4 h-4 mr-2" />
+                  Add Contact
+                </Button>
+                <Button
+                  onClick={onShareQR}
+                  variant="outline"
+                  className="border-slate-600 text-slate-300 hover:bg-slate-800"
+                  data-testid="button-share-qr-empty"
+                >
+                  <QrCode className="w-4 h-4 mr-2" />
+                  Share My QR
+                </Button>
+              </div>
               <Button
-                onClick={onNavigateToAdd}
-                className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700"
-                data-testid="button-add-contact-empty-contacts"
-              >
-                <UserPlus className="w-4 h-4 mr-2" />
-                Add Contact
-              </Button>
-              <Button
-                onClick={onShareQR}
+                onClick={() => setShowInviteDialog(true)}
                 variant="outline"
-                className="border-slate-600 text-slate-300 hover:bg-slate-800"
-                data-testid="button-share-qr-empty"
+                className="border-emerald-600 text-emerald-400 hover:bg-emerald-500/20"
+                data-testid="button-invite-contact"
               >
-                <QrCode className="w-4 h-4 mr-2" />
-                Share My QR
+                <Send className="w-4 h-4 mr-2" />
+                Invite Someone
               </Button>
             </div>
           )}
         </div>
       ) : (
-        <div className="divide-y divide-slate-800">
+        <div className="divide-y divide-slate-800 pb-20">
           {filteredContacts.map((contact) => (
             <div
               key={contact.id}
@@ -451,6 +547,88 @@ export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR, onOpenCha
           ))}
         </div>
       )}
+
+      {filteredContacts.length > 0 && (
+        <button
+          onClick={() => setShowInviteDialog(true)}
+          className="fixed bottom-24 right-4 w-14 h-14 rounded-full bg-gradient-to-r from-emerald-500 to-teal-600 shadow-lg shadow-emerald-500/30 flex items-center justify-center text-white hover:from-emerald-600 hover:to-teal-700 transition-all z-40"
+          data-testid="button-invite-fab"
+          title="Invite someone to Call Vault"
+        >
+          <Send className="w-6 h-6" />
+        </button>
+      )}
+
+      <Dialog open={showInviteDialog} onOpenChange={handleCloseInviteDialog}>
+        <DialogContent className="bg-slate-800 border-slate-700 text-white">
+          <DialogHeader>
+            <DialogTitle>Invite Someone to Call Vault</DialogTitle>
+            <DialogDescription className="text-slate-400">
+              Enter their name and send them an invite. They'll be automatically saved as your contact when they join.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {!inviteUrl ? (
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="contact-name" className="text-slate-300">Contact Name</Label>
+                <Input
+                  id="contact-name"
+                  placeholder="e.g., Mom, John, Boss"
+                  value={inviteContactName}
+                  onChange={(e) => setInviteContactName(e.target.value)}
+                  className="bg-slate-700 border-slate-600 text-white placeholder:text-slate-500"
+                  data-testid="input-invite-contact-name"
+                />
+                <p className="text-xs text-slate-500">
+                  This is how they'll appear in your contacts
+                </p>
+              </div>
+              <DialogFooter>
+                <Button
+                  onClick={handleCreateInvite}
+                  disabled={!inviteContactName.trim() || isCreatingInvite}
+                  className="w-full bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700"
+                  data-testid="button-create-invite"
+                >
+                  {isCreatingInvite ? 'Creating...' : 'Create Invite'}
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            <div className="space-y-4 py-4">
+              <div className="bg-slate-700/50 rounded-lg p-4">
+                <p className="text-sm text-slate-300 mb-2">Invite message for {inviteContactName}:</p>
+                <p className="text-sm text-slate-400 break-all">
+                  Hey {inviteContactName}! Join me on Call Vault for secure video calls. {inviteUrl}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleCopyInvite}
+                  variant="outline"
+                  className="flex-1 border-slate-600 text-slate-300 hover:bg-slate-700"
+                  data-testid="button-copy-invite"
+                >
+                  <Copy className="w-4 h-4 mr-2" />
+                  Copy
+                </Button>
+                <Button
+                  onClick={handleShareInvite}
+                  className="flex-1 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700"
+                  data-testid="button-share-invite"
+                >
+                  <Share2 className="w-4 h-4 mr-2" />
+                  Share
+                </Button>
+              </div>
+              <p className="text-xs text-slate-500 text-center">
+                When {inviteContactName} opens this link and joins, they'll be automatically added to your contacts
+              </p>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

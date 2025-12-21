@@ -4,8 +4,9 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Gift, Check, Clock, Sparkles, ArrowRight, Loader2 } from 'lucide-react';
+import { Gift, Check, Clock, Sparkles, ArrowRight, Loader2, UserPlus, Phone, Video } from 'lucide-react';
 import { toast } from 'sonner';
+import { addContact } from '@/lib/storage';
 
 interface InviteLinkInfo {
   code: string;
@@ -14,6 +15,8 @@ interface InviteLinkInfo {
   trialMinutes: number | null;
   grantPlan: string | null;
   isValid: boolean;
+  creatorDisplayName: string | null;
+  contactName: string | null;
 }
 
 export default function InvitePage() {
@@ -50,7 +53,21 @@ export default function InvitePage() {
       return res.json();
     },
     onSuccess: (data) => {
-      toast.success(`Welcome! You now have ${data.trialDays} days + ${data.trialMinutes} minutes of ${data.grantPlan} access`);
+      if (data.contactCreated && data.creatorAddress) {
+        // For contact invites, save the creator as a contact locally
+        // Use creatorDisplayName (the name the sender wants to be known as)
+        const storedIdentity = localStorage.getItem('crypto_identity');
+        if (storedIdentity) {
+          const identity = JSON.parse(storedIdentity);
+          addContact({
+            name: data.creatorDisplayName || 'New Contact',
+            address: data.creatorAddress,
+          }, identity.address);
+        }
+        toast.success(`You're now connected with ${data.creatorDisplayName || 'your new contact'}!`);
+      } else {
+        toast.success(`Welcome! You now have ${data.trialDays} days + ${data.trialMinutes} minutes of ${data.grantPlan} access`);
+      }
       setTimeout(() => setLocation('/'), 1500);
     },
     onError: (error: Error) => {
@@ -112,6 +129,80 @@ export default function InvitePage() {
     );
   }
 
+  // Contact invite UI
+  if (inviteInfo.type === 'contact') {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
+        <Card className="bg-slate-800/50 border-slate-700 max-w-md w-full backdrop-blur">
+          <CardHeader className="text-center pb-2">
+            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center mx-auto mb-4">
+              <UserPlus className="w-10 h-10 text-white" />
+            </div>
+            <CardTitle className="text-2xl text-white">Connect with {inviteInfo.creatorDisplayName || 'Someone'}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <p className="text-slate-300 text-center">
+              <span className="text-emerald-400 font-medium">{inviteInfo.creatorDisplayName || 'Someone'}</span> wants to connect with you on Call Vault for secure video and voice calls.
+            </p>
+
+            <div className="bg-slate-700/50 rounded-xl p-4">
+              <div className="flex items-center justify-center gap-6">
+                <div className="flex flex-col items-center">
+                  <div className="w-12 h-12 rounded-full bg-emerald-500/20 flex items-center justify-center mb-2">
+                    <Video className="w-6 h-6 text-emerald-400" />
+                  </div>
+                  <span className="text-xs text-slate-400">Video Calls</span>
+                </div>
+                <div className="flex flex-col items-center">
+                  <div className="w-12 h-12 rounded-full bg-blue-500/20 flex items-center justify-center mb-2">
+                    <Phone className="w-6 h-6 text-blue-400" />
+                  </div>
+                  <span className="text-xs text-slate-400">Voice Calls</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-start gap-3 text-sm">
+                <Check className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
+                <span className="text-slate-300">They'll be added to your contacts automatically</span>
+              </div>
+              <div className="flex items-start gap-3 text-sm">
+                <Check className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
+                <span className="text-slate-300">No phone number or email needed</span>
+              </div>
+              <div className="flex items-start gap-3 text-sm">
+                <Check className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
+                <span className="text-slate-300">End-to-end encrypted communication</span>
+              </div>
+            </div>
+
+            <Button 
+              onClick={handleRedeem}
+              disabled={isRedeeming || redeemMutation.isPending}
+              className="w-full h-12 text-lg bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700"
+              data-testid="button-accept-contact-invite"
+            >
+              {isRedeeming || redeemMutation.isPending ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <>
+                  Accept & Connect
+                  <ArrowRight className="w-5 h-5 ml-2" />
+                </>
+              )}
+            </Button>
+
+            <p className="text-xs text-slate-500 text-center">
+              By accepting, you'll be able to call each other instantly
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Trial invite UI (original)
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
       <Card className="bg-slate-800/50 border-slate-700 max-w-md w-full backdrop-blur">

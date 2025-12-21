@@ -341,7 +341,7 @@ export const inviteLinks = pgTable("invite_links", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   code: text("code").notNull().unique(),
   createdByAddress: text("created_by_address").notNull(),
-  type: text("type").notNull().default("trial"), // 'trial' | 'pro_access' | 'business_access'
+  type: text("type").notNull().default("trial"), // 'trial' | 'pro_access' | 'business_access' | 'contact'
   trialDays: integer("trial_days").default(7),
   trialMinutes: integer("trial_minutes").default(30),
   grantPlan: text("grant_plan").default("pro"), // 'pro' | 'business'
@@ -349,6 +349,8 @@ export const inviteLinks = pgTable("invite_links", {
   uses: integer("uses").default(0),
   expiresAt: timestamp("expires_at"),
   isActive: boolean("is_active").default(true),
+  contactName: text("contact_name"), // Name to save as contact when redeemed
+  creatorDisplayName: text("creator_display_name"), // Creator's display name for recipient's contact
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

@@ -4046,10 +4046,66 @@ export async function registerRoutes(
         trialMinutes: link.trialMinutes,
         grantPlan: link.grantPlan,
         isValid: true,
+        creatorDisplayName: link.creatorDisplayName,
+        contactName: link.contactName,
       });
     } catch (error) {
       console.error('Error fetching invite link:', error);
       res.status(500).json({ error: 'Failed to fetch invite link' });
+    }
+  });
+
+  // User: Create contact invite (any user can create)
+  app.post('/api/contact-invite', async (req, res) => {
+    try {
+      const { creatorAddress, contactName, creatorDisplayName } = req.body;
+      
+      if (!creatorAddress || !contactName) {
+        return res.status(400).json({ error: 'Creator address and contact name required' });
+      }
+      
+      // Generate unique invite code
+      const code = `cv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      
+      const link = await storage.createInviteLink({
+        code,
+        createdByAddress: creatorAddress,
+        type: 'contact',
+        trialDays: 0,
+        trialMinutes: 0,
+        maxUses: 1,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+        isActive: true,
+        contactName,
+        creatorDisplayName: creatorDisplayName || null,
+      });
+      
+      // Get the app URL for sharing
+      const baseUrl = process.env.REPLIT_DEV_DOMAIN 
+        ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+        : (process.env.REPLIT_DOMAINS?.split(',')[0] ? `https://${process.env.REPLIT_DOMAINS.split(',')[0]}` : '');
+      
+      res.json({ 
+        success: true, 
+        code: link.code,
+        inviteUrl: `${baseUrl}/invite/${link.code}`,
+        contactName,
+      });
+    } catch (error) {
+      console.error('Error creating contact invite:', error);
+      res.status(500).json({ error: 'Failed to create invite' });
+    }
+  });
+  
+  // Get user's sent invites
+  app.get('/api/contact-invites/:address', async (req, res) => {
+    try {
+      const { address } = req.params;
+      const invites = await storage.getInviteLinksByCreator(address);
+      res.json(invites.filter(i => i.type === 'contact'));
+    } catch (error) {
+      console.error('Error fetching invites:', error);
+      res.status(500).json({ error: 'Failed to fetch invites' });
     }
   });
 
@@ -4063,10 +4119,37 @@ export async function registerRoutes(
         return res.status(400).json({ error: 'Redeemer address required' });
       }
       
+      // Get the invite link first to get contact info
+      const link = await storage.getInviteLink(code);
+      if (!link) {
+        return res.status(404).json({ error: 'Invite not found' });
+      }
+      
       const result = await storage.redeemInviteLink(code, redeemerAddress);
       
       if (!result.success) {
         return res.status(400).json({ error: result.error });
+      }
+      
+      // If this is a contact invite, create mutual contacts
+      if (link.type === 'contact' && link.contactName) {
+        // Create contact for the invite creator (they save redeemer with the name they specified)
+        await storage.createOrUpdateContact(
+          link.createdByAddress,
+          redeemerAddress,
+          link.contactName
+        );
+        
+        // Create contact for the redeemer (they save the creator with their display name)
+        if (link.creatorDisplayName) {
+          await storage.createOrUpdateContact(
+            redeemerAddress,
+            link.createdByAddress,
+            link.creatorDisplayName
+          );
+        }
+        
+        console.log(`Contact invite redeemed: ${link.createdByAddress} <-> ${redeemerAddress} (${link.contactName})`);
       }
       
       res.json({ 
@@ -4074,6 +4157,9 @@ export async function registerRoutes(
         trialDays: result.link?.trialDays,
         trialMinutes: result.link?.trialMinutes,
         grantPlan: result.link?.grantPlan,
+        contactCreated: link.type === 'contact',
+        creatorAddress: link.createdByAddress,
+        creatorDisplayName: link.creatorDisplayName,
       });
     } catch (error) {
       console.error('Error redeeming invite link:', error);

@@ -115,11 +115,15 @@ export interface IStorage {
   getInviteLink(code: string): Promise<InviteLink | undefined>;
   getInviteLinkById(id: string): Promise<InviteLink | undefined>;
   getAllInviteLinks(createdByAddress?: string): Promise<InviteLink[]>;
+  getInviteLinksByCreator(creatorAddress: string): Promise<InviteLink[]>;
   createInviteLink(link: InsertInviteLink): Promise<InviteLink>;
   updateInviteLink(id: string, updates: Partial<InviteLink>): Promise<InviteLink | undefined>;
   deleteInviteLink(id: string): Promise<boolean>;
   redeemInviteLink(code: string, redeemerAddress: string): Promise<{ success: boolean; error?: string; link?: InviteLink }>;
   getInviteRedemptions(inviteLinkId: string): Promise<InviteRedemption[]>;
+  
+  // Contact management
+  createOrUpdateContact(ownerAddress: string, contactAddress: string, name: string): Promise<Contact>;
 
   // Entitlement helpers
   canUseProFeatures(address: string): Promise<boolean>;
@@ -820,6 +824,38 @@ export class DatabaseStorage implements IStorage {
         .orderBy(desc(inviteLinks.createdAt));
     }
     return db.select().from(inviteLinks).orderBy(desc(inviteLinks.createdAt));
+  }
+
+  async getInviteLinksByCreator(creatorAddress: string): Promise<InviteLink[]> {
+    return db.select().from(inviteLinks)
+      .where(eq(inviteLinks.createdByAddress, creatorAddress))
+      .orderBy(desc(inviteLinks.createdAt));
+  }
+
+  async createOrUpdateContact(ownerAddress: string, contactAddress: string, name: string): Promise<Contact> {
+    // Check if contact already exists
+    const [existing] = await db.select().from(contacts)
+      .where(and(
+        eq(contacts.ownerAddress, ownerAddress),
+        eq(contacts.contactAddress, contactAddress)
+      ));
+    
+    if (existing) {
+      // Update existing contact name
+      const [updated] = await db.update(contacts)
+        .set({ name })
+        .where(eq(contacts.id, existing.id))
+        .returning();
+      return updated;
+    }
+    
+    // Create new contact
+    const [created] = await db.insert(contacts).values({
+      ownerAddress,
+      contactAddress,
+      name,
+    }).returning();
+    return created;
   }
 
   async createInviteLink(link: InsertInviteLink): Promise<InviteLink> {
