@@ -33,6 +33,7 @@ import {
   linkedAddresses, type LinkedAddress,
   pushSubscriptions, type PushSubscription,
   identityVaults, type IdentityVault, type InsertIdentityVault,
+  vaultAccessLogs, type VaultAccessLog, type InsertVaultAccessLog,
 } from "@shared/schema";
 import type { UserMode, FeatureFlags } from "@shared/types";
 import { randomUUID, createHash } from "crypto";
@@ -130,6 +131,11 @@ export interface IStorage {
   getIdentityVault(publicKeyBase58: string): Promise<IdentityVault | undefined>;
   createIdentityVault(vault: InsertIdentityVault): Promise<IdentityVault>;
   updateIdentityVault(publicKeyBase58: string, updates: Partial<IdentityVault>): Promise<IdentityVault | undefined>;
+  
+  // Vault access logging and rate limiting
+  logVaultAccess(log: InsertVaultAccessLog): Promise<VaultAccessLog>;
+  getRecentVaultAccessAttempts(publicKeyBase58: string, minutesAgo: number): Promise<VaultAccessLog[]>;
+  getVaultAccessesByIp(ipAddress: string, minutesAgo: number): Promise<VaultAccessLog[]>;
 
   // Entitlement helpers
   canUseProFeatures(address: string): Promise<boolean>;
@@ -882,6 +888,32 @@ export class DatabaseStorage implements IStorage {
       .where(eq(identityVaults.publicKeyBase58, publicKeyBase58))
       .returning();
     return updated || undefined;
+  }
+
+  // Vault access logging methods
+  async logVaultAccess(log: InsertVaultAccessLog): Promise<VaultAccessLog> {
+    const [created] = await db.insert(vaultAccessLogs).values(log).returning();
+    return created;
+  }
+
+  async getRecentVaultAccessAttempts(publicKeyBase58: string, minutesAgo: number): Promise<VaultAccessLog[]> {
+    const cutoffTime = new Date(Date.now() - minutesAgo * 60 * 1000);
+    return db.select().from(vaultAccessLogs)
+      .where(and(
+        eq(vaultAccessLogs.publicKeyBase58, publicKeyBase58),
+        gte(vaultAccessLogs.createdAt, cutoffTime)
+      ))
+      .orderBy(desc(vaultAccessLogs.createdAt));
+  }
+
+  async getVaultAccessesByIp(ipAddress: string, minutesAgo: number): Promise<VaultAccessLog[]> {
+    const cutoffTime = new Date(Date.now() - minutesAgo * 60 * 1000);
+    return db.select().from(vaultAccessLogs)
+      .where(and(
+        eq(vaultAccessLogs.ipAddress, ipAddress),
+        gte(vaultAccessLogs.createdAt, cutoffTime)
+      ))
+      .orderBy(desc(vaultAccessLogs.createdAt));
   }
 
   async createInviteLink(link: InsertInviteLink): Promise<InviteLink> {

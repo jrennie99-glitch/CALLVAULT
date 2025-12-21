@@ -3372,6 +3372,8 @@ export async function registerRoutes(
   app.post('/api/identity/vault', async (req, res) => {
     try {
       const { publicKeyBase58, encryptedKeypair, salt, hint, signature, nonce, timestamp } = req.body;
+      const ipAddress = req.headers['x-forwarded-for']?.toString().split(',')[0]?.trim() || req.ip || 'unknown';
+      const userAgent = req.headers['user-agent'] || 'unknown';
       
       if (!publicKeyBase58 || !encryptedKeypair || !salt) {
         return res.status(400).json({ error: 'Missing required fields' });
@@ -3386,6 +3388,14 @@ export async function registerRoutes(
       const isValid = verifyGenericSignature(payload, signature, publicKeyBase58, nonce, timestamp);
       
       if (!isValid) {
+        // Log failed signature attempt
+        await storage.logVaultAccess({
+          publicKeyBase58,
+          ipAddress,
+          userAgent,
+          accessType: 'create_failed_signature',
+          success: false,
+        });
         return res.status(401).json({ error: 'Invalid signature - cannot verify ownership of this identity' });
       }
       
@@ -3398,6 +3408,16 @@ export async function registerRoutes(
           salt,
           hint,
         });
+        
+        // Log vault update
+        await storage.logVaultAccess({
+          publicKeyBase58,
+          ipAddress,
+          userAgent,
+          accessType: 'update',
+          success: true,
+        });
+        
         return res.json({ success: true, updated: true });
       }
       
@@ -3409,6 +3429,15 @@ export async function registerRoutes(
         hint,
       });
       
+      // Log vault creation
+      await storage.logVaultAccess({
+        publicKeyBase58,
+        ipAddress,
+        userAgent,
+        accessType: 'create',
+        success: true,
+      });
+      
       res.json({ success: true, created: true });
     } catch (error) {
       console.error('Error storing identity vault:', error);
@@ -3416,15 +3445,68 @@ export async function registerRoutes(
     }
   });
   
-  // Retrieve encrypted identity from vault
+  // Retrieve encrypted identity from vault (with rate limiting and IP logging)
   app.get('/api/identity/vault/:publicKeyBase58', async (req, res) => {
     try {
       const { publicKeyBase58 } = req.params;
+      const ipAddress = req.headers['x-forwarded-for']?.toString().split(',')[0]?.trim() || req.ip || 'unknown';
+      const userAgent = req.headers['user-agent'] || 'unknown';
+      
+      // Rate limiting: max 10 vault fetch attempts per hour per IP
+      const recentIpAttempts = await storage.getVaultAccessesByIp(ipAddress, 60);
+      if (recentIpAttempts.length >= 10) {
+        console.warn(`Rate limit exceeded for vault access from IP ${ipAddress}`);
+        await storage.logVaultAccess({
+          publicKeyBase58,
+          ipAddress,
+          userAgent,
+          accessType: 'rate_limited',
+          success: false,
+        });
+        return res.status(429).json({ 
+          error: 'Too many vault access attempts. Please try again later.',
+          retryAfter: 3600 
+        });
+      }
+      
+      // Rate limiting: max 5 vault fetch attempts per hour per public key
+      const recentKeyAttempts = await storage.getRecentVaultAccessAttempts(publicKeyBase58, 60);
+      if (recentKeyAttempts.length >= 5) {
+        console.warn(`Rate limit exceeded for vault access to key ${publicKeyBase58.substring(0, 10)}...`);
+        await storage.logVaultAccess({
+          publicKeyBase58,
+          ipAddress,
+          userAgent,
+          accessType: 'rate_limited',
+          success: false,
+        });
+        return res.status(429).json({ 
+          error: 'Too many access attempts for this identity. Please try again later.',
+          retryAfter: 3600 
+        });
+      }
       
       const vault = await storage.getIdentityVault(publicKeyBase58);
       if (!vault) {
+        // Log failed attempt
+        await storage.logVaultAccess({
+          publicKeyBase58,
+          ipAddress,
+          userAgent,
+          accessType: 'fetch',
+          success: false,
+        });
         return res.status(404).json({ error: 'Vault not found' });
       }
+      
+      // Log successful access
+      await storage.logVaultAccess({
+        publicKeyBase58,
+        ipAddress,
+        userAgent,
+        accessType: 'fetch',
+        success: true,
+      });
       
       res.json({
         encryptedKeypair: vault.encryptedKeypair,

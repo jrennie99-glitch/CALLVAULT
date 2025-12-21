@@ -99,6 +99,24 @@ export const insertIdentityVaultSchema = createInsertSchema(identityVaults).omit
 export type InsertIdentityVault = z.infer<typeof insertIdentityVaultSchema>;
 export type IdentityVault = typeof identityVaults.$inferSelect;
 
+// Vault access logs for security monitoring and rate limiting
+export const vaultAccessLogs = pgTable("vault_access_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  publicKeyBase58: text("public_key_base58").notNull(),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  accessType: text("access_type").notNull(), // 'fetch', 'create', 'update', 'failed_attempt'
+  success: boolean("success").default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertVaultAccessLogSchema = createInsertSchema(vaultAccessLogs).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertVaultAccessLog = z.infer<typeof insertVaultAccessLogSchema>;
+export type VaultAccessLog = typeof vaultAccessLogs.$inferSelect;
+
 // Push subscriptions for offline notifications
 export const pushSubscriptions = pgTable("push_subscriptions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
