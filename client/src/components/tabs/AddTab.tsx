@@ -290,18 +290,35 @@ export function AddTab({ myAddress, onContactAdded, onStartCall, onNavigateToInv
           setShowScanner(open);
           if (!open) setScannerError(null);
         }}>
-        <DialogContent className="bg-slate-800 border-slate-700 max-w-md p-0 overflow-hidden">
-          <DialogHeader className="p-4 pb-2">
-            <DialogTitle className="text-white flex items-center justify-between">
-              <span className="flex items-center gap-2">
-                <ScanLine className="w-5 h-5 text-emerald-400" />
-                Scan QR Code
-              </span>
-            </DialogTitle>
-          </DialogHeader>
-          <div className="relative">
-            <div className="aspect-square w-full bg-black overflow-hidden">
-              {showScanner && (
+        <DialogContent className="bg-slate-900 border-slate-700 max-w-lg p-0 overflow-hidden [&>button]:hidden">
+          <div className="relative min-h-[500px] flex flex-col">
+            <div className="absolute top-0 left-0 right-0 z-10 p-4 bg-gradient-to-b from-black/80 to-transparent">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center">
+                    <ScanLine className="w-5 h-5 text-emerald-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-white font-semibold">Scan QR Code</h3>
+                    <p className="text-slate-400 text-xs">Point camera at a Call Vault code</p>
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setShowScanner(false)}
+                  className="text-white hover:bg-white/10 rounded-full"
+                  data-testid="button-close-scanner"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </Button>
+              </div>
+            </div>
+            
+            <div className="flex-1 relative bg-black">
+              {showScanner && !scannerError && (
                 <Scanner
                   onScan={(detectedCodes) => {
                     if (detectedCodes && detectedCodes.length > 0) {
@@ -316,7 +333,7 @@ export function AddTab({ myAddress, onContactAdded, onStartCall, onNavigateToInv
                     } else if (err?.name === 'NotFoundError' || err?.message?.includes('not found')) {
                       setScannerError('No camera found on this device.');
                     } else if (err?.name === 'NotReadableError') {
-                      setScannerError('Camera is in use by another app. Please close other apps using the camera.');
+                      setScannerError('Camera is in use by another app.');
                     } else {
                       setScannerError('Unable to access camera. Please try again.');
                     }
@@ -327,27 +344,94 @@ export function AddTab({ myAddress, onContactAdded, onStartCall, onNavigateToInv
                   formats={['qr_code']}
                   scanDelay={300}
                   styles={{
-                    container: { width: '100%', height: '100%' },
+                    container: { width: '100%', height: '100%', position: 'absolute', inset: 0 },
                     video: { width: '100%', height: '100%', objectFit: 'cover' }
                   }}
                   components={{
                     torch: false,
-                    finder: true
+                    finder: false
                   }}
                 />
               )}
-            </div>
-            {scannerError && (
-              <div className="absolute bottom-0 left-0 right-0 bg-red-500/90 text-white text-center py-2 text-sm">
-                {scannerError}
+              
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="relative w-64 h-64">
+                  <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-emerald-400 rounded-tl-xl" />
+                  <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-emerald-400 rounded-tr-xl" />
+                  <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-emerald-400 rounded-bl-xl" />
+                  <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-emerald-400 rounded-br-xl" />
+                  
+                  <div className="absolute inset-0 overflow-hidden">
+                    <div 
+                      className="absolute left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-emerald-400 to-transparent animate-pulse"
+                      style={{
+                        animation: 'scanLine 2s ease-in-out infinite',
+                        top: '50%'
+                      }}
+                    />
+                  </div>
+                </div>
               </div>
-            )}
+              
+              <div className="absolute inset-0 bg-black/50 pointer-events-none">
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="w-64 h-64 bg-transparent" style={{ boxShadow: '0 0 0 9999px rgba(0,0,0,0.5)' }} />
+                </div>
+              </div>
+              
+              {scannerError && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/95 p-6">
+                  <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center mb-4">
+                    <svg className="w-8 h-8 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                  </div>
+                  <p className="text-white text-center font-medium mb-2">Camera Error</p>
+                  <p className="text-slate-400 text-center text-sm mb-6">{scannerError}</p>
+                  <div className="space-y-3 w-full max-w-xs">
+                    <Button
+                      onClick={() => {
+                        setScannerError(null);
+                        setShowScanner(false);
+                        setTimeout(() => setShowScanner(true), 100);
+                      }}
+                      className="w-full bg-emerald-500 hover:bg-emerald-600"
+                      data-testid="button-retry-camera"
+                    >
+                      Try Again
+                    </Button>
+                    <Button
+                      onClick={() => setShowScanner(false)}
+                      variant="outline"
+                      className="w-full border-slate-600 text-slate-300"
+                      data-testid="button-enter-manually"
+                    >
+                      Enter Manually
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/90 to-transparent">
+              <div className="text-center">
+                <p className="text-slate-300 text-sm mb-3">
+                  Position the QR code within the frame
+                </p>
+                <div className="flex items-center justify-center gap-2 text-emerald-400 text-xs">
+                  <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>Scanning...</span>
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="p-4 pt-2">
-            <p className="text-slate-400 text-sm text-center">
-              Point your camera at a Call Vault QR code
-            </p>
-          </div>
+          
+          <style>{`
+            @keyframes scanLine {
+              0%, 100% { transform: translateY(-100px); opacity: 0.3; }
+              50% { transform: translateY(100px); opacity: 1; }
+            }
+          `}</style>
         </DialogContent>
       </Dialog>
 
