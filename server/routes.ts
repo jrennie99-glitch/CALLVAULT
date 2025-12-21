@@ -7,6 +7,7 @@ import bcrypt from "bcrypt";
 import * as fs from "fs";
 import * as path from "path";
 import { randomUUID } from "crypto";
+import webpush from "web-push";
 import type { WSMessage, SignedCallIntent, CallIntent, SignedMessage, Message, Conversation, CallPolicy, ContactOverride, CallPass, BlockedUser, RoutingRule, WalletVerification, CallRequest, GroupCallRoom, GroupCallParticipant } from "@shared/types";
 import * as messageStore from "./messageStore";
 import * as policyStore from "./policyStore";
@@ -14,6 +15,68 @@ import { storage } from "./storage";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
 import { FreeTierShield, FREE_TIER_LIMITS, type ShieldErrorCode } from "./freeTierShield";
 import { sendEmail, generateWelcomeEmail, generateTrialInviteEmail } from "./email";
+
+// VAPID keys for push notifications - generate once and store in env vars
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || '';
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@callvault.app';
+
+// Initialize web-push if VAPID keys are configured
+if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
+  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+  console.log('Web Push configured with VAPID keys');
+} else {
+  console.log('Web Push not configured - set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY to enable push notifications');
+}
+
+// Helper to send push notification
+async function sendPushNotification(
+  userAddress: string, 
+  payload: { type: string; title: string; body: string; from_address?: string; convo_id?: string; tag?: string }
+): Promise<boolean> {
+  if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
+    console.log('Push notifications not configured');
+    return false;
+  }
+  
+  try {
+    const subscriptions = await storage.getPushSubscriptions(userAddress);
+    if (subscriptions.length === 0) {
+      console.log(`No push subscriptions for ${userAddress}`);
+      return false;
+    }
+    
+    let sent = false;
+    for (const sub of subscriptions) {
+      try {
+        await webpush.sendNotification(
+          {
+            endpoint: sub.endpoint,
+            keys: {
+              p256dh: sub.p256dhKey,
+              auth: sub.authKey
+            }
+          },
+          JSON.stringify(payload)
+        );
+        sent = true;
+        console.log(`Push notification sent to ${userAddress}`);
+      } catch (err: any) {
+        // If subscription is no longer valid, remove it
+        if (err.statusCode === 404 || err.statusCode === 410) {
+          await storage.deletePushSubscription(userAddress, sub.endpoint);
+          console.log(`Removed invalid push subscription for ${userAddress}`);
+        } else {
+          console.error('Push notification error:', err.message);
+        }
+      }
+    }
+    return sent;
+  } catch (error) {
+    console.error('Error sending push notification:', error);
+    return false;
+  }
+}
 
 const BCRYPT_SALT_ROUNDS = 12;
 const MAX_FAILED_LOGIN_ATTEMPTS = 5;
@@ -3378,6 +3441,58 @@ export async function registerRoutes(
     }
   });
 
+  // PUSH NOTIFICATION ENDPOINTS
+  
+  // Get VAPID public key for push subscription
+  app.get('/api/push/vapid-public-key', (req, res) => {
+    if (!VAPID_PUBLIC_KEY) {
+      return res.status(503).json({ error: 'Push notifications not configured' });
+    }
+    res.json({ vapidPublicKey: VAPID_PUBLIC_KEY });
+  });
+
+  // Subscribe to push notifications
+  app.post('/api/push/subscribe', async (req, res) => {
+    try {
+      const { userAddress, subscription } = req.body;
+      
+      if (!userAddress || !subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
+        return res.status(400).json({ error: 'Missing required subscription data' });
+      }
+      
+      await storage.savePushSubscription(
+        userAddress,
+        subscription.endpoint,
+        subscription.keys.p256dh,
+        subscription.keys.auth
+      );
+      
+      console.log(`Push subscription saved for ${userAddress}`);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error saving push subscription:', error);
+      res.status(500).json({ error: 'Failed to save push subscription' });
+    }
+  });
+
+  // Unsubscribe from push notifications
+  app.post('/api/push/unsubscribe', async (req, res) => {
+    try {
+      const { userAddress, endpoint } = req.body;
+      
+      if (!userAddress || !endpoint) {
+        return res.status(400).json({ error: 'Missing required fields' });
+      }
+      
+      await storage.deletePushSubscription(userAddress, endpoint);
+      console.log(`Push subscription removed for ${userAddress}`);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error removing push subscription:', error);
+      res.status(500).json({ error: 'Failed to remove push subscription' });
+    }
+  });
+
   // Get user entitlements (public) - Legacy endpoint
   app.get('/api/entitlements/:address', async (req, res) => {
     try {
@@ -4073,12 +4188,54 @@ export async function registerRoutes(
             
             const targetConnection = connections.get(signedIntent.intent.to_address);
             if (!targetConnection) {
-              // Recipient is offline - record missed call and notify caller
+              // Recipient is offline - try push notification first
               const callerAddr = signedIntent.intent.from_address;
               const recipientAddr = signedIntent.intent.to_address;
               const mediaType = signedIntent.intent.media || 'audio';
               
-              // Store missed call notification for the recipient
+              // Get caller's display name for notification
+              const callerIdentity = await storage.getIdentity(callerAddr);
+              const callerContact = await storage.getContact(recipientAddr, callerAddr);
+              const callerName = callerContact?.name || callerIdentity?.displayName || callerAddr.slice(0, 12) + '...';
+              
+              // Try to send push notification to wake up the recipient
+              const pushSent = await sendPushNotification(recipientAddr, {
+                type: 'call',
+                title: 'Incoming Call',
+                body: `${callerName} is calling you`,
+                from_address: callerAddr,
+                tag: 'incoming-call'
+              });
+              
+              if (pushSent) {
+                // Push was sent - wait briefly for recipient to come online
+                console.log(`Push notification sent to ${recipientAddr}, waiting for connection...`);
+                
+                // Wait up to 15 seconds for recipient to come online
+                let waitTime = 0;
+                const checkInterval = 1000; // Check every second
+                const maxWait = 15000;
+                
+                while (waitTime < maxWait) {
+                  await new Promise(resolve => setTimeout(resolve, checkInterval));
+                  waitTime += checkInterval;
+                  
+                  const newConnection = connections.get(recipientAddr);
+                  if (newConnection) {
+                    // Recipient came online! Forward the call
+                    console.log(`Recipient ${recipientAddr} came online after push, forwarding call`);
+                    newConnection.ws.send(JSON.stringify({
+                      type: 'call:incoming',
+                      from_address: callerAddr,
+                      from_pubkey: signedIntent.intent.from_pubkey,
+                      media: mediaType
+                    } as WSMessage));
+                    return;
+                  }
+                }
+              }
+              
+              // Recipient didn't come online - record missed call
               storage.storeMessage(
                 callerAddr,
                 recipientAddr,
@@ -4090,7 +4247,7 @@ export async function registerRoutes(
               
               console.log(`Recipient ${recipientAddr} offline - recorded missed call from ${callerAddr}`);
               
-              // Tell caller the recipient is unavailable with a friendlier message
+              // Tell caller the recipient is unavailable
               ws.send(JSON.stringify({ 
                 type: 'call:unavailable', 
                 message: 'Recipient is currently unavailable. They will see your missed call.',

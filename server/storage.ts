@@ -31,6 +31,7 @@ import {
   planEntitlements, type PlanEntitlements, type InsertPlanEntitlements,
   userEntitlementOverrides, type UserEntitlementOverrides, type InsertUserEntitlementOverrides,
   linkedAddresses, type LinkedAddress,
+  pushSubscriptions, type PushSubscription,
 } from "@shared/schema";
 import type { UserMode, FeatureFlags } from "@shared/types";
 import { randomUUID, createHash } from "crypto";
@@ -1687,6 +1688,50 @@ export class DatabaseStorage implements IStorage {
     const [link] = await db.select().from(linkedAddresses)
       .where(eq(linkedAddresses.linkedAddress, address));
     return !!link;
+  }
+
+  // Push subscriptions implementation
+  async savePushSubscription(userAddress: string, endpoint: string, p256dhKey: string, authKey: string): Promise<void> {
+    // Upsert - update if endpoint exists, otherwise insert
+    const existing = await db.select().from(pushSubscriptions)
+      .where(and(
+        eq(pushSubscriptions.userAddress, userAddress),
+        eq(pushSubscriptions.endpoint, endpoint)
+      ));
+    
+    if (existing.length > 0) {
+      await db.update(pushSubscriptions)
+        .set({ p256dhKey, authKey, updatedAt: new Date() })
+        .where(and(
+          eq(pushSubscriptions.userAddress, userAddress),
+          eq(pushSubscriptions.endpoint, endpoint)
+        ));
+    } else {
+      await db.insert(pushSubscriptions).values({
+        userAddress,
+        endpoint,
+        p256dhKey,
+        authKey,
+      });
+    }
+  }
+
+  async getPushSubscriptions(userAddress: string): Promise<{ endpoint: string; p256dhKey: string; authKey: string }[]> {
+    const subs = await db.select({
+      endpoint: pushSubscriptions.endpoint,
+      p256dhKey: pushSubscriptions.p256dhKey,
+      authKey: pushSubscriptions.authKey,
+    }).from(pushSubscriptions)
+      .where(eq(pushSubscriptions.userAddress, userAddress));
+    return subs;
+  }
+
+  async deletePushSubscription(userAddress: string, endpoint: string): Promise<void> {
+    await db.delete(pushSubscriptions)
+      .where(and(
+        eq(pushSubscriptions.userAddress, userAddress),
+        eq(pushSubscriptions.endpoint, endpoint)
+      ));
   }
 
   // Token metrics implementation
