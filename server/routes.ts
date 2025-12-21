@@ -3048,7 +3048,7 @@ export async function registerRoutes(
   // Check if call can be started (pre-flight check)
   app.post('/api/call/can-start', async (req, res) => {
     try {
-      const { callerAddress, calleeAddress, isContact, isMutualContact, isGroupCall, isExternalLink, isPaidCall } = req.body;
+      const { callerAddress, calleeAddress, isGroupCall, isExternalLink, isPaidCall } = req.body;
       
       if (!callerAddress || !calleeAddress) {
         return res.status(400).json({ error: 'Missing callerAddress or calleeAddress' });
@@ -3063,9 +3063,17 @@ export async function registerRoutes(
         });
       }
       
+      // Look up contacts SERVER-SIDE to determine relationship (client can't know if callee added them)
+      const callerContact = await storage.getContact(callerAddress, calleeAddress);
+      const calleeContact = await storage.getContact(calleeAddress, callerAddress);
+      const isMutualContact = !!(callerContact && calleeContact);
+      const isEitherContact = !!(callerContact || calleeContact); // EITHER party added the other
+      const isContact = !!callerContact;
+      
       const result = await FreeTierShield.canStartCall(callerAddress, calleeAddress, {
         isContact,
         isMutualContact,
+        isEitherContact,
         isGroupCall,
         isExternalLink,
         isPaidCall
