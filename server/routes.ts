@@ -1465,9 +1465,11 @@ export async function registerRoutes(
   // ============================================
 
   // Founder seeding on startup
-  // FOUNDER_PUBKEY: Use the public key (stable, never changes even if address rotates)
+  // FOUNDER_PUBKEYS: Comma-separated list of public keys (supports multiple devices)
+  // FOUNDER_PUBKEY: Single public key (legacy, still supported)
   // FOUNDER_ADDRESS: Legacy support for full address matching
-  const FOUNDER_PUBKEY = process.env.FOUNDER_PUBKEY;
+  const FOUNDER_PUBKEYS_RAW = process.env.FOUNDER_PUBKEYS || process.env.FOUNDER_PUBKEY || '';
+  const FOUNDER_PUBKEYS = FOUNDER_PUBKEYS_RAW.split(',').map(k => k.trim()).filter(k => k.length > 0);
   const FOUNDER_ADDRESS = process.env.FOUNDER_ADDRESS;
   
   // Extract public key from address format: call:<pubkey>:<random>
@@ -1480,11 +1482,13 @@ export async function registerRoutes(
     return null;
   }
   
-  // Check if an address matches the founder (by pubkey or full address)
+  // Check if an address matches any founder (by pubkey or full address)
   function isFounderAddress(address: string): boolean {
-    if (FOUNDER_PUBKEY) {
+    if (FOUNDER_PUBKEYS.length > 0) {
       const pubkey = extractPubkeyFromAddress(address);
-      return pubkey === FOUNDER_PUBKEY;
+      if (pubkey && FOUNDER_PUBKEYS.includes(pubkey)) {
+        return true;
+      }
     }
     if (FOUNDER_ADDRESS) {
       return address === FOUNDER_ADDRESS;
@@ -1493,11 +1497,12 @@ export async function registerRoutes(
   }
   
   async function seedFounder() {
-    if (!FOUNDER_PUBKEY && !FOUNDER_ADDRESS) return;
+    if (FOUNDER_PUBKEYS.length === 0 && !FOUNDER_ADDRESS) return;
     
-    // If using pubkey, we can't seed until we see a matching address
-    if (FOUNDER_PUBKEY) {
-      console.log(`Founder pubkey configured: ${FOUNDER_PUBKEY.slice(0, 8)}... - will be promoted on registration`);
+    // If using pubkeys, we can't seed until we see matching addresses
+    if (FOUNDER_PUBKEYS.length > 0) {
+      console.log(`Founder pubkeys configured: ${FOUNDER_PUBKEYS.length} keys - will be promoted on registration`);
+      FOUNDER_PUBKEYS.forEach((pk, i) => console.log(`  Founder ${i + 1}: ${pk.slice(0, 8)}...`));
       return;
     }
     
