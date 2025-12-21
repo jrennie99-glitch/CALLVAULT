@@ -96,12 +96,13 @@ export default function CallPage() {
     initializeWithIdentity(storedIdentity);
   }, []);
 
-  const initializeWithIdentity = (newIdentity: CryptoIdentity) => {
+  const initializeWithIdentity = async (newIdentity: CryptoIdentity) => {
+    // Register identity with server FIRST (enables founder detection, plan tracking, etc.)
+    // This must complete before UI renders to ensure founder status is properly set
+    await registerIdentityWithServer(newIdentity);
+    
     setIdentity(newIdentity);
     setShowWelcome(false);
-    
-    // Register identity with server (enables founder detection, plan tracking, etc.)
-    registerIdentityWithServer(newIdentity);
     
     // Sync existing contacts to server for mutual contact verification
     syncAllContactsToServer(newIdentity.address);
