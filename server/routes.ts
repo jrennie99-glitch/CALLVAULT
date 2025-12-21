@@ -3334,6 +3334,15 @@ export async function registerRoutes(
       if (identity) {
         // Update last login
         await storage.updateIdentity(address, { lastLoginAt: new Date() } as any);
+        
+        // ALWAYS check founder status on every login (for cross-browser sync)
+        if (isFounderAddress(address) && identity.role !== 'founder') {
+          identity = await storage.updateIdentity(address, { role: 'founder' } as any) || identity;
+          console.log(`Existing user ${address} promoted to founder role on login`);
+        }
+        
+        // Refetch to get updated identity
+        identity = await storage.getIdentity(address) || identity;
         return res.json(identity);
       }
       
