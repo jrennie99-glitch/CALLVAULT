@@ -56,6 +56,7 @@ export class FreeTierShield {
     options?: {
       isContact?: boolean;
       isMutualContact?: boolean;
+      isEitherContact?: boolean; // True if EITHER party has added the other
       isGroupCall?: boolean;
       isExternalLink?: boolean;
       isPaidCall?: boolean;
@@ -89,12 +90,14 @@ export class FreeTierShield {
       };
     }
 
-    // B.1 & B.2) Free users may ONLY call mutually approved contacts
-    if (!options?.isMutualContact && !options?.isPaidCall) {
+    // B.1 & B.2) Free users may ONLY call when EITHER party has added the other as a contact
+    // This allows calls when: caller added callee, OR callee added caller, OR both (mutual)
+    const hasContactRelationship = options?.isEitherContact || options?.isMutualContact;
+    if (!hasContactRelationship && !options?.isPaidCall) {
       return {
         allowed: false,
         errorCode: 'NOT_APPROVED_CONTACT',
-        message: 'Free accounts can only call mutual contacts. Add each other as contacts first, or upgrade to call anyone.'
+        message: 'Free accounts can only call contacts. Add them as a contact first, or upgrade to call anyone.'
       };
     }
 
@@ -165,6 +168,7 @@ export class FreeTierShield {
     callerAddress: string,
     options?: {
       isMutualContact?: boolean;
+      isEitherContact?: boolean; // True if EITHER party has added the other
     }
   ): Promise<ShieldCheckResult> {
     const tier = await storage.getUserTier(calleeAddress);
@@ -174,12 +178,13 @@ export class FreeTierShield {
       return { allowed: true };
     }
 
-    // B.5) Free users cannot receive inbound calls unless caller is a mutually approved contact
-    if (!options?.isMutualContact) {
+    // B.5) Free users can receive calls when EITHER party has added the other as a contact
+    const hasContactRelationship = options?.isEitherContact || options?.isMutualContact;
+    if (!hasContactRelationship) {
       return {
         allowed: false,
         errorCode: 'INBOUND_NOT_ALLOWED',
-        message: 'This user can only receive calls from mutual contacts.'
+        message: 'This user can only receive calls from contacts.'
       };
     }
 

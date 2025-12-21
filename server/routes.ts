@@ -567,6 +567,25 @@ export async function registerRoutes(
   app.post('/api/contacts', async (req, res) => {
     try {
       const contact = await storage.createContact(req.body);
+      
+      // Notify the contact person that they've been added (if online)
+      const contactAddress = req.body.contactAddress;
+      const ownerAddress = req.body.ownerAddress;
+      if (contactAddress) {
+        const contactConnection = connections.get(contactAddress);
+        if (contactConnection) {
+          contactConnection.ws.send(JSON.stringify({
+            type: 'contact:added_by',
+            data: {
+              addedBy: ownerAddress,
+              name: req.body.name || 'Unknown',
+              timestamp: Date.now()
+            }
+          }));
+          console.log(`[contact:added_by] Notified ${contactAddress} that ${ownerAddress} added them`);
+        }
+      }
+      
       res.json(contact);
     } catch (error) {
       console.error('Error creating contact:', error);
@@ -3922,10 +3941,11 @@ export async function registerRoutes(
                 // Record call attempt for free tier tracking
                 await FreeTierShield.recordCallAttempt(callerAddress);
                 
-                // Check if caller and callee have mutual contact relationship
+                // Check if caller and callee have contact relationship (either direction)
                 const callerContact = await storage.getContact(callerAddress, recipientAddress);
                 const calleeContact = await storage.getContact(recipientAddress, callerAddress);
                 const isMutualContact = !!(callerContact && calleeContact);
+                const isEitherContact = !!(callerContact || calleeContact); // EITHER party added the other
                 const isContact = !!callerContact;
                 const isPaidCall = !!pass_id; // has paid pass
                 
@@ -3933,6 +3953,7 @@ export async function registerRoutes(
                 const shieldCheck = await FreeTierShield.canStartCall(callerAddress, recipientAddress, {
                   isContact,
                   isMutualContact,
+                  isEitherContact,
                   isGroupCall: false,
                   isExternalLink: false,
                   isPaidCall
@@ -3953,7 +3974,8 @@ export async function registerRoutes(
                 
                 // Free Tier Shield: Check if callee can receive this call
                 const calleeShieldCheck = await FreeTierShield.canReceiveCall(recipientAddress, callerAddress, {
-                  isMutualContact
+                  isMutualContact,
+                  isEitherContact
                 });
                 
                 if (!calleeShieldCheck.allowed) {

@@ -239,6 +239,15 @@ export default function CallPage() {
           : `${passMsg.uses_remaining || 0} uses remaining`
       });
     }
+    
+    // Handle contact:added_by notification - someone added your call ID
+    if ((message as any).type === 'contact:added_by') {
+      const data = (message as any).data;
+      toast.success(`${data.name || 'Someone'} added you as a contact`, {
+        description: 'You can now call each other',
+        duration: 5000
+      });
+    }
   }, [activeChat]);
 
   const handleStartCall = (address: string, video: boolean) => {
