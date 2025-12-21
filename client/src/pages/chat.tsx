@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useRoute } from 'wouter';
-import { ArrowLeft, Send, Paperclip, Mic, Image, File, X, Play, Pause, Check, CheckCheck, Users, MoreVertical, Phone, Video, VideoIcon, Camera } from 'lucide-react';
+import { ArrowLeft, Send, Paperclip, Mic, Image, File, X, Play, Pause, Check, CheckCheck, Users, MoreVertical, Phone, Video, VideoIcon, Camera, Crown } from 'lucide-react';
 import { Avatar } from '@/components/Avatar';
 import { getContacts, type Contact } from '@/lib/storage';
 import { getLocalMessages, saveLocalMessage, updateLocalMessageStatus, getLocalConversation, clearUnreadCount, getPrivacySettings, generateMessageId } from '@/lib/messageStorage';
@@ -15,9 +15,10 @@ interface ChatPageProps {
   onBack: () => void;
   convo: Conversation;
   onStartCall: (address: string, video: boolean) => void;
+  isFounder?: boolean;
 }
 
-export function ChatPage({ identity, ws, onBack, convo, onStartCall }: ChatPageProps) {
+export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder = false }: ChatPageProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -550,6 +551,13 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall }: ChatPageP
         <button onClick={onBack} className="text-slate-400 hover:text-white" data-testid="button-back">
           <ArrowLeft className="w-6 h-6" />
         </button>
+        
+        {isFounder && (
+          <div className="flex items-center gap-1 px-2 py-0.5 bg-gradient-to-r from-amber-500/20 to-yellow-500/20 border border-amber-500/30 rounded-full">
+            <Crown className="w-3 h-3 text-amber-400" />
+            <span className="text-xs font-medium text-amber-400">Founder</span>
+          </div>
+        )}
         
         {convo.type === 'group' ? (
           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">

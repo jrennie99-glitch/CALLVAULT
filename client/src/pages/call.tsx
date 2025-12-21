@@ -74,6 +74,7 @@ export default function CallPage() {
     video: boolean;
     pricing: CallPricing;
   } | null>(null);
+  const [userRole, setUserRole] = useState<{ isFounder: boolean; isAdmin: boolean }>({ isFounder: false, isAdmin: false });
 
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -153,7 +154,12 @@ export default function CallPage() {
       if (response.ok) {
         const data = await response.json();
         console.log('Identity registered:', data.role);
-        // If user was promoted to founder/admin, we could update local state here
+        
+        // Update role state for global display
+        const isFounder = data.role === 'founder';
+        const isAdmin = data.role === 'admin' || data.role === 'founder';
+        setUserRole({ isFounder, isAdmin });
+        
         if (data.role === 'founder' || data.role === 'admin') {
           toast.success(`Welcome back! You have ${data.role} privileges.`);
         }
@@ -700,13 +706,14 @@ export default function CallPage() {
         convo={activeChat}
         onBack={handleCloseChat}
         onStartCall={handleStartCall}
+        isFounder={userRole.isFounder}
       />
     );
   }
 
   return (
     <div className="min-h-screen bg-slate-900 text-white flex flex-col">
-      <TopBar />
+      <TopBar isFounder={userRole.isFounder} isAdmin={userRole.isAdmin} />
       
       {pendingPaidCall && identity && (
         <PaymentRequiredScreen
