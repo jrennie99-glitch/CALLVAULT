@@ -91,6 +91,9 @@ export default function CallPage() {
     }
     setIdentity(storedIdentity);
     
+    // Register identity with server (enables founder detection, plan tracking, etc.)
+    registerIdentityWithServer(storedIdentity);
+    
     // Sync existing contacts to server for mutual contact verification
     syncAllContactsToServer(storedIdentity.address);
 
@@ -122,6 +125,31 @@ export default function CallPage() {
     setConversations(convos);
     const total = convos.reduce((sum, c) => sum + (c.unread_count || 0), 0);
     setUnreadCount(total);
+  };
+
+  // Register identity with server for founder detection, plan tracking, etc.
+  const registerIdentityWithServer = async (identity: CryptoIdentity) => {
+    try {
+      const response = await fetch('/api/identity/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          address: identity.address,
+          publicKeyBase58: identity.publicKeyBase58,
+          displayName: null
+        })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Identity registered:', data.role);
+        // If user was promoted to founder/admin, we could update local state here
+        if (data.role === 'founder' || data.role === 'admin') {
+          toast.success(`Welcome back! You have ${data.role} privileges.`);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to register identity:', error);
+    }
   };
 
   // Setup push notifications for offline call alerts
