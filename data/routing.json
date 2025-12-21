@@ -1,0 +1,36 @@
+{
+  "call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehgaZxj9ua2wq:iMbPcedKjup": [
+    {
+      "id": "unknown_caller",
+      "owner_address": "",
+      "trigger": "unknown_caller",
+      "enabled": true,
+      "auto_message": "Hi! I don't recognize your number. Please send me a message first."
+    },
+    {
+      "id": "missed_call",
+      "owner_address": "",
+      "trigger": "missed_call",
+      "enabled": true,
+      "auto_message": "Sorry I missed your call! Send me a message and I'll get back to you."
+    },
+    {
+      "id": "after_hours",
+      "owner_address": "",
+      "trigger": "after_hours",
+      "enabled": false,
+      "auto_message": "I'm currently unavailable. I'll get back to you during business hours.",
+      "business_hours": {
+        "start": 9,
+        "end": 17
+      }
+    },
+    {
+      "id": "busy",
+      "owner_address": "",
+      "trigger": "busy",
+      "enabled": true,
+      "auto_message": "I'm on another call right now. I'll call you back shortly."
+    }
+  ]
+}

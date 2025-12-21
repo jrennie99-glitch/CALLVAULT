@@ -262,8 +262,10 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
     }
   };
 
+  const hasFullAccess = isFounder || isPro || isBusiness;
+  
   const handleBusinessModeClick = () => {
-    if (isBusiness || isPro) {
+    if (hasFullAccess) {
       onNavigate?.('creator_mode');
     } else {
       setUpgradeFeature('business');
@@ -272,7 +274,7 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
   };
 
   const handleEarningsDashboardClick = () => {
-    if (isBusiness || isPro) {
+    if (hasFullAccess) {
       onNavigate?.('earnings_dashboard');
     } else {
       setUpgradeFeature('earnings');
@@ -680,7 +682,7 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
               <div className="text-left">
                 <p className="text-white font-medium flex items-center gap-2">
                   Business Mode
-                  {isPro || isBusiness ? (
+                  {hasFullAccess ? (
                     <span className="text-xs bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded">Active</span>
                   ) : (
                     <span className="text-xs bg-purple-500/20 text-purple-400 px-1.5 py-0.5 rounded">Pro</span>
@@ -689,7 +691,7 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
                 <p className="text-slate-500 text-sm">Accept paid calls & set hours</p>
               </div>
             </div>
-            {isPro || isBusiness ? (
+            {hasFullAccess ? (
               <ChevronRight className="w-5 h-5 text-slate-400" />
             ) : (
               <Lock className="w-5 h-5 text-slate-500" />
@@ -706,7 +708,7 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
               <div className="text-left">
                 <p className="text-white font-medium flex items-center gap-2">
                   Earnings Dashboard
-                  {isPro || isBusiness ? (
+                  {hasFullAccess ? (
                     <span className="text-xs bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded">Active</span>
                   ) : (
                     <span className="text-xs bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded">Pro</span>
@@ -715,7 +717,7 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
                 <p className="text-slate-500 text-sm">View your call stats & earnings</p>
               </div>
             </div>
-            {isPro || isBusiness ? (
+            {hasFullAccess ? (
               <ChevronRight className="w-5 h-5 text-slate-400" />
             ) : (
               <Lock className="w-5 h-5 text-slate-500" />
