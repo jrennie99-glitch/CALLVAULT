@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { User, Shield, Wifi, ChevronDown, ChevronUp, Copy, RefreshCw, Fingerprint, Eye, EyeOff, MessageSquare, CheckCheck, Clock, Phone, Ban, Bot, Wallet, ChevronRight, Ticket, Briefcase, BarChart3, Crown, Lock, Sparkles, CreditCard, ExternalLink, Snowflake } from 'lucide-react';
+import { User, Shield, Wifi, ChevronDown, ChevronUp, Copy, RefreshCw, Fingerprint, Eye, EyeOff, MessageSquare, CheckCheck, Clock, Phone, Ban, Bot, Wallet, ChevronRight, Ticket, Briefcase, BarChart3, Crown, Lock, Sparkles, CreditCard, ExternalLink, Snowflake, Download, Upload } from 'lucide-react';
 import { FreezeModeSetupModal } from '@/components/FreezeModeSetupModal';
 import { ModeSettings } from '@/components/ModeSettings';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { getUserProfile, saveUserProfile, getAppSettings, saveAppSettings } from '@/lib/storage';
+import { exportIdentity, importIdentity } from '@/lib/crypto';
 import { getPrivacySettings, savePrivacySettings, type PrivacySettings } from '@/lib/messageStorage';
 import { enrollBiometric, disableBiometric, isPlatformAuthenticatorAvailable } from '@/lib/biometric';
 import { toast } from 'sonner';
@@ -52,6 +53,8 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
   const [freezeModeSetupCompleted, setFreezeModeSetupCompleted] = useState(false);
   const [showFreezeModeSetup, setShowFreezeModeSetup] = useState(false);
   const [isTogglingFreezeMode, setIsTogglingFreezeMode] = useState(false);
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [importBackupText, setImportBackupText] = useState('');
 
   useEffect(() => {
     isPlatformAuthenticatorAvailable().then(setBiometricAvailable);
@@ -274,6 +277,43 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
     } else {
       setUpgradeFeature('earnings');
       setShowUpgradeDialog(true);
+    }
+  };
+
+  const handleExportIdentity = () => {
+    if (!identity) return;
+    const backup = exportIdentity(identity);
+    
+    // Create download
+    const blob = new Blob([backup], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `callvault-backup-${identity.address.slice(5, 15)}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    toast.success('Identity backup exported! Keep this file safe.');
+  };
+
+  const handleImportIdentity = () => {
+    if (!importBackupText.trim()) {
+      toast.error('Please paste your backup text');
+      return;
+    }
+    
+    const imported = importIdentity(importBackupText);
+    
+    if (imported) {
+      toast.success('Identity restored! Reloading app...');
+      setShowImportDialog(false);
+      setImportBackupText('');
+      // Reload to apply new identity
+      setTimeout(() => window.location.reload(), 1000);
+    } else {
+      toast.error('Invalid backup file. Please check and try again.');
     }
   };
 
@@ -768,6 +808,34 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
                 </Button>
               </div>
             </div>
+            <div className="border-t border-slate-700 pt-4 mt-4">
+              <Label className="text-slate-400 text-sm">Backup & Restore Identity</Label>
+              <p className="text-slate-500 text-xs mt-1 mb-3">
+                Export your identity to back it up, or import a previously exported backup to restore your contacts and call history.
+              </p>
+              <div className="flex gap-2 flex-wrap">
+                <Button
+                  onClick={handleExportIdentity}
+                  variant="outline"
+                  size="sm"
+                  className="border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/10"
+                  data-testid="button-export-identity"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Export Backup
+                </Button>
+                <Button
+                  onClick={() => setShowImportDialog(true)}
+                  variant="outline"
+                  size="sm"
+                  className="border-blue-500/50 text-blue-400 hover:bg-blue-500/10"
+                  data-testid="button-import-identity"
+                >
+                  <Upload className="w-4 h-4 mr-2" />
+                  Import Backup
+                </Button>
+              </div>
+            </div>
           </CardContent>
         )}
       </Card>
@@ -884,6 +952,52 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
         onClose={() => setShowFreezeModeSetup(false)}
         onComplete={handleFreezeModeSetupComplete}
       />
+
+      <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
+        <DialogContent className="bg-slate-800 border-slate-700 max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <Upload className="w-5 h-5 text-blue-400" />
+              Import Identity Backup
+            </DialogTitle>
+            <DialogDescription className="text-slate-400">
+              Paste your backup text below to restore your identity and access your contacts.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <textarea
+              value={importBackupText}
+              onChange={(e) => setImportBackupText(e.target.value)}
+              placeholder="Paste your backup text here..."
+              className="w-full h-32 p-3 bg-slate-900/50 border border-slate-600 rounded-lg text-white text-sm font-mono resize-none focus:outline-none focus:border-blue-500"
+              data-testid="input-import-backup"
+            />
+            <p className="text-xs text-slate-500">
+              Warning: Importing a backup will replace your current identity. Make sure to export your current identity first if you want to keep it.
+            </p>
+            <div className="flex gap-3">
+              <Button 
+                variant="outline" 
+                className="flex-1" 
+                onClick={() => {
+                  setShowImportDialog(false);
+                  setImportBackupText('');
+                }}
+                data-testid="button-cancel-import"
+              >
+                Cancel
+              </Button>
+              <Button 
+                className="flex-1 bg-blue-500 hover:bg-blue-600"
+                onClick={handleImportIdentity}
+                data-testid="button-confirm-import"
+              >
+                Restore Identity
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

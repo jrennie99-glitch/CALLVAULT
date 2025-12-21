@@ -91,3 +91,45 @@ export function signPayload(secretKey: Uint8Array, payload: object): string {
   const sig = nacl.sign.detached(bytes, secretKey);
   return bs58.encode(sig);
 }
+
+export function exportIdentity(identity: CryptoIdentity): string {
+  const exportData = {
+    version: 1,
+    publicKey: bs58.encode(identity.publicKey),
+    secretKey: bs58.encode(identity.secretKey),
+    address: identity.address,
+    publicKeyBase58: identity.publicKeyBase58,
+    exportedAt: new Date().toISOString(),
+  };
+  return btoa(JSON.stringify(exportData));
+}
+
+export function importIdentity(backupString: string): CryptoIdentity | null {
+  try {
+    const decoded = atob(backupString.trim());
+    const parsed = JSON.parse(decoded);
+    
+    if (!parsed.publicKey || !parsed.secretKey || !parsed.address) {
+      throw new Error('Invalid backup format');
+    }
+    
+    const identity: CryptoIdentity = {
+      publicKey: bs58.decode(parsed.publicKey),
+      secretKey: bs58.decode(parsed.secretKey),
+      address: parsed.address,
+      publicKeyBase58: parsed.publicKeyBase58 || bs58.encode(bs58.decode(parsed.publicKey)),
+    };
+    
+    // Verify the keypair is valid by checking that the public key matches
+    const derivedPubKey = identity.secretKey.slice(32);
+    if (bs58.encode(derivedPubKey) !== bs58.encode(identity.publicKey)) {
+      throw new Error('Invalid keypair');
+    }
+    
+    saveIdentity(identity);
+    return identity;
+  } catch (error) {
+    console.error('Failed to import identity:', error);
+    return null;
+  }
+}
