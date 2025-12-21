@@ -3357,6 +3357,77 @@ export async function registerRoutes(
     }
   });
 
+  // IDENTITY VAULT ENDPOINTS (Cross-browser sync)
+  
+  // Store encrypted identity in vault
+  app.post('/api/identity/vault', async (req, res) => {
+    try {
+      const { publicKeyBase58, encryptedKeypair, salt, hint } = req.body;
+      
+      if (!publicKeyBase58 || !encryptedKeypair || !salt) {
+        return res.status(400).json({ error: 'Missing required fields' });
+      }
+      
+      // Check if vault already exists
+      const existing = await storage.getIdentityVault(publicKeyBase58);
+      if (existing) {
+        // Update existing vault
+        const updated = await storage.updateIdentityVault(publicKeyBase58, {
+          encryptedKeypair,
+          salt,
+          hint,
+        });
+        return res.json({ success: true, updated: true });
+      }
+      
+      // Create new vault
+      await storage.createIdentityVault({
+        publicKeyBase58,
+        encryptedKeypair,
+        salt,
+        hint,
+      });
+      
+      res.json({ success: true, created: true });
+    } catch (error) {
+      console.error('Error storing identity vault:', error);
+      res.status(500).json({ error: 'Failed to store identity vault' });
+    }
+  });
+  
+  // Retrieve encrypted identity from vault
+  app.get('/api/identity/vault/:publicKeyBase58', async (req, res) => {
+    try {
+      const { publicKeyBase58 } = req.params;
+      
+      const vault = await storage.getIdentityVault(publicKeyBase58);
+      if (!vault) {
+        return res.status(404).json({ error: 'Vault not found' });
+      }
+      
+      res.json({
+        encryptedKeypair: vault.encryptedKeypair,
+        salt: vault.salt,
+        hint: vault.hint,
+      });
+    } catch (error) {
+      console.error('Error fetching identity vault:', error);
+      res.status(500).json({ error: 'Failed to fetch identity vault' });
+    }
+  });
+  
+  // Check if vault exists for a public key
+  app.get('/api/identity/vault-exists/:publicKeyBase58', async (req, res) => {
+    try {
+      const { publicKeyBase58 } = req.params;
+      const vault = await storage.getIdentityVault(publicKeyBase58);
+      res.json({ exists: !!vault, hint: vault?.hint });
+    } catch (error) {
+      console.error('Error checking vault existence:', error);
+      res.status(500).json({ error: 'Failed to check vault' });
+    }
+  });
+
   // LINKED ADDRESSES ENDPOINTS (Multiple numbers under one account)
   
   // Get all linked addresses for a primary

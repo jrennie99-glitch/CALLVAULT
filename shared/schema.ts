@@ -80,6 +80,25 @@ export const insertLinkedAddressSchema = createInsertSchema(linkedAddresses).omi
 export type InsertLinkedAddress = z.infer<typeof insertLinkedAddressSchema>;
 export type LinkedAddress = typeof linkedAddresses.$inferSelect;
 
+// Identity Vault (encrypted keypair storage for cross-browser sync)
+export const identityVaults = pgTable("identity_vaults", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  publicKeyBase58: text("public_key_base58").notNull().unique(),
+  encryptedKeypair: text("encrypted_keypair").notNull(),
+  salt: text("salt").notNull(),
+  hint: text("hint"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertIdentityVaultSchema = createInsertSchema(identityVaults).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertIdentityVault = z.infer<typeof insertIdentityVaultSchema>;
+export type IdentityVault = typeof identityVaults.$inferSelect;
+
 // Push subscriptions for offline notifications
 export const pushSubscriptions = pgTable("push_subscriptions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

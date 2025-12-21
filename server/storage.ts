@@ -32,6 +32,7 @@ import {
   userEntitlementOverrides, type UserEntitlementOverrides, type InsertUserEntitlementOverrides,
   linkedAddresses, type LinkedAddress,
   pushSubscriptions, type PushSubscription,
+  identityVaults, type IdentityVault, type InsertIdentityVault,
 } from "@shared/schema";
 import type { UserMode, FeatureFlags } from "@shared/types";
 import { randomUUID, createHash } from "crypto";
@@ -124,6 +125,11 @@ export interface IStorage {
   
   // Contact management
   createOrUpdateContact(ownerAddress: string, contactAddress: string, name: string): Promise<Contact>;
+
+  // Identity vault (cross-browser sync)
+  getIdentityVault(publicKeyBase58: string): Promise<IdentityVault | undefined>;
+  createIdentityVault(vault: InsertIdentityVault): Promise<IdentityVault>;
+  updateIdentityVault(publicKeyBase58: string, updates: Partial<IdentityVault>): Promise<IdentityVault | undefined>;
 
   // Entitlement helpers
   canUseProFeatures(address: string): Promise<boolean>;
@@ -856,6 +862,26 @@ export class DatabaseStorage implements IStorage {
       name,
     }).returning();
     return created;
+  }
+
+  // Identity vault methods
+  async getIdentityVault(publicKeyBase58: string): Promise<IdentityVault | undefined> {
+    const [vault] = await db.select().from(identityVaults)
+      .where(eq(identityVaults.publicKeyBase58, publicKeyBase58));
+    return vault || undefined;
+  }
+
+  async createIdentityVault(vault: InsertIdentityVault): Promise<IdentityVault> {
+    const [created] = await db.insert(identityVaults).values(vault).returning();
+    return created;
+  }
+
+  async updateIdentityVault(publicKeyBase58: string, updates: Partial<IdentityVault>): Promise<IdentityVault | undefined> {
+    const [updated] = await db.update(identityVaults)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(identityVaults.publicKeyBase58, publicKeyBase58))
+      .returning();
+    return updated || undefined;
   }
 
   async createInviteLink(link: InsertInviteLink): Promise<InviteLink> {

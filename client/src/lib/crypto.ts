@@ -133,3 +133,95 @@ export function importIdentity(backupString: string): CryptoIdentity | null {
     return null;
   }
 }
+
+// Identity Vault - PIN-based encryption for cross-browser sync
+
+export async function deriveKeyFromPin(pin: string, salt: Uint8Array): Promise<CryptoKey> {
+  const encoder = new TextEncoder();
+  const pinBytes = encoder.encode(pin);
+  
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    pinBytes,
+    'PBKDF2',
+    false,
+    ['deriveKey']
+  );
+  
+  return crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt,
+      iterations: 100000,
+      hash: 'SHA-256'
+    },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+export async function encryptIdentityForVault(
+  identity: CryptoIdentity, 
+  pin: string
+): Promise<{ encryptedData: string; salt: string }> {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const key = await deriveKeyFromPin(pin, salt);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  
+  const dataToEncrypt = JSON.stringify({
+    publicKey: bs58.encode(identity.publicKey),
+    secretKey: bs58.encode(identity.secretKey),
+    address: identity.address,
+    publicKeyBase58: identity.publicKeyBase58,
+  });
+  
+  const encrypted = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    new TextEncoder().encode(dataToEncrypt)
+  );
+  
+  const combined = new Uint8Array(iv.length + new Uint8Array(encrypted).length);
+  combined.set(iv);
+  combined.set(new Uint8Array(encrypted), iv.length);
+  
+  return {
+    encryptedData: bs58.encode(combined),
+    salt: bs58.encode(salt),
+  };
+}
+
+export async function decryptIdentityFromVault(
+  encryptedData: string,
+  salt: string,
+  pin: string
+): Promise<CryptoIdentity | null> {
+  try {
+    const saltBytes = bs58.decode(salt);
+    const key = await deriveKeyFromPin(pin, saltBytes);
+    
+    const combined = bs58.decode(encryptedData);
+    const iv = combined.slice(0, 12);
+    const ciphertext = combined.slice(12);
+    
+    const decrypted = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv },
+      key,
+      ciphertext
+    );
+    
+    const parsed = JSON.parse(new TextDecoder().decode(decrypted));
+    
+    return {
+      publicKey: bs58.decode(parsed.publicKey),
+      secretKey: bs58.decode(parsed.secretKey),
+      address: parsed.address,
+      publicKeyBase58: parsed.publicKeyBase58,
+    };
+  } catch (error) {
+    console.error('Failed to decrypt identity vault:', error);
+    return null;
+  }
+}
