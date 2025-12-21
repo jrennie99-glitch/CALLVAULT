@@ -587,13 +587,20 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div 
+            className={`flex items-center justify-between p-3 rounded-lg ${!biometricAvailable ? 'bg-slate-900/30 opacity-60' : 'bg-transparent'}`}
+            onClick={() => {
+              if (!biometricAvailable) {
+                toast.error('Biometric lock requires Face ID or Touch ID. Open this app directly in Safari on your iPhone to enable.');
+              }
+            }}
+          >
             <div className="flex items-center gap-3">
-              <Fingerprint className="w-5 h-5 text-slate-400" />
+              <Fingerprint className={`w-5 h-5 ${biometricAvailable ? 'text-emerald-400' : 'text-slate-500'}`} />
               <div>
-                <p className="text-white font-medium">Biometric Lock</p>
+                <p className={`font-medium ${biometricAvailable ? 'text-white' : 'text-slate-400'}`}>Biometric Lock</p>
                 <p className="text-slate-500 text-sm">
-                  {biometricAvailable ? 'Use Face ID or Touch ID' : 'Not available on this device'}
+                  {biometricAvailable ? 'Use Face ID or Touch ID' : 'Not available - open in Safari'}
                 </p>
               </div>
             </div>
