@@ -365,38 +365,26 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
         <ModeSettings myAddress={identity.address} />
       )}
 
-      <Card className="bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-purple-500/20">
-        <CardHeader>
-          <CardTitle className="text-white flex items-center gap-2">
-            <CreditCard className="w-5 h-5 text-purple-400" />
-            Subscription & Billing
-          </CardTitle>
-          <CardDescription className="text-slate-400">
-            {premiumAccess?.hasAccess 
-              ? premiumAccess.accessType === 'subscription' 
-                ? 'Active subscription'
-                : 'Trial access'
-              : 'Free plan'}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="bg-slate-800/50 rounded-lg p-4">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-slate-300">Current Plan</span>
-              <Badge className={
-                premiumAccess?.plan === 'business' ? 'bg-orange-500' :
-                premiumAccess?.plan === 'pro' ? 'bg-purple-500' :
-                premiumAccess?.accessType === 'trial' ? 'bg-green-500' :
-                'bg-slate-600'
-              }>
-                {premiumAccess?.plan === 'business' ? 'Business' :
-                 premiumAccess?.plan === 'pro' ? 'Pro' :
-                 premiumAccess?.accessType === 'trial' ? 'Trial' :
-                 'Free'}
-              </Badge>
-            </div>
-            
-            {premiumAccess?.accessType === 'subscription' && premiumAccess.planStatus === 'active' && (
+      {/* For founders, show founder access card instead of subscription */}
+      {isFounder ? (
+        <Card className="bg-gradient-to-r from-amber-500/10 to-yellow-500/10 border border-amber-500/30">
+          <CardHeader>
+            <CardTitle className="text-white flex items-center gap-2">
+              <Crown className="w-5 h-5 text-amber-400" />
+              Founder Access
+            </CardTitle>
+            <CardDescription className="text-amber-200/70">
+              Lifetime full access to all features
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="bg-slate-800/50 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-slate-300">Current Plan</span>
+                <Badge className="bg-gradient-to-r from-amber-500 to-yellow-500 text-white">
+                  <Crown className="w-3 h-3 mr-1" /> Founder
+                </Badge>
+              </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-slate-500">Status</span>
                 <span className="text-green-400 flex items-center gap-1">
@@ -404,60 +392,107 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
                   Active
                 </span>
               </div>
-            )}
-            
-            {premiumAccess?.accessType === 'subscription' && premiumAccess.planStatus === 'past_due' && (
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-slate-500">Status</span>
-                <span className="text-yellow-400">Payment Past Due</span>
-              </div>
-            )}
-            
-            {premiumAccess?.daysRemaining && premiumAccess.daysRemaining > 0 && (
-              <div className="flex items-center justify-between text-sm mt-1">
-                <span className="text-slate-500">
-                  {premiumAccess.accessType === 'trial' ? 'Trial ends in' : 'Renews in'}
-                </span>
-                <span className="text-slate-300">{premiumAccess.daysRemaining} days</span>
-              </div>
-            )}
-            
-            {hasTrial && trialMinutesRemaining !== null && trialMinutesRemaining > 0 && (
-              <div className="flex items-center justify-between text-sm mt-1">
-                <span className="text-slate-500">Trial minutes remaining</span>
-                <span className="text-green-400">{trialMinutesRemaining} min</span>
-              </div>
-            )}
-          </div>
-          
-          {premiumAccess?.hasAccess && premiumAccess.accessType === 'subscription' ? (
-            <Button 
-              onClick={handleManageBilling}
-              variant="outline"
-              className="w-full border-slate-600"
-              data-testid="button-manage-billing"
-            >
-              <ExternalLink className="w-4 h-4 mr-2" />
-              Manage Billing
-            </Button>
-          ) : (
-            <div className="space-y-2">
-              <Button 
-                onClick={handleUpgradeToPro}
-                disabled={isUpgrading}
-                className="w-full bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600"
-                data-testid="button-upgrade-pro"
-              >
-                <Sparkles className="w-4 h-4 mr-2" />
-                {isUpgrading ? 'Opening checkout...' : 'Upgrade to Pro - $9/mo'}
-              </Button>
-              <p className="text-xs text-slate-500 text-center">
-                Unlock creator features, paid calls, and priority support
-              </p>
             </div>
-          )}
-        </CardContent>
-      </Card>
+            <p className="text-xs text-amber-200/50 text-center mt-3">
+              All modes, features, and premium access unlocked
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-purple-500/20">
+          <CardHeader>
+            <CardTitle className="text-white flex items-center gap-2">
+              <CreditCard className="w-5 h-5 text-purple-400" />
+              Subscription & Billing
+            </CardTitle>
+            <CardDescription className="text-slate-400">
+              {premiumAccess?.hasAccess 
+                ? premiumAccess.accessType === 'subscription' 
+                  ? 'Active subscription'
+                  : 'Trial access'
+                : 'Free plan'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="bg-slate-800/50 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-slate-300">Current Plan</span>
+                <Badge className={
+                  premiumAccess?.plan === 'business' ? 'bg-orange-500' :
+                  premiumAccess?.plan === 'pro' ? 'bg-purple-500' :
+                  premiumAccess?.accessType === 'trial' ? 'bg-green-500' :
+                  'bg-slate-600'
+                }>
+                  {premiumAccess?.plan === 'business' ? 'Business' :
+                   premiumAccess?.plan === 'pro' ? 'Pro' :
+                   premiumAccess?.accessType === 'trial' ? 'Trial' :
+                   'Free'}
+                </Badge>
+              </div>
+              
+              {premiumAccess?.accessType === 'subscription' && premiumAccess.planStatus === 'active' && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-slate-500">Status</span>
+                  <span className="text-green-400 flex items-center gap-1">
+                    <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                    Active
+                  </span>
+                </div>
+              )}
+              
+              {premiumAccess?.accessType === 'subscription' && premiumAccess.planStatus === 'past_due' && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-slate-500">Status</span>
+                  <span className="text-yellow-400">Payment Past Due</span>
+                </div>
+              )}
+              
+              {premiumAccess?.daysRemaining && premiumAccess.daysRemaining > 0 && (
+                <div className="flex items-center justify-between text-sm mt-1">
+                  <span className="text-slate-500">
+                    {premiumAccess.accessType === 'trial' ? 'Trial ends in' : 'Renews in'}
+                  </span>
+                  <span className="text-slate-300">{premiumAccess.daysRemaining} days</span>
+                </div>
+              )}
+              
+              {hasTrial && trialMinutesRemaining !== null && trialMinutesRemaining > 0 && (
+                <div className="flex items-center justify-between text-sm mt-1">
+                  <span className="text-slate-500">Trial minutes remaining</span>
+                  <span className="text-green-400">{trialMinutesRemaining} min</span>
+                </div>
+              )}
+            </div>
+            
+            {premiumAccess?.hasAccess && premiumAccess.accessType === 'subscription' ? (
+              <Button 
+                onClick={handleManageBilling}
+                variant="outline"
+                className="w-full border-slate-600"
+                data-testid="button-manage-billing"
+              >
+                <ExternalLink className="w-4 h-4 mr-2" />
+                Manage Billing
+              </Button>
+            ) : (
+              <div className="space-y-2">
+                <Button 
+                  onClick={handleUpgradeToPro}
+                  disabled={isUpgrading}
+                  className="w-full bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600"
+                  data-testid="button-upgrade-pro"
+                >
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  {isUpgrading ? 'Opening checkout...' : 'Upgrade to Pro - $9/mo'}
+                </Button>
+                <p className="text-xs text-slate-500 text-center">
+                  Unlock creator features, paid calls, and priority support
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="bg-slate-800/50 border-slate-700">
         <CardHeader>
