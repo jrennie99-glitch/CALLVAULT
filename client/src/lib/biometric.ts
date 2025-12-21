@@ -5,8 +5,28 @@ export function isBiometricSupported(): boolean {
     typeof window.PublicKeyCredential === 'function');
 }
 
+export function isInIframe(): boolean {
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+}
+
+export function isIOS(): boolean {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
 export async function isPlatformAuthenticatorAvailable(): Promise<boolean> {
   if (!isBiometricSupported()) return false;
+  
+  // In iframe context (like Replit preview), WebAuthn won't work
+  // But on iOS devices we know they support it, so return true to allow attempt
+  if (isInIframe() && isIOS()) {
+    return true; // Allow iOS users to try - they'll get a prompt to open in Safari
+  }
+  
   try {
     return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
   } catch {
@@ -78,8 +98,22 @@ export async function enrollBiometric(): Promise<boolean> {
     const credentialId = bufferToBase64(credential.rawId);
     saveBiometricCredential(credentialId);
     return true;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Biometric enrollment failed:', error);
+    
+    // Provide better error messages for common issues
+    if (isInIframe()) {
+      throw new Error('Face ID/Touch ID requires opening this app directly in Safari. Tap "Open in browser" or add to Home Screen.');
+    }
+    
+    if (error.name === 'NotAllowedError') {
+      throw new Error('Face ID/Touch ID was cancelled or not allowed. Please try again.');
+    }
+    
+    if (error.name === 'SecurityError') {
+      throw new Error('Security error. Please ensure you are using HTTPS.');
+    }
+    
     throw error;
   }
 }

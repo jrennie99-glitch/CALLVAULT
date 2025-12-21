@@ -12,7 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { getUserProfile, saveUserProfile, getAppSettings, saveAppSettings } from '@/lib/storage';
 import { exportIdentity, importIdentity } from '@/lib/crypto';
 import { getPrivacySettings, savePrivacySettings, type PrivacySettings } from '@/lib/messageStorage';
-import { enrollBiometric, disableBiometric, isPlatformAuthenticatorAvailable } from '@/lib/biometric';
+import { enrollBiometric, disableBiometric, isPlatformAuthenticatorAvailable, isInIframe, isIOS } from '@/lib/biometric';
 import { toast } from 'sonner';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import type { CryptoIdentity } from '@shared/types';
@@ -590,26 +590,25 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
         </CardHeader>
         <CardContent className="space-y-4">
           <div 
-            className={`flex items-center justify-between p-3 rounded-lg ${!biometricAvailable ? 'bg-slate-900/30 opacity-60' : 'bg-transparent'}`}
-            onClick={() => {
-              if (!biometricAvailable) {
-                toast.error('Biometric lock requires Face ID or Touch ID. Open this app directly in Safari on your iPhone to enable.');
-              }
-            }}
+            className="flex items-center justify-between p-3 rounded-lg bg-transparent"
           >
             <div className="flex items-center gap-3">
-              <Fingerprint className={`w-5 h-5 ${biometricAvailable ? 'text-emerald-400' : 'text-slate-500'}`} />
+              <Fingerprint className="w-5 h-5 text-emerald-400" />
               <div>
-                <p className={`font-medium ${biometricAvailable ? 'text-white' : 'text-slate-400'}`}>Biometric Lock</p>
+                <p className="font-medium text-white">Biometric Lock</p>
                 <p className="text-slate-500 text-sm">
-                  {biometricAvailable ? 'Use Face ID or Touch ID' : 'Not available - open in Safari'}
+                  {isEnrolling ? 'Setting up...' : 
+                   settings.biometricLockEnabled ? 'Face ID / Touch ID enabled' :
+                   isInIframe() && isIOS() ? 'Tap to enable (may need Safari)' :
+                   biometricAvailable ? 'Use Face ID or Touch ID' : 
+                   'Not available on this device'}
                 </p>
               </div>
             </div>
             <Switch
               checked={settings.biometricLockEnabled}
               onCheckedChange={handleBiometricToggle}
-              disabled={!biometricAvailable || isEnrolling}
+              disabled={isEnrolling}
               data-testid="switch-biometric"
             />
           </div>
