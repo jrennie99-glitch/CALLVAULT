@@ -52,43 +52,68 @@ export async function playRingtone(): Promise<void> {
   
   currentRingtone = { intervalId: null, oscillators: [] };
   
-  const playTone = () => {
-    if (!ctx || ctx.state !== 'running') return;
+  const playRingBurst = () => {
+    if (!ctx || ctx.state !== 'running' || !currentRingtone) return;
     
     try {
-      const gainNode = ctx.createGain();
-      gainNode.connect(ctx.destination);
+      // Classic phone ring uses two frequencies: 440Hz and 480Hz (US standard)
+      // Play a burst of rings (ring-ring pattern)
+      const frequencies = [440, 480];
+      const ringDuration = 0.4;
+      const pauseBetweenRings = 0.2;
       
-      const osc1 = ctx.createOscillator();
-      osc1.type = 'sine';
-      osc1.frequency.value = 440;
-      osc1.connect(gainNode);
-      
-      gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
-      
-      osc1.start(ctx.currentTime);
-      osc1.stop(ctx.currentTime + 0.5);
-      
-      if (currentRingtone) currentRingtone.oscillators.push(osc1);
-      
-      const osc2 = ctx.createOscillator();
-      osc2.type = 'sine';
-      osc2.frequency.value = 554;
-      osc2.connect(gainNode);
-      
-      osc2.start(ctx.currentTime + 0.2);
-      osc2.stop(ctx.currentTime + 0.7);
-      
-      if (currentRingtone) currentRingtone.oscillators.push(osc2);
-      
+      // First ring
+      for (let i = 0; i < 2; i++) {
+        const startTime = ctx.currentTime + i * (ringDuration + pauseBetweenRings);
+        
+        frequencies.forEach(freq => {
+          const gainNode = ctx.createGain();
+          gainNode.connect(ctx.destination);
+          
+          const osc = ctx.createOscillator();
+          osc.type = 'sine';
+          osc.frequency.value = freq;
+          osc.connect(gainNode);
+          
+          // Louder volume (0.6) with slight tremolo effect
+          gainNode.gain.setValueAtTime(0.6, startTime);
+          // Add slight tremolo for more realistic ring
+          for (let t = 0; t < ringDuration * 20; t++) {
+            const time = startTime + t * 0.02;
+            const vol = 0.5 + 0.1 * Math.sin(t * 0.5);
+            gainNode.gain.setValueAtTime(vol, time);
+          }
+          gainNode.gain.setValueAtTime(0.01, startTime + ringDuration);
+          
+          osc.start(startTime);
+          osc.stop(startTime + ringDuration + 0.01);
+          
+          if (currentRingtone) currentRingtone.oscillators.push(osc);
+        });
+        
+        // Add harmonics for richer sound
+        const harmonicGain = ctx.createGain();
+        harmonicGain.connect(ctx.destination);
+        harmonicGain.gain.setValueAtTime(0.15, startTime);
+        harmonicGain.gain.setValueAtTime(0.01, startTime + ringDuration);
+        
+        const harmonic = ctx.createOscillator();
+        harmonic.type = 'triangle';
+        harmonic.frequency.value = 880;
+        harmonic.connect(harmonicGain);
+        harmonic.start(startTime);
+        harmonic.stop(startTime + ringDuration + 0.01);
+        
+        if (currentRingtone) currentRingtone.oscillators.push(harmonic);
+      }
     } catch (e) {
       console.error('[Audio] Error playing ringtone:', e);
     }
   };
   
-  playTone();
-  currentRingtone.intervalId = window.setInterval(playTone, 2000);
+  playRingBurst();
+  // Ring pattern: ring-ring, pause, ring-ring (every 3 seconds)
+  currentRingtone.intervalId = window.setInterval(playRingBurst, 3000);
   console.log('[Audio] Ringtone started');
 }
 
@@ -97,8 +122,14 @@ export function stopRingtone(): void {
     if (currentRingtone.intervalId) {
       clearInterval(currentRingtone.intervalId);
     }
+    const now = audioContext?.currentTime || 0;
     currentRingtone.oscillators.forEach(osc => {
-      try { osc.stop(); } catch {}
+      try { 
+        // Stop immediately or at current time (handles scheduled future oscillators)
+        osc.stop(now); 
+      } catch {
+        // Ignore - oscillator may have already stopped or not started
+      }
       try { osc.disconnect(); } catch {}
     });
     currentRingtone = null;
