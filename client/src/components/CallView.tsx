@@ -328,6 +328,13 @@ export function CallView({
         await handleIceCandidate(message.candidate);
         break;
 
+      case 'call:unavailable':
+        // Recipient is offline - they'll see the missed call when they come online
+        toast('Recipient is currently unavailable. They will see your missed call.', { duration: 4000 });
+        recordCall('outgoing', 0); // Record as brief outgoing call
+        handleEndCall();
+        break;
+
       case 'error':
         // Check if this is a signature/timestamp error that can be retried
         const errorMsg = message.message || '';

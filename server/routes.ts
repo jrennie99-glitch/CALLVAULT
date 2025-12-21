@@ -4073,7 +4073,29 @@ export async function registerRoutes(
             
             const targetConnection = connections.get(signedIntent.intent.to_address);
             if (!targetConnection) {
-              ws.send(JSON.stringify({ type: 'error', message: 'Recipient not connected' } as WSMessage));
+              // Recipient is offline - record missed call and notify caller
+              const callerAddr = signedIntent.intent.from_address;
+              const recipientAddr = signedIntent.intent.to_address;
+              const mediaType = signedIntent.intent.media || 'audio';
+              
+              // Store missed call notification for the recipient
+              storage.storeMessage(
+                callerAddr,
+                recipientAddr,
+                `missed-call-${callerAddr}-${recipientAddr}`,
+                `Missed ${mediaType} call`,
+                'system',
+                undefined
+              ).catch(console.error);
+              
+              console.log(`Recipient ${recipientAddr} offline - recorded missed call from ${callerAddr}`);
+              
+              // Tell caller the recipient is unavailable with a friendlier message
+              ws.send(JSON.stringify({ 
+                type: 'call:unavailable', 
+                message: 'Recipient is currently unavailable. They will see your missed call.',
+                to_address: recipientAddr
+              } as WSMessage));
               return;
             }
             
