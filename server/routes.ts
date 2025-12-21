@@ -3281,6 +3281,98 @@ export async function registerRoutes(
     }
   });
 
+  // LINKED ADDRESSES ENDPOINTS (Multiple numbers under one account)
+  
+  // Get all linked addresses for a primary
+  app.get('/api/linked-addresses/:primaryAddress', async (req, res) => {
+    try {
+      const { primaryAddress } = req.params;
+      const links = await storage.getLinkedAddresses(primaryAddress);
+      res.json(links);
+    } catch (error) {
+      console.error('Error fetching linked addresses:', error);
+      res.status(500).json({ error: 'Failed to fetch linked addresses' });
+    }
+  });
+
+  // Link a new address to a primary
+  app.post('/api/linked-addresses', async (req, res) => {
+    try {
+      const { primaryAddress, linkedAddress, linkedPublicKey, label, signature, timestamp, nonce } = req.body;
+      
+      if (!primaryAddress || !linkedAddress || !linkedPublicKey) {
+        return res.status(400).json({ error: 'Missing required fields' });
+      }
+      
+      // Verify the primary owns the address by checking signature
+      const primaryIdentity = await storage.getIdentity(primaryAddress);
+      if (!primaryIdentity) {
+        return res.status(404).json({ error: 'Primary identity not found' });
+      }
+      
+      // Verify signature from primary address
+      const payload = { primaryAddress, linkedAddress, linkedPublicKey, timestamp, nonce };
+      const isValid = verifyGenericSignature(payload, signature, primaryIdentity.publicKeyBase58, nonce, timestamp);
+      if (!isValid) {
+        return res.status(401).json({ error: 'Invalid signature' });
+      }
+      
+      // Check if linked address is already linked
+      const isAlreadyLinked = await storage.isAddressLinked(linkedAddress);
+      if (isAlreadyLinked) {
+        return res.status(400).json({ error: 'Address is already linked to another account' });
+      }
+      
+      // Check if the linked address pubkey matches
+      const extractedPubkey = extractPubkeyFromAddress(linkedAddress);
+      if (extractedPubkey !== linkedPublicKey) {
+        return res.status(400).json({ error: 'Public key does not match linked address' });
+      }
+      
+      const link = await storage.linkAddress(primaryAddress, linkedAddress, linkedPublicKey, label);
+      
+      // If primary is founder, the linked address inherits founder tier automatically via getUserTier
+      console.log(`Address ${linkedAddress} linked to ${primaryAddress}`);
+      
+      res.json(link);
+    } catch (error) {
+      console.error('Error linking address:', error);
+      res.status(500).json({ error: 'Failed to link address' });
+    }
+  });
+
+  // Unlink an address
+  app.delete('/api/linked-addresses/:linkedAddress', async (req, res) => {
+    try {
+      const { linkedAddress } = req.params;
+      const { primaryAddress, signature, timestamp, nonce } = req.body;
+      
+      // Verify ownership - must be signed by primary
+      const primaryIdentity = await storage.getIdentity(primaryAddress);
+      if (!primaryIdentity) {
+        return res.status(404).json({ error: 'Primary identity not found' });
+      }
+      
+      const payload = { linkedAddress, primaryAddress, timestamp, nonce };
+      const isValid = verifyGenericSignature(payload, signature, primaryIdentity.publicKeyBase58, nonce, timestamp);
+      if (!isValid) {
+        return res.status(401).json({ error: 'Invalid signature' });
+      }
+      
+      // Verify the linked address belongs to this primary
+      const actualPrimary = await storage.getPrimaryAddress(linkedAddress);
+      if (actualPrimary !== primaryAddress) {
+        return res.status(403).json({ error: 'This address is not linked to your account' });
+      }
+      
+      const success = await storage.unlinkAddress(linkedAddress);
+      res.json({ success });
+    } catch (error) {
+      console.error('Error unlinking address:', error);
+      res.status(500).json({ error: 'Failed to unlink address' });
+    }
+  });
+
   // Get user entitlements (public) - Legacy endpoint
   app.get('/api/entitlements/:address', async (req, res) => {
     try {

@@ -30,6 +30,7 @@ import {
   userModeSettings, type UserModeSettings, type InsertUserModeSettings,
   planEntitlements, type PlanEntitlements, type InsertPlanEntitlements,
   userEntitlementOverrides, type UserEntitlementOverrides, type InsertUserEntitlementOverrides,
+  linkedAddresses, type LinkedAddress,
 } from "@shared/schema";
 import type { UserMode, FeatureFlags } from "@shared/types";
 import { randomUUID, createHash } from "crypto";
@@ -228,6 +229,13 @@ export interface IStorage {
   markVoicemailRead(id: string): Promise<Voicemail | undefined>;
   deleteVoicemail(id: string): Promise<boolean>;
   getUnreadVoicemailCount(recipientAddress: string): Promise<number>;
+
+  // Linked Addresses (multiple numbers under one account)
+  getLinkedAddresses(primaryAddress: string): Promise<LinkedAddress[]>;
+  getPrimaryAddress(linkedAddress: string): Promise<string | undefined>;
+  linkAddress(primaryAddress: string, linkedAddress: string, linkedPublicKey: string, label?: string): Promise<LinkedAddress>;
+  unlinkAddress(linkedAddress: string): Promise<boolean>;
+  isAddressLinked(address: string): Promise<boolean>;
 
   // Token metrics (observability)
   recordTokenMetric(eventType: string, userAddress?: string, userAgent?: string, ipAddress?: string, details?: string): Promise<void>;
@@ -1214,11 +1222,28 @@ export class DatabaseStorage implements IStorage {
   // User tier management
   async getUserTier(address: string): Promise<'free' | 'paid' | 'admin'> {
     const identity = await this.getIdentity(address);
-    if (!identity) return 'free';
+    if (!identity) {
+      // Check if this is a linked address - inherit tier from primary
+      const primaryAddress = await this.getPrimaryAddress(address);
+      if (primaryAddress) {
+        return this.getUserTier(primaryAddress);
+      }
+      return 'free';
+    }
     
     // Admin/founder = admin tier
-    if (identity.role === 'admin' || identity.role === 'founder') {
+    if (identity.role === 'admin' || identity.role === 'founder' || 
+        identity.role === 'super_admin' || identity.role === 'ultra_god_admin') {
       return 'admin';
+    }
+    
+    // Check if linked to a primary with higher tier
+    const primaryAddress = await this.getPrimaryAddress(address);
+    if (primaryAddress) {
+      const primaryTier = await this.getUserTier(primaryAddress);
+      if (primaryTier === 'admin' || primaryTier === 'paid') {
+        return primaryTier;
+      }
     }
     
     // Comped account = paid tier (perpetual Pro without billing)
@@ -1626,6 +1651,42 @@ export class DatabaseStorage implements IStorage {
         sql`${voicemails.deletedAt} IS NULL`
       ));
     return Number(result?.count || 0);
+  }
+
+  // Linked Addresses implementation
+  async getLinkedAddresses(primaryAddress: string): Promise<LinkedAddress[]> {
+    return await db.select().from(linkedAddresses)
+      .where(eq(linkedAddresses.primaryAddress, primaryAddress))
+      .orderBy(desc(linkedAddresses.createdAt));
+  }
+
+  async getPrimaryAddress(linkedAddress: string): Promise<string | undefined> {
+    const [link] = await db.select().from(linkedAddresses)
+      .where(eq(linkedAddresses.linkedAddress, linkedAddress));
+    return link?.primaryAddress;
+  }
+
+  async linkAddress(primaryAddress: string, linkedAddr: string, linkedPublicKey: string, label?: string): Promise<LinkedAddress> {
+    const [created] = await db.insert(linkedAddresses).values({
+      primaryAddress,
+      linkedAddress: linkedAddr,
+      linkedPublicKey,
+      label: label || null,
+    }).returning();
+    return created;
+  }
+
+  async unlinkAddress(linkedAddr: string): Promise<boolean> {
+    const [deleted] = await db.delete(linkedAddresses)
+      .where(eq(linkedAddresses.linkedAddress, linkedAddr))
+      .returning();
+    return !!deleted;
+  }
+
+  async isAddressLinked(address: string): Promise<boolean> {
+    const [link] = await db.select().from(linkedAddresses)
+      .where(eq(linkedAddresses.linkedAddress, address));
+    return !!link;
   }
 
   // Token metrics implementation

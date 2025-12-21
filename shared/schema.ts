@@ -62,6 +62,24 @@ export const insertCryptoIdentitySchema = createInsertSchema(cryptoIdentities).o
 export type InsertCryptoIdentity = z.infer<typeof insertCryptoIdentitySchema>;
 export type CryptoIdentityRecord = typeof cryptoIdentities.$inferSelect;
 
+// Linked addresses - allows one user to have multiple Call IDs
+// All linked addresses share the same tier/role as the primary
+export const linkedAddresses = pgTable("linked_addresses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  primaryAddress: text("primary_address").notNull(), // The main identity
+  linkedAddress: text("linked_address").notNull().unique(), // Secondary address
+  linkedPublicKey: text("linked_public_key").notNull(), // Public key of linked address
+  label: text("label"), // Optional label like "Work", "Personal"
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertLinkedAddressSchema = createInsertSchema(linkedAddresses).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertLinkedAddress = z.infer<typeof insertLinkedAddressSchema>;
+export type LinkedAddress = typeof linkedAddresses.$inferSelect;
+
 export const contacts = pgTable("contacts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   ownerAddress: text("owner_address").notNull(),
