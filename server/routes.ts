@@ -3603,7 +3603,7 @@ export async function registerRoutes(
       
       // Use atomic update with plan validation inside storage (skip validation for full access users)
       const updated = hasFullAccess 
-        ? await storage.updateUserMode(address, mode)
+        ? await storage.createOrUpdateUserModeSettings(address, mode)
         : await storage.updateUserModeWithPlanValidation(address, mode, identity.plan);
       
       if (!updated) {
