@@ -138,11 +138,14 @@ export default function AdminLoginPage() {
           </p>
           <ol className="text-slate-400 text-sm space-y-2 list-decimal list-inside">
             <li>Open the app and go to <strong className="text-white">Settings</strong></li>
-            <li>Expand <strong className="text-white">Advanced Identity</strong> to find your Call ID</li>
-            <li>Copy your Call ID and set it as <code className="bg-slate-900 px-1 rounded text-emerald-400">FOUNDER_ADDRESS</code> in Secrets</li>
+            <li>Expand <strong className="text-white">Advanced Identity</strong> to find your <strong className="text-white">Public Key</strong></li>
+            <li>Copy your Public Key and set it as <code className="bg-slate-900 px-1 rounded text-emerald-400">FOUNDER_PUBKEY</code> in Secrets</li>
             <li>Refresh and access the <strong className="text-white">Admin Console</strong></li>
             <li>Go to <strong className="text-white">Account</strong> tab to create your username/password</li>
           </ol>
+          <p className="text-slate-500 text-xs mt-3">
+            Using your public key means you stay founder even if you rotate your Call ID.
+          </p>
         </CardContent>
       </Card>
     </div>

@@ -1465,17 +1465,50 @@ export async function registerRoutes(
   // ============================================
 
   // Founder seeding on startup
+  // FOUNDER_PUBKEY: Use the public key (stable, never changes even if address rotates)
+  // FOUNDER_ADDRESS: Legacy support for full address matching
+  const FOUNDER_PUBKEY = process.env.FOUNDER_PUBKEY;
   const FOUNDER_ADDRESS = process.env.FOUNDER_ADDRESS;
   
+  // Extract public key from address format: call:<pubkey>:<random>
+  function extractPubkeyFromAddress(address: string): string | null {
+    if (!address.startsWith('call:')) return null;
+    const parts = address.split(':');
+    if (parts.length >= 2) {
+      return parts[1]; // The public key portion
+    }
+    return null;
+  }
+  
+  // Check if an address matches the founder (by pubkey or full address)
+  function isFounderAddress(address: string): boolean {
+    if (FOUNDER_PUBKEY) {
+      const pubkey = extractPubkeyFromAddress(address);
+      return pubkey === FOUNDER_PUBKEY;
+    }
+    if (FOUNDER_ADDRESS) {
+      return address === FOUNDER_ADDRESS;
+    }
+    return false;
+  }
+  
   async function seedFounder() {
-    if (!FOUNDER_ADDRESS) return;
+    if (!FOUNDER_PUBKEY && !FOUNDER_ADDRESS) return;
     
-    const identity = await storage.getIdentity(FOUNDER_ADDRESS);
-    if (identity && identity.role !== 'founder') {
-      await storage.updateIdentity(FOUNDER_ADDRESS, { role: 'founder' } as any);
-      console.log(`Promoted ${FOUNDER_ADDRESS} to founder role`);
-    } else if (!identity) {
-      console.log(`Founder address ${FOUNDER_ADDRESS} not found in database yet - will be promoted on first registration`);
+    // If using pubkey, we can't seed until we see a matching address
+    if (FOUNDER_PUBKEY) {
+      console.log(`Founder pubkey configured: ${FOUNDER_PUBKEY.slice(0, 8)}... - will be promoted on registration`);
+      return;
+    }
+    
+    if (FOUNDER_ADDRESS) {
+      const identity = await storage.getIdentity(FOUNDER_ADDRESS);
+      if (identity && identity.role !== 'founder') {
+        await storage.updateIdentity(FOUNDER_ADDRESS, { role: 'founder' } as any);
+        console.log(`Promoted ${FOUNDER_ADDRESS} to founder role`);
+      } else if (!identity) {
+        console.log(`Founder address ${FOUNDER_ADDRESS} not found in database yet - will be promoted on first registration`);
+      }
     }
   }
   
@@ -2869,7 +2902,8 @@ export async function registerRoutes(
       diagnostics.checks.rbac = {
         status: 'ok',
         message: 'RBAC system active',
-        founderAddressConfigured: !!FOUNDER_ADDRESS
+        founderConfigured: !!(FOUNDER_PUBKEY || FOUNDER_ADDRESS),
+        founderType: FOUNDER_PUBKEY ? 'pubkey' : (FOUNDER_ADDRESS ? 'address' : 'none')
       };
       
       // Recent security events
@@ -3234,8 +3268,8 @@ export async function registerRoutes(
         displayName,
       });
       
-      // Check if this is the founder address
-      if (FOUNDER_ADDRESS && address === FOUNDER_ADDRESS) {
+      // Check if this is the founder (by pubkey or full address)
+      if (isFounderAddress(address)) {
         identity = await storage.updateIdentity(address, { role: 'founder' } as any) || identity;
         console.log(`New user ${address} promoted to founder role`);
       }
