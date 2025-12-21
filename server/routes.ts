@@ -3983,6 +3983,12 @@ export async function registerRoutes(
         const message: WSMessage = JSON.parse(data.toString());
 
         switch (message.type) {
+          case 'ping': {
+            // Respond to client ping with pong
+            ws.send(JSON.stringify({ type: 'pong' }));
+            break;
+          }
+          
           case 'register': {
             const { address } = message;
             clientAddress = address;

@@ -141,13 +141,23 @@ export default function CallPage() {
 
   const wsReconnectAttempt = useRef(0);
   const wsReconnectTimeout = useRef<NodeJS.Timeout | null>(null);
+  const wsHeartbeatInterval = useRef<NodeJS.Timeout | null>(null);
+  const wsLastPong = useRef<number>(Date.now());
   const [wsConnected, setWsConnected] = useState(false);
   
+  // Heartbeat interval: send ping every 15 seconds, expect response within 10s
+  const WS_HEARTBEAT_INTERVAL = 15000;
+  const WS_HEARTBEAT_TIMEOUT = 10000;
+  
   const initWebSocket = (storedIdentity: CryptoIdentity) => {
-    // Clear any pending reconnect
+    // Clear any pending reconnect and heartbeat
     if (wsReconnectTimeout.current) {
       clearTimeout(wsReconnectTimeout.current);
       wsReconnectTimeout.current = null;
+    }
+    if (wsHeartbeatInterval.current) {
+      clearInterval(wsHeartbeatInterval.current);
+      wsHeartbeatInterval.current = null;
     }
     
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -157,12 +167,41 @@ export default function CallPage() {
     websocket.onopen = () => {
       console.log('WebSocket connected');
       setWsConnected(true);
-      wsReconnectAttempt.current = 0; // Reset reconnect attempts on successful connection
+      wsReconnectAttempt.current = 0;
+      wsLastPong.current = Date.now();
       websocket.send(JSON.stringify({ type: 'register', address: storedIdentity.address }));
+      
+      // Start client-side heartbeat to detect dead connections fast
+      wsHeartbeatInterval.current = setInterval(() => {
+        if (websocket.readyState === WebSocket.OPEN) {
+          // Check if we haven't received a pong in too long
+          if (Date.now() - wsLastPong.current > WS_HEARTBEAT_INTERVAL + WS_HEARTBEAT_TIMEOUT) {
+            console.log('WebSocket heartbeat timeout, reconnecting...');
+            websocket.close();
+            return;
+          }
+          // Send ping (server will respond with pong automatically via WebSocket protocol)
+          try {
+            websocket.send(JSON.stringify({ type: 'ping' }));
+          } catch (e) {
+            console.log('WebSocket send failed, reconnecting...');
+            websocket.close();
+          }
+        }
+      }, WS_HEARTBEAT_INTERVAL);
     };
 
     websocket.onmessage = (event) => {
+      // Any message received counts as "alive"
+      wsLastPong.current = Date.now();
+      
       const message: WSMessage = JSON.parse(event.data);
+      
+      // Handle pong silently
+      if (message.type === 'pong') {
+        return;
+      }
+      
       handleWebSocketMessage(message);
     };
 
@@ -175,13 +214,19 @@ export default function CallPage() {
       console.log('WebSocket closed');
       setWsConnected(false);
       
-      // Exponential backoff: 500ms, 1s, 2s, 4s, 8s, max 15s
-      const delay = Math.min(500 * Math.pow(2, wsReconnectAttempt.current), 15000);
+      // Clear heartbeat
+      if (wsHeartbeatInterval.current) {
+        clearInterval(wsHeartbeatInterval.current);
+        wsHeartbeatInterval.current = null;
+      }
+      
+      // Fast reconnect: 100ms, 200ms, 500ms, 1s, 2s, max 5s
+      const delay = Math.min(100 * Math.pow(2, wsReconnectAttempt.current), 5000);
       wsReconnectAttempt.current++;
       
-      // Only show toast after first few quick attempts
-      if (wsReconnectAttempt.current > 2) {
-        toast.info('Reconnecting...', { duration: 2000 });
+      // Only show toast after multiple quick attempts
+      if (wsReconnectAttempt.current > 3) {
+        toast.info('Reconnecting...', { duration: 1500 });
       }
       
       wsReconnectTimeout.current = setTimeout(() => {
@@ -220,10 +265,14 @@ export default function CallPage() {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('online', handleOnline);
-      // Clear pending reconnect timeout on unmount
+      // Clear pending reconnect timeout and heartbeat on unmount
       if (wsReconnectTimeout.current) {
         clearTimeout(wsReconnectTimeout.current);
         wsReconnectTimeout.current = null;
+      }
+      if (wsHeartbeatInterval.current) {
+        clearInterval(wsHeartbeatInterval.current);
+        wsHeartbeatInterval.current = null;
       }
     };
   }, [identity, ws]);
