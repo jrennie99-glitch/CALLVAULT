@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { User, Shield, Wifi, ChevronDown, ChevronUp, Copy, RefreshCw, Fingerprint, Eye, EyeOff, MessageSquare, CheckCheck, Clock, Phone, Ban, Bot, Wallet, ChevronRight, Ticket, Briefcase, BarChart3, Crown, Lock, Sparkles, CreditCard, ExternalLink, Snowflake, Download, Upload, Cloud, CloudOff, Check } from 'lucide-react';
+import { User, Shield, Wifi, ChevronDown, ChevronUp, Copy, RefreshCw, Fingerprint, Eye, EyeOff, MessageSquare, CheckCheck, Clock, Phone, Ban, Bot, Wallet, ChevronRight, Ticket, Briefcase, BarChart3, Crown, Lock, Sparkles, CreditCard, ExternalLink, Snowflake, Download, Upload, Cloud, CloudOff, Check, LogOut, AlertTriangle } from 'lucide-react';
 import { FreezeModeSetupModal } from '@/components/FreezeModeSetupModal';
 import { ModeSettings } from '@/components/ModeSettings';
 import { Button } from '@/components/ui/button';
@@ -64,6 +64,7 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
   const [vaultPinConfirm, setVaultPinConfirm] = useState('');
   const [vaultPinHint, setVaultPinHint] = useState('');
   const [isCreatingVault, setIsCreatingVault] = useState(false);
+  const [showSignOutDialog, setShowSignOutDialog] = useState(false);
 
   useEffect(() => {
     isPlatformAuthenticatorAvailable().then(setBiometricAvailable);
@@ -1088,6 +1089,32 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
         </CardContent>
       </Card>
 
+      <Card className="bg-slate-800/50 border-slate-700">
+        <CardHeader>
+          <CardTitle className="text-white flex items-center gap-2">
+            <LogOut className="w-5 h-5" />
+            Sign Out
+          </CardTitle>
+          <CardDescription className="text-slate-500">
+            Sign out from this device to switch identities
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="text-slate-400 text-sm mb-3">
+            This will remove your identity from this browser. Make sure you have cloud sync enabled or have exported a backup before signing out.
+          </p>
+          <Button
+            onClick={() => setShowSignOutDialog(true)}
+            variant="outline"
+            className="w-full border-red-500/50 text-red-400 hover:bg-red-500/10"
+            data-testid="button-sign-out"
+          >
+            <LogOut className="w-4 h-4 mr-2" />
+            Sign Out
+          </Button>
+        </CardContent>
+      </Card>
+
       <Dialog open={showUpgradeDialog} onOpenChange={setShowUpgradeDialog}>
         <DialogContent className="bg-slate-800 border-slate-700 max-w-md">
           <DialogHeader>
@@ -1285,6 +1312,54 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
                 data-testid="button-enable-vault"
               >
                 {isCreatingVault ? 'Encrypting...' : (vaultExists ? 'Update PIN' : 'Enable Sync')}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showSignOutDialog} onOpenChange={setShowSignOutDialog}>
+        <DialogContent className="bg-slate-800 border-slate-700 max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-red-400" />
+              Sign Out
+            </DialogTitle>
+            <DialogDescription className="text-slate-400">
+              Are you sure you want to sign out from this device?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+              <p className="text-amber-400 text-sm">
+                <strong>Warning:</strong> Your identity will be removed from this browser. 
+                {vaultExists 
+                  ? ' You can restore it using Cloud Sync on the welcome screen.'
+                  : ' Make sure you have exported a backup first or enabled cloud sync!'}
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <Button 
+                variant="outline" 
+                className="flex-1" 
+                onClick={() => setShowSignOutDialog(false)}
+                data-testid="button-cancel-sign-out"
+              >
+                Cancel
+              </Button>
+              <Button 
+                className="flex-1 bg-red-500 hover:bg-red-600 text-white"
+                onClick={() => {
+                  localStorage.removeItem('crypto_identity');
+                  localStorage.removeItem('user_profile');
+                  localStorage.removeItem('app_settings');
+                  toast.success('Signed out successfully');
+                  window.location.reload();
+                }}
+                data-testid="button-confirm-sign-out"
+              >
+                <LogOut className="w-4 h-4 mr-2" />
+                Sign Out
               </Button>
             </div>
           </div>
