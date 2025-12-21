@@ -1746,20 +1746,27 @@ export async function registerRoutes(
     }
   });
 
-  // Update user role (founder only for promoting to admin)
+  // Update user role (founder only for promoting to admin/founder)
   app.put('/api/admin/users/:address/role', async (req, res) => {
     const actorAddress = req.headers['x-admin-address'] as string;
     const { role } = req.body;
     const { address } = req.params;
     
-    // Only founder can assign admin role
-    if (role === 'admin') {
+    // Validate role is a valid value
+    const validRoles = ['user', 'admin', 'founder'];
+    if (!validRoles.includes(role)) {
+      return res.status(400).json({ error: 'Invalid role. Must be: user, admin, or founder' });
+    }
+    
+    // Only founder can assign admin or founder roles
+    if (role === 'admin' || role === 'founder') {
       await requireFounder(req, res, async () => {
         try {
           const updated = await storage.updateIdentityRole(address, role, actorAddress);
           if (!updated) {
             return res.status(404).json({ error: 'User not found' });
           }
+          console.log(`User ${address} promoted to ${role} by ${actorAddress}`);
           res.json(updated);
         } catch (error) {
           console.error('Error updating user role:', error);
@@ -1767,6 +1774,7 @@ export async function registerRoutes(
         }
       });
     } else {
+      // Demoting to user can be done by any admin
       await requireAdmin(req, res, async () => {
         try {
           const updated = await storage.updateIdentityRole(address, role, actorAddress);
@@ -2970,8 +2978,8 @@ export async function registerRoutes(
       diagnostics.checks.rbac = {
         status: 'ok',
         message: 'RBAC system active',
-        founderConfigured: !!(FOUNDER_PUBKEY || FOUNDER_ADDRESS),
-        founderType: FOUNDER_PUBKEY ? 'pubkey' : (FOUNDER_ADDRESS ? 'address' : 'none')
+        founderConfigured: !!(FOUNDER_PUBKEYS.length > 0 || FOUNDER_ADDRESS),
+        founderType: FOUNDER_PUBKEYS.length > 0 ? 'pubkey' : (FOUNDER_ADDRESS ? 'address' : 'none')
       };
       
       // Recent security events
@@ -4250,7 +4258,7 @@ export async function registerRoutes(
               // Tell caller the recipient is unavailable
               ws.send(JSON.stringify({ 
                 type: 'call:unavailable', 
-                message: 'Recipient is currently unavailable. They will see your missed call.',
+                reason: 'Recipient is currently unavailable. They will see your missed call.',
                 to_address: recipientAddr
               } as WSMessage));
               return;

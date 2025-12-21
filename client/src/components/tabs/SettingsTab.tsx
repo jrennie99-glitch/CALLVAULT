@@ -319,6 +319,28 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
 
   return (
     <div className="p-4 space-y-4 pb-24">
+      {/* Founder Badge Banner */}
+      {isFounder && (
+        <Card className="bg-gradient-to-r from-yellow-500/20 via-amber-500/20 to-orange-500/20 border border-yellow-500/30">
+          <CardContent className="py-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-yellow-400 to-orange-500 flex items-center justify-center">
+                <Crown className="w-6 h-6 text-white" />
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-white font-bold text-lg">Founder</span>
+                  <Badge className="bg-gradient-to-r from-yellow-500 to-orange-500 text-white">
+                    <Sparkles className="w-3 h-3 mr-1" /> Full Access
+                  </Badge>
+                </div>
+                <p className="text-yellow-200/70 text-sm">You have full admin privileges and can manage all users</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card className="bg-slate-800/50 border-slate-700">
         <CardHeader>
           <CardTitle className="text-white flex items-center gap-2">

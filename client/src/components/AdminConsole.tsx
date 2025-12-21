@@ -945,6 +945,7 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
                             <SelectContent>
                               <SelectItem value="user">User</SelectItem>
                               <SelectItem value="admin">Admin</SelectItem>
+                              <SelectItem value="founder">Founder</SelectItem>
                             </SelectContent>
                           </Select>
                         )}
