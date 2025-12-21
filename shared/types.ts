@@ -251,6 +251,11 @@ export type WSMessage =
   | { type: 'wallet:response'; verification: WalletVerification | null }
   | { type: 'error'; message: string }
   | { type: 'success'; message: string }
+  // Heartbeat
+  | { type: 'ping' }
+  | { type: 'pong' }
+  // Call unavailable (offline recipient)
+  | { type: 'call:unavailable'; to_address: string; reason: string }
   // Phase 4: Monetization
   | { type: 'queue:join'; request: CallRequest; position: number }
   | { type: 'queue:update'; position: number; estimated_wait: number }

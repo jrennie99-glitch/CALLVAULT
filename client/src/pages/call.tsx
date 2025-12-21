@@ -99,7 +99,12 @@ export default function CallPage() {
     loadConversations();
 
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(console.error);
+      navigator.serviceWorker.register('/sw.js')
+        .then(registration => {
+          // Subscribe to push notifications if supported
+          setupPushNotifications(registration, storedIdentity.address);
+        })
+        .catch(console.error);
     }
 
     return () => {
@@ -117,6 +122,69 @@ export default function CallPage() {
     setConversations(convos);
     const total = convos.reduce((sum, c) => sum + (c.unread_count || 0), 0);
     setUnreadCount(total);
+  };
+
+  // Setup push notifications for offline call alerts
+  const setupPushNotifications = async (registration: ServiceWorkerRegistration, userAddress: string) => {
+    try {
+      // Check if push is supported
+      if (!('PushManager' in window)) {
+        console.log('Push notifications not supported');
+        return;
+      }
+
+      // Request notification permission if not granted
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        console.log('Notification permission denied');
+        return;
+      }
+
+      // Get VAPID public key from server
+      const vapidResponse = await fetch('/api/push/vapid-public-key');
+      if (!vapidResponse.ok) {
+        console.log('Push notifications not configured on server');
+        return;
+      }
+      const { vapidPublicKey } = await vapidResponse.json();
+
+      // Convert VAPID key to Uint8Array
+      const urlBase64ToUint8Array = (base64String: string) => {
+        const padding = '='.repeat((4 - base64String.length % 4) % 4);
+        const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+        const rawData = window.atob(base64);
+        const outputArray = new Uint8Array(rawData.length);
+        for (let i = 0; i < rawData.length; ++i) {
+          outputArray[i] = rawData.charCodeAt(i);
+        }
+        return outputArray;
+      };
+
+      // Check for existing subscription
+      let subscription = await registration.pushManager.getSubscription();
+      
+      // If no subscription or it's expired, create a new one
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
+        });
+      }
+
+      // Send subscription to server
+      await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userAddress,
+          subscription: subscription.toJSON()
+        })
+      });
+
+      console.log('Push notification subscription active');
+    } catch (error) {
+      console.error('Failed to setup push notifications:', error);
+    }
   };
 
   const fetchTurnConfig = async () => {
