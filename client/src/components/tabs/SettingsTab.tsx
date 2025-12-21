@@ -766,14 +766,18 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
               <div className="mt-1 p-3 bg-slate-900/50 rounded-lg font-mono text-xs text-slate-300 break-all">
                 {identity.publicKeyBase58}
               </div>
+              <p className="text-slate-500 text-xs mt-2">
+                Your public key identifies you across devices. Add this to FOUNDER_PUBKEYS in Secrets for founder access.
+              </p>
               <Button
                 onClick={copyPublicKey}
-                variant="ghost"
+                variant="outline"
                 size="sm"
-                className="mt-2 text-slate-400 hover:text-white"
+                className="mt-2 border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/10"
+                data-testid="button-copy-pubkey"
               >
                 <Copy className="w-4 h-4 mr-2" />
-                Copy Public Key
+                Copy Public Key (for Founder Setup)
               </Button>
             </div>
             <div>
@@ -782,8 +786,7 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
                 {identity.address}
               </div>
               <p className="text-slate-500 text-xs mt-2">
-                This is your unique cryptographic address. Share it with others so they can call you. 
-                For founders: copy this address and set it as the FOUNDER_ADDRESS in your app's Secrets to get admin access.
+                This is your unique cryptographic address. Share it with others so they can call you.
               </p>
               <div className="flex gap-2 mt-2">
                 <Button
