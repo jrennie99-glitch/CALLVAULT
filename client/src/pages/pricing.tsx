@@ -137,7 +137,7 @@ export default function PricingPage() {
               <CardHeader className="text-center pb-2">
                 <CardTitle className="text-xl text-white">{plan.name}</CardTitle>
                 <div className="mt-2">
-                  <span className="text-4xl font-bold">{plan.price}</span>
+                  <span className="text-4xl font-bold text-white">{plan.price}</span>
                   <span className="text-slate-400">{plan.period}</span>
                 </div>
                 <p className="text-slate-400 text-sm mt-2">{plan.description}</p>
