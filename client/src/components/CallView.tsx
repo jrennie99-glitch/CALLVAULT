@@ -721,6 +721,12 @@ export function CallView({
     stopCallTimer();
     clearStunFailureTimer();
     hasAttemptedTurnFallbackRef.current = false;
+    
+    // Stop all audio (ringback, ringtone) immediately
+    import('@/lib/audio').then(({ stopAllAudio }) => {
+      stopAllAudio();
+    });
+    
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => track.stop());
       localStreamRef.current = null;
