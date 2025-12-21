@@ -22,6 +22,36 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
+// Anti-AI crawler and scraper protection
+const AI_BOT_USER_AGENTS = [
+  'GPTBot', 'ChatGPT-User', 'CCBot', 'anthropic-ai', 'Claude-Web',
+  'Google-Extended', 'Bytespider', 'Applebot-Extended', 'PerplexityBot',
+  'YouBot', 'Amazonbot', 'cohere-ai', 'Diffbot', 'OAI-SearchBot',
+  'Scrapy', 'python-requests', 'axios', 'curl', 'wget'
+];
+
+app.use((req, res, next) => {
+  const userAgent = req.headers['user-agent'] || '';
+  
+  // Block known AI bots from accessing the app
+  const isAIBot = AI_BOT_USER_AGENTS.some(bot => 
+    userAgent.toLowerCase().includes(bot.toLowerCase())
+  );
+  
+  if (isAIBot) {
+    console.log(`Blocked AI bot: ${userAgent}`);
+    return res.status(403).json({ error: 'Access denied' });
+  }
+  
+  // Add security headers to prevent scraping
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive, nosnippet');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  
+  next();
+});
+
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
     hour: "numeric",
