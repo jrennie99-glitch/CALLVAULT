@@ -1,0 +1,208 @@
+REPLIT AGENT — FINAL UPGRADE SPECS (CALL VAULT / CV) — ADD ONLY, DO NOT BREAK ANYTHING
+The Call Vault (CV) app is ALREADY BUILT. This is an UPGRADE ONLY.
+
+ABSOLUTE NON-NEGOTIABLE RULES
+1) DO NOT remove, rename, or change any existing feature, UI, route, API, DB table, auth, crypto identity, billing, admin console, or current behavior.
+2) DO NOT “refactor away” working code. Only ADD new code and integrate safely.
+3) Keep ALL current features working exactly as they do today (1:1 voice/video, messaging, group chat text, receipts, offline delivery, freeze mode, biometric lock, paid calls, queue, invites/passes, Stripe, crypto payments, RBAC admin, PWA, QR, partial voicemail UI, etc.).
+4) Implement upgrades behind feature flags + entitlement checks so rollout is safe.
+5) All new signaling/events must continue to use existing Ed25519 identity + signature verification.
+
+CURRENT FEATURES (CONFIRMED — MUST STAY)
+Calling:
+- 1:1 voice calls
+- 1:1 video calls
+- mute/unmute mic, camera on/off, speaker toggle, front/back switch
+- call timer, call history
+- ringtone/ringback
+- connection status indicator
+- auto-reconnect on network drops
+Messaging:
+- 1:1 text messages
+- group chat (text)
+- typing indicators, read receipts
+- offline message delivery
+Privacy/Security:
+- Ed25519 cryptographic identity (no phone number)
+- signature verification for all calls
+- Freeze Mode, blocklist
+- biometric app lock (WebAuthn)
+Business/Creator:
+- paid calls (per session/per minute)
+- call queue
+- call invites/passes
+- Stripe subscriptions (Free, Pro, Business)
+- crypto payments (ETH/USDC/SOL)
+Admin:
+- full admin console with RBAC
+- user management, promo codes, IP blocklist
+- system health diagnostics
+Other:
+- PWA install
+- QR contact sharing
+- voicemail UI exists (backend incomplete)
+
+NEW UPGRADE SPECS (ADD ALL BELOW)
+
+PHASE 0 — FOUNDATION (MODES + ENTITLEMENTS) (ADD ONLY)
+A) Add “Modes” (visibility + defaults, not breaking behavior):
+- PERSONAL (default)
+- CREATOR
+- BUSINESS
+- STAGE (placeholder supported; large rooms later)
+B) Add feature flags registry + entitlements helper:
+- Resolve user plan (Stripe existing)
+- Resolve user mode (default PERSONAL)
+- Compute effective entitlements (plan limits + mode + admin overrides)
+C) Add admin controls:
+- set user mode
+- toggle flags per user
+- grant temporary access (timer)
+- view computed entitlements (debug)
+
+PHASE 1 — MULTIPLE CALL IDS (“MULTI-LINE”) BY PLAN (ADD ONLY)
+Goal: Users can have multiple independent Call IDs (“lines”), each with its own rules/history.
+- Free: 1 Call ID
+- Pro: 2 Call IDs
+- Business: 5 Call IDs
+- Founder/admin override: configurable
+Each Call ID must support:
+- label/name
+- separate Freeze Mode
+- separate blocklist (or scoped blocklist)
+- separate call history + voicemail inbox
+UI:
+- “Call IDs” manager screen
+- Call ID selector before placing calls / generating invites
+Routing:
+- Incoming calls target a specific Call ID (not just user)
+- Calls to different Call IDs do not conflict except plan limits
+Security:
+- Tokens must include call_id; prevent spoofing across call IDs
+
+PHASE 2 — WHATSAPP-STYLE GROUP CALLS (3–10) + 3-WAY/5-WAY (ADD ONLY)
+Goal: Add group audio/video calls like WhatsApp for small groups using WebRTC MESH (NOT SFU).
+Plan limits (server enforced):
+- Free: group calls disabled
+- Pro: up to 6 participants
+- Business: up to 10 participants
+Requirements:
+- Add “call_room” concept + room signaling events (signed)
+- Multi-peer mesh connections (one PC per peer)
+- Mobile-first UI:
+  - “New Group Call” (audio/video)
+  - participant picker from contacts
+  - group call screen with tiles/grid, active speaker highlight, participant drawer
+Quality:
+- default group video: 360p, lower bitrate if participants > 4
+TURN:
+- STUN always
+- TURN only for paid/trial users if configured
+- In group calls with TURN, auto-lower bitrate
+
+PHASE 3 — CALL WAITING + HOLD + MERGE (PHONE-LIKE) (ADD ONLY)
+Goal: If you’re on a call and another comes in:
+- Show in-call banner when call waiting is ON
+- Options: Accept (hold current), Decline, Merge (if eligible)
+Implement:
+- Call state machine (IDLE/ACTIVE/WAITING/HOLD/ON_HOLD/MERGING)
+- Hold behavior: mute mic + stop video tracks for held call (don’t drop connection)
+- Merge behavior: create/join a group room and renegotiate peers into same room
+Plan gating:
+- Free: call waiting toggle allowed, but no merge
+- Pro: call waiting + merge within limits
+- Business: call waiting + merge + cross Call ID merge (optional)
+Reliability:
+- socket reconnect, ICE restart once
+- silent token refresh/retry; no scary crypto errors
+
+PHASE 4 — “DO NOT DISTURB WHILE ON CALL” (CALL WAITING TOGGLE) + AUTO VOICEMAIL ROUTING (ADD ONLY)
+A) Add a toggle:
+- “Allow call waiting while on a call”
+- Global default ON
+- Per Call ID override
+B) Add an in-call quick toggle button:
+- “Do Not Disturb”
+- Instantly disables call waiting for current call
+- Restores prior setting after call ends unless user saves it
+C) Server enforcement:
+If user is on ACTIVE call and call waiting is OFF for that Call ID:
+- DO NOT send call waiting banner/event
+- Route incoming calls immediately to voicemail (not busy), with no interruption
+
+PHASE 5 — COMPLETE + UPGRADE VOICEMAIL (TEXT / AUDIO / VIDEO / IMAGE) (ADD ONLY)
+Goal: When call waiting is OFF (DND while on call), caller is sent to voicemail where they can leave:
+- Text message
+- Audio recording
+- Video recording
+- Image/photo message
+Also allow voicemail access via normal “missed call” flows if applicable.
+
+Implement voicemail backend fully (existing UI partial; COMPLETE it):
+Data model (adapt to existing DB):
+- voicemail_messages:
+  id, target_user_id, target_call_id, sender_id(optional),
+  message_type(text|audio|video|image),
+  text_content(optional), media_url(optional), duration_seconds(optional),
+  created_at, opened_at/played_at
+Media:
+- Use existing storage provider or add object storage integration safely.
+- Limits:
+  audio max 3–5 minutes, video max 1–2 minutes, image size cap
+Plan gating:
+- Free: text + audio only (short limits)
+- Pro: text + audio + image
+- Business: text + audio + video + image
+UI:
+- Caller voicemail compose screen (tabs: Text/Voice/Video/Photo)
+- Callee voicemail inbox (unified list with unread badges, playback/preview)
+- Optional notification (“New voicemail received”)
+
+PHASE 6 — COST SAFETY: FREE USERS MUST NOT COST MONEY (ENFORCE)
+Rules (server enforced):
+- Free users:
+  - STUN only (never TURN)
+  - 1:1 audio allowed with strict minutes cap (configurable)
+  - 1:1 video only if direct STUN succeeds; if relay needed -> audio fallback
+  - No group calls, no SFU rooms, no paid features
+- Paid users:
+  - TURN allowed as fallback
+Add admin dashboard metrics:
+- relay usage (TURN)
+- group call usage
+- voicemail storage usage
+- token failures/clock skew metrics
+
+PHASE 7 — RELIABILITY FIXES: TIMESTAMP/SIGNATURE (SEAMLESS) (ADD ONLY)
+Goal: eliminate “invalid signature/expired timestamp/secure session expired” from user experience.
+Implement:
+- Server-time source of truth for iat/exp
+- TTL 10 minutes
+- clock skew tolerance (2 minutes)
+- mint tokens ONLY at button tap (call start/join)
+- silent refresh + retry up to 3 times (200ms/600ms/1200ms) then show:
+  “Connection handshake failed. Tap to retry.”
+- one-time nonce anti-replay with safe retry (new nonce each retry)
+Add admin “Call Health” panel:
+- token_verify_expired, token_verify_skew, token_verify_replay counters
+
+FOUNDER MODE / FUTURE (DO NOT BUILD SFU 40 HERE UNLESS EASY)
+- Keep architecture ready for SFU rooms later (Stage tier), but do not risk breaking current system.
+- If SFU integration is started, keep it isolated as a separate module/route and gated to Founder only.
+
+DELIVERABLES
+1) Implement all phases above as additive upgrades
+2) List every file changed/added
+3) Add/Update ENV variables list (TURN, storage, feature flags)
+4) Add a “How to Test” checklist:
+   - group call (3, 5, 10)
+   - call waiting on/off
+   - DND while on call -> voicemail types
+   - multiple Call IDs routing
+   - free tier cost safety
+   - signature/timestamp resilience
+
+START NOW
+- First, audit repo and map existing call/message/admin code.
+- Then implement Phase 0 foundation, then phases 1–7 in order.
+- Run end-to-end tests after each phase.

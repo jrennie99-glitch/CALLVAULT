@@ -38,6 +38,12 @@ Preferred communication style: Simple, everyday language.
 - **Payment Success Flow**: Post-payment page for verifying Stripe sessions, PWA install instructions, and automated welcome emails.
 - **Enhanced Invite System**: Admin-controlled trial and comp invites with optional expiration, usage tracking, and signature verification.
 
+### Per-Call ID Settings
+- **DND (Do Not Disturb)**: Per-Call ID toggle with auto-restore after calls.
+- **Call Waiting**: Per-Call ID enable/disable.
+- **Voicemail Routing**: Automatic voicemail when DND is active.
+- **Freeze Mode**: Per-Call ID freeze to block unwanted calls.
+
 ### Security Measures
 - Ed25519 signature verification for critical actions.
 - Timestamp freshness and nonce replay protection.

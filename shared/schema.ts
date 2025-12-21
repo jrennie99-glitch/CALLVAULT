@@ -621,11 +621,15 @@ export type IpBlocklistEntry = typeof ipBlocklist.$inferSelect;
 export const voicemails = pgTable("voicemails", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   recipientAddress: text("recipient_address").notNull(), // Who receives the voicemail
+  targetCallId: text("target_call_id"), // Specific Call ID targeted (for multi-line)
   senderAddress: text("sender_address").notNull(), // Who left the voicemail
   senderName: text("sender_name"), // Optional display name
-  audioData: text("audio_data").notNull(), // Base64 encoded audio
-  audioFormat: text("audio_format").notNull().default("webm"), // 'webm' | 'mp3' | 'wav'
-  durationSeconds: integer("duration_seconds").notNull(),
+  messageType: text("message_type").notNull().default("audio"), // 'text' | 'audio' | 'video' | 'image'
+  textContent: text("text_content"), // For text voicemails
+  audioData: text("audio_data"), // Base64 encoded audio (null for text/image types)
+  audioFormat: text("audio_format").default("webm"), // 'webm' | 'mp3' | 'wav'
+  mediaUrl: text("media_url"), // URL for video/image content
+  durationSeconds: integer("duration_seconds"), // For audio/video messages
   transcription: text("transcription"), // AI-generated text transcription
   transcriptionStatus: text("transcription_status").default("pending"), // 'pending' | 'processing' | 'completed' | 'failed'
   isRead: boolean("is_read").default(false),
@@ -741,6 +745,27 @@ export const insertCallRoomParticipantSchema = createInsertSchema(callRoomPartic
 });
 export type InsertCallRoomParticipant = z.infer<typeof insertCallRoomParticipantSchema>;
 export type CallRoomParticipant = typeof callRoomParticipants.$inferSelect;
+
+// Call ID Settings - per-Call ID settings for DND, call waiting, etc.
+export const callIdSettings = pgTable("call_id_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  callIdAddress: text("call_id_address").notNull().unique(), // The Call ID (primary or linked address)
+  ownerAddress: text("owner_address").notNull(), // Primary user who owns this Call ID
+  label: text("label"), // Display label for this Call ID
+  allowCallWaiting: boolean("allow_call_waiting").default(true), // Global default ON
+  doNotDisturb: boolean("do_not_disturb").default(false), // DND mode
+  dndAutoRestore: boolean("dnd_auto_restore").default(true), // Restore prior setting after call ends
+  voicemailEnabled: boolean("voicemail_enabled").default(true), // Route to voicemail when DND
+  freezeMode: boolean("freeze_mode").default(false), // Per-Call ID freeze mode
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertCallIdSettingsSchema = createInsertSchema(callIdSettings).omit({
+  id: true,
+  updatedAt: true,
+});
+export type InsertCallIdSettings = z.infer<typeof insertCallIdSettingsSchema>;
+export type CallIdSettings = typeof callIdSettings.$inferSelect;
 
 // User Mode Settings - for PERSONAL/CREATOR/BUSINESS/STAGE modes
 export const userModeSettings = pgTable("user_mode_settings", {

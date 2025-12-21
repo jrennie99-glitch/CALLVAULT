@@ -3533,15 +3533,60 @@ export async function registerRoutes(
 
   // LINKED ADDRESSES ENDPOINTS (Multiple numbers under one account)
   
-  // Get all linked addresses for a primary
+  // Get all Call IDs (primary + linked addresses) for a user
   app.get('/api/linked-addresses/:primaryAddress', async (req, res) => {
     try {
       const { primaryAddress } = req.params;
       const links = await storage.getLinkedAddresses(primaryAddress);
-      res.json(links);
+      
+      // Get entitlements to show limits
+      const { getEffectiveEntitlements } = await import('./entitlements');
+      const entitlements = await getEffectiveEntitlements(primaryAddress);
+      
+      res.json({
+        callIds: [
+          { address: primaryAddress, label: 'Primary', isPrimary: true },
+          ...links.map(l => ({ address: l.linkedAddress, label: l.label || 'Secondary', isPrimary: false, id: l.id }))
+        ],
+        currentCount: 1 + links.length,
+        maxAllowed: entitlements.maxCallIds,
+        canAddMore: (1 + links.length) < entitlements.maxCallIds
+      });
     } catch (error) {
       console.error('Error fetching linked addresses:', error);
       res.status(500).json({ error: 'Failed to fetch linked addresses' });
+    }
+  });
+  
+  // Update linked address label
+  app.patch('/api/linked-addresses/:linkedAddress', async (req, res) => {
+    try {
+      const { linkedAddress } = req.params;
+      const { label, primaryAddress, signature, timestamp, nonce } = req.body;
+      
+      // Verify ownership - must be signed by primary
+      const primaryIdentity = await storage.getIdentity(primaryAddress);
+      if (!primaryIdentity) {
+        return res.status(404).json({ error: 'Primary identity not found' });
+      }
+      
+      const payload = { linkedAddress, label, primaryAddress, timestamp, nonce };
+      const isValid = verifyGenericSignature(payload, signature, primaryIdentity.publicKeyBase58, nonce, timestamp);
+      if (!isValid) {
+        return res.status(401).json({ error: 'Invalid signature' });
+      }
+      
+      // Verify the linked address belongs to this primary
+      const actualPrimary = await storage.getPrimaryAddress(linkedAddress);
+      if (actualPrimary !== primaryAddress) {
+        return res.status(403).json({ error: 'This address is not linked to your account' });
+      }
+      
+      const updated = await storage.updateLinkedAddressLabel(linkedAddress, label);
+      res.json(updated);
+    } catch (error) {
+      console.error('Error updating linked address:', error);
+      res.status(500).json({ error: 'Failed to update linked address' });
     }
   });
 
@@ -3558,6 +3603,21 @@ export async function registerRoutes(
       const primaryIdentity = await storage.getIdentity(primaryAddress);
       if (!primaryIdentity) {
         return res.status(404).json({ error: 'Primary identity not found' });
+      }
+      
+      // Check entitlement limit for Call IDs
+      const { getEffectiveEntitlements } = await import('./entitlements');
+      const entitlements = await getEffectiveEntitlements(primaryAddress);
+      const existingLinks = await storage.getLinkedAddresses(primaryAddress);
+      const currentCallIds = 1 + existingLinks.length; // Primary + linked addresses
+      
+      if (currentCallIds >= entitlements.maxCallIds) {
+        return res.status(403).json({ 
+          error: 'Call ID limit reached',
+          message: `Your plan allows ${entitlements.maxCallIds} Call ID(s). Upgrade to add more.`,
+          currentCount: currentCallIds,
+          maxAllowed: entitlements.maxCallIds
+        });
       }
       
       // Verify signature from primary address
@@ -3620,6 +3680,141 @@ export async function registerRoutes(
     } catch (error) {
       console.error('Error unlinking address:', error);
       res.status(500).json({ error: 'Failed to unlink address' });
+    }
+  });
+
+  // CALL ID SETTINGS ENDPOINTS (DND, Call Waiting per-line)
+  
+  // Get settings for a specific Call ID (requires signed request)
+  app.post('/api/call-id-settings/:callIdAddress/get', async (req, res) => {
+    try {
+      const { callIdAddress } = req.params;
+      const { ownerAddress, signature, timestamp, nonce } = req.body;
+      
+      // Verify signature from owner
+      const ownerIdentity = await storage.getIdentity(ownerAddress);
+      if (!ownerIdentity) {
+        return res.status(404).json({ error: 'Owner identity not found' });
+      }
+      
+      const payload = { callIdAddress, ownerAddress, timestamp, nonce };
+      const isValid = verifyGenericSignature(payload, signature, ownerIdentity.publicKeyBase58, nonce, timestamp);
+      if (!isValid) {
+        return res.status(401).json({ error: 'Invalid signature' });
+      }
+      
+      // Verify ownership - callIdAddress must be owned by ownerAddress
+      if (callIdAddress !== ownerAddress) {
+        const actualPrimary = await storage.getPrimaryAddress(callIdAddress);
+        if (actualPrimary !== ownerAddress) {
+          return res.status(403).json({ error: 'You do not own this Call ID' });
+        }
+      }
+      
+      // Ensure settings exist and return them
+      const settings = await storage.ensureCallIdSettings(callIdAddress, ownerAddress);
+      res.json(settings);
+    } catch (error) {
+      console.error('Error getting call ID settings:', error);
+      res.status(500).json({ error: 'Failed to get call ID settings' });
+    }
+  });
+  
+  // Get all Call ID settings for a user (requires signed request)
+  app.post('/api/call-id-settings/user/:ownerAddress/get', async (req, res) => {
+    try {
+      const { ownerAddress } = req.params;
+      const { signature, timestamp, nonce } = req.body;
+      
+      // Verify signature from owner
+      const ownerIdentity = await storage.getIdentity(ownerAddress);
+      if (!ownerIdentity) {
+        return res.status(404).json({ error: 'Owner identity not found' });
+      }
+      
+      const payload = { ownerAddress, timestamp, nonce };
+      const isValid = verifyGenericSignature(payload, signature, ownerIdentity.publicKeyBase58, nonce, timestamp);
+      if (!isValid) {
+        return res.status(401).json({ error: 'Invalid signature' });
+      }
+      
+      const allSettings = await storage.getAllCallIdSettings(ownerAddress);
+      res.json(allSettings);
+    } catch (error) {
+      console.error('Error getting all call ID settings:', error);
+      res.status(500).json({ error: 'Failed to get call ID settings' });
+    }
+  });
+  
+  // Create or update Call ID settings
+  app.put('/api/call-id-settings/:callIdAddress', async (req, res) => {
+    try {
+      const { callIdAddress } = req.params;
+      const { ownerAddress, signature, timestamp, nonce, ...updates } = req.body;
+      
+      // Verify signature from owner
+      const ownerIdentity = await storage.getIdentity(ownerAddress);
+      if (!ownerIdentity) {
+        return res.status(404).json({ error: 'Owner identity not found' });
+      }
+      
+      const payload = { callIdAddress, ownerAddress, timestamp, nonce, ...updates };
+      const isValid = verifyGenericSignature(payload, signature, ownerIdentity.publicKeyBase58, nonce, timestamp);
+      if (!isValid) {
+        return res.status(401).json({ error: 'Invalid signature' });
+      }
+      
+      // Verify ownership - callIdAddress must be owned by ownerAddress
+      // Either it's the primary address itself, or it's a linked address
+      if (callIdAddress !== ownerAddress) {
+        const actualPrimary = await storage.getPrimaryAddress(callIdAddress);
+        if (actualPrimary !== ownerAddress) {
+          return res.status(403).json({ error: 'You do not own this Call ID' });
+        }
+      }
+      
+      // Ensure settings exist, then update
+      await storage.ensureCallIdSettings(callIdAddress, ownerAddress);
+      const updated = await storage.updateCallIdSettings(callIdAddress, updates);
+      res.json(updated);
+    } catch (error) {
+      console.error('Error updating call ID settings:', error);
+      res.status(500).json({ error: 'Failed to update call ID settings' });
+    }
+  });
+  
+  // Quick toggle DND for a Call ID
+  app.post('/api/call-id-settings/:callIdAddress/dnd', async (req, res) => {
+    try {
+      const { callIdAddress } = req.params;
+      const { ownerAddress, enabled, signature, timestamp, nonce } = req.body;
+      
+      // Verify signature from owner
+      const ownerIdentity = await storage.getIdentity(ownerAddress);
+      if (!ownerIdentity) {
+        return res.status(404).json({ error: 'Owner identity not found' });
+      }
+      
+      const payload = { callIdAddress, ownerAddress, enabled, timestamp, nonce };
+      const isValid = verifyGenericSignature(payload, signature, ownerIdentity.publicKeyBase58, nonce, timestamp);
+      if (!isValid) {
+        return res.status(401).json({ error: 'Invalid signature' });
+      }
+      
+      // Verify ownership
+      if (callIdAddress !== ownerAddress) {
+        const actualPrimary = await storage.getPrimaryAddress(callIdAddress);
+        if (actualPrimary !== ownerAddress) {
+          return res.status(403).json({ error: 'You do not own this Call ID' });
+        }
+      }
+      
+      await storage.ensureCallIdSettings(callIdAddress, ownerAddress);
+      const updated = await storage.updateCallIdSettings(callIdAddress, { doNotDisturb: enabled });
+      res.json(updated);
+    } catch (error) {
+      console.error('Error toggling DND:', error);
+      res.status(500).json({ error: 'Failed to toggle DND' });
     }
   });
 

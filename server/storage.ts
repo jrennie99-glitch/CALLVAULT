@@ -34,6 +34,7 @@ import {
   pushSubscriptions, type PushSubscription,
   identityVaults, type IdentityVault, type InsertIdentityVault,
   vaultAccessLogs, type VaultAccessLog, type InsertVaultAccessLog,
+  callIdSettings, type CallIdSettings, type InsertCallIdSettings,
 } from "@shared/schema";
 import type { UserMode, FeatureFlags } from "@shared/types";
 import { randomUUID, createHash } from "crypto";
@@ -252,7 +253,14 @@ export interface IStorage {
   getPrimaryAddress(linkedAddress: string): Promise<string | undefined>;
   linkAddress(primaryAddress: string, linkedAddress: string, linkedPublicKey: string, label?: string): Promise<LinkedAddress>;
   unlinkAddress(linkedAddress: string): Promise<boolean>;
+  updateLinkedAddressLabel(linkedAddress: string, label: string): Promise<LinkedAddress | undefined>;
   isAddressLinked(address: string): Promise<boolean>;
+  
+  // Call ID Settings (DND, call waiting, per-line)
+  getCallIdSettings(callIdAddress: string): Promise<CallIdSettings | undefined>;
+  ensureCallIdSettings(callIdAddress: string, ownerAddress: string): Promise<CallIdSettings>;
+  updateCallIdSettings(callIdAddress: string, updates: Partial<InsertCallIdSettings>): Promise<CallIdSettings | undefined>;
+  getAllCallIdSettings(ownerAddress: string): Promise<CallIdSettings[]>;
 
   // Token metrics (observability)
   recordTokenMetric(eventType: string, userAddress?: string, userAgent?: string, ipAddress?: string, details?: string): Promise<void>;
@@ -1777,11 +1785,49 @@ export class DatabaseStorage implements IStorage {
       .returning();
     return !!deleted;
   }
+  
+  async updateLinkedAddressLabel(linkedAddr: string, label: string): Promise<LinkedAddress | undefined> {
+    const [updated] = await db.update(linkedAddresses)
+      .set({ label })
+      .where(eq(linkedAddresses.linkedAddress, linkedAddr))
+      .returning();
+    return updated || undefined;
+  }
 
   async isAddressLinked(address: string): Promise<boolean> {
     const [link] = await db.select().from(linkedAddresses)
       .where(eq(linkedAddresses.linkedAddress, address));
     return !!link;
+  }
+  
+  // Call ID Settings implementation
+  async getCallIdSettings(callIdAddress: string): Promise<CallIdSettings | undefined> {
+    const [settings] = await db.select().from(callIdSettings)
+      .where(eq(callIdSettings.callIdAddress, callIdAddress));
+    return settings || undefined;
+  }
+  
+  async ensureCallIdSettings(callIdAddress: string, ownerAddress: string): Promise<CallIdSettings> {
+    const existing = await this.getCallIdSettings(callIdAddress);
+    if (existing) return existing;
+    
+    const [created] = await db.insert(callIdSettings)
+      .values({ callIdAddress, ownerAddress })
+      .returning();
+    return created;
+  }
+  
+  async updateCallIdSettings(callIdAddress: string, updates: Partial<InsertCallIdSettings>): Promise<CallIdSettings | undefined> {
+    const [updated] = await db.update(callIdSettings)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(callIdSettings.callIdAddress, callIdAddress))
+      .returning();
+    return updated || undefined;
+  }
+  
+  async getAllCallIdSettings(ownerAddress: string): Promise<CallIdSettings[]> {
+    return db.select().from(callIdSettings)
+      .where(eq(callIdSettings.ownerAddress, ownerAddress));
   }
 
   // Push subscriptions implementation
@@ -2266,7 +2312,7 @@ export class DatabaseStorage implements IStorage {
       {
         planId: 'pro',
         data: {
-          maxCallIds: 3,
+          maxCallIds: 2,
           maxGroupParticipants: 6,
           allowCallWaiting: true,
           allowCallMerge: true,
@@ -2284,7 +2330,7 @@ export class DatabaseStorage implements IStorage {
       {
         planId: 'business',
         data: {
-          maxCallIds: 10,
+          maxCallIds: 5,
           maxGroupParticipants: 10,
           allowCallWaiting: true,
           allowCallMerge: true,
