@@ -215,6 +215,7 @@ export type WSMessage =
   | { type: 'msg:queued'; message_id: string; convo_id: string }
   | { type: 'msg:read'; message_ids: string[]; convo_id: string; reader_address: string }
   | { type: 'msg:typing'; convo_id: string; from_address: string; is_typing: boolean }
+  | { type: 'msg:reaction'; convo_id: string; message_id: string; emoji: string; from_address: string }
   // Conversations
   | { type: 'convo:create'; convo: Conversation }
   | { type: 'convo:update'; convo: Conversation }

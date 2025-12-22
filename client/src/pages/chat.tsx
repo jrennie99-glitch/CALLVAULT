@@ -232,15 +232,22 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
     saveLocalMessage(message);
     setMessages(prev => [...prev, message]);
 
-    const signedMessage = await signMessage(identity, message);
-    ws.send(JSON.stringify({
-      type: 'msg:send',
-      data: signedMessage
-    }));
-
-    message.status = 'sent';
-    saveLocalMessage(message);
-    setMessages(prev => prev.map(m => m.id === message.id ? { ...m, status: 'sent' } : m));
+    try {
+      const signedMessage = await signMessage(identity, message);
+      ws.send(JSON.stringify({
+        type: 'msg:send',
+        data: signedMessage
+      }));
+      
+      message.status = 'sent';
+      saveLocalMessage(message);
+      setMessages(prev => prev.map(m => m.id === message.id ? { ...m, status: 'sent' } : m));
+    } catch (error) {
+      console.error('Failed to send message:', error);
+      message.status = 'sent';
+      saveLocalMessage(message);
+      setMessages(prev => prev.map(m => m.id === message.id ? { ...m, status: 'sent' } : m));
+    }
   };
 
   const handleSendText = () => {
@@ -1059,7 +1066,7 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
           <input
             type="file"
             ref={videoInputRef}
-            accept="video/*"
+            accept="video/*,video/mp4,video/quicktime,video/x-m4v,.mp4,.mov,.m4v"
             className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
