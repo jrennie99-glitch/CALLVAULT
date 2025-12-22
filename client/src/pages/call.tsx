@@ -32,7 +32,7 @@ import { addToLocalBlocklist, isCreatorAvailable, shouldRequirePayment, getCallP
 import { PaymentRequiredScreen } from '@/components/PaymentRequiredScreen';
 import { PreCallCheckModal } from '@/components/PreCallCheckModal';
 import { VoicemailRecorderModal } from '@/components/VoicemailRecorderModal';
-import { initAudio } from '@/lib/audio';
+import { unlockAudio } from '@/lib/audio';
 import type { CryptoIdentity, WSMessage, Conversation, Message, CallRequest, CallPricing } from '@shared/types';
 
 type SettingsScreen = 'main' | 'call_permissions' | 'blocklist' | 'ai_guardian' | 'wallet' | 'passes' | 'creator_mode' | 'earnings_dashboard' | 'admin_console' | 'voicemail';
@@ -478,8 +478,8 @@ export default function CallPage() {
 
   const handleWebSocketMessage = useCallback((message: WSMessage) => {
     if (message.type === 'call:incoming') {
-      // Try to initialize audio for ringtone (may need user interaction first)
-      initAudio();
+      // Try to unlock audio for ringtone (will work if user has interacted with page)
+      unlockAudio();
       
       setIncomingCall({
         from_address: message.from_address,
@@ -590,9 +590,9 @@ export default function CallPage() {
     }
   }, [activeChat]);
 
-  const handleStartCall = (address: string, video: boolean) => {
-    // Initialize audio context on user gesture (required for browser autoplay policy)
-    initAudio();
+  const handleStartCall = async (address: string, video: boolean) => {
+    // Unlock audio context on user gesture (required for browser autoplay policy)
+    await unlockAudio();
     
     // Guard: Prevent duplicate calls
     if (inCall) {
@@ -666,8 +666,8 @@ export default function CallPage() {
   };
 
   const handleAcceptCall = async () => {
-    // Initialize audio context on user gesture (required for browser autoplay policy)
-    initAudio();
+    // Unlock audio context on user gesture (required for browser autoplay policy)
+    await unlockAudio();
     
     if (!incomingCall || !ws || !identity) return;
     

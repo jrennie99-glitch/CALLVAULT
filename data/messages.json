@@ -182,6 +182,17 @@
       "content": "Ok",
       "nonce": "b5u5rpb5uxmjh0muj6",
       "status": "read"
+    },
+    {
+      "id": "msg_1766431725934_ok9znwwzr",
+      "convo_id": "dm_xz0hgn_1q26r5v_1mr22xt",
+      "from_address": "call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehgaZxj9ua2wq:iMbPcedKjup",
+      "to_address": "call:BjfBj55s9zBkM7mdRZhrAuWsVZDaQaSXKpEtq2d7nL5W:DVPDhvQ3NtG",
+      "timestamp": 1766431725935,
+      "type": "text",
+      "content": "Hey cuz",
+      "nonce": "k9mirh9ew4lmjhjuaun",
+      "status": "sent"
     }
   ]
 }

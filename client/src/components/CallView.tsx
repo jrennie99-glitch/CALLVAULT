@@ -802,7 +802,8 @@ export function CallView({
       const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
 
       if (audioOutputs.length === 0) {
-        toast('No audio output devices found');
+        setIsSpeakerOn(!isSpeakerOn);
+        toast(isSpeakerOn ? 'Earpiece mode' : 'Speaker mode');
         return;
       }
 

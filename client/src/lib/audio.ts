@@ -2,6 +2,7 @@ let audioContext: AudioContext | null = null;
 let isInitialized = false;
 let currentRingtone: { intervalId: number | null; oscillators: OscillatorNode[] } | null = null;
 let currentRingback: { intervalId: number | null; oscillators: OscillatorNode[] } | null = null;
+let hasUserGesture = false;
 
 export function initAudio(): void {
   if (isInitialized && audioContext) return;
@@ -14,11 +15,50 @@ export function initAudio(): void {
     if (audioContext.state === 'suspended') {
       audioContext.resume().then(() => {
         console.log('[Audio] AudioContext resumed');
+        hasUserGesture = true;
       }).catch(e => console.error('[Audio] Failed to resume:', e));
+    } else {
+      hasUserGesture = true;
     }
   } catch (e) {
     console.error('[Audio] Failed to create AudioContext:', e);
   }
+}
+
+export async function unlockAudio(): Promise<boolean> {
+  if (!audioContext) {
+    initAudio();
+  }
+  
+  if (!audioContext) return false;
+  
+  if (audioContext.state === 'suspended') {
+    try {
+      await audioContext.resume();
+      console.log('[Audio] AudioContext unlocked by user gesture');
+      hasUserGesture = true;
+      
+      const silentOsc = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      gainNode.gain.value = 0;
+      silentOsc.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      silentOsc.start();
+      silentOsc.stop(audioContext.currentTime + 0.001);
+      
+      return true;
+    } catch (e) {
+      console.error('[Audio] Failed to unlock audio:', e);
+      return false;
+    }
+  }
+  
+  hasUserGesture = true;
+  return true;
+}
+
+export function isAudioUnlocked(): boolean {
+  return hasUserGesture && audioContext?.state === 'running';
 }
 
 async function ensureAudioReady(): Promise<AudioContext | null> {

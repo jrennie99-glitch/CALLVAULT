@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { PhoneOff, Phone, PhoneIncoming, Video, User, Ticket, Shield, AlertTriangle } from 'lucide-react';
 import { getContactByAddress } from '@/lib/storage';
-import { playRingtone, stopRingtone } from '@/lib/audio';
+import { playRingtone, stopRingtone, unlockAudio } from '@/lib/audio';
 
 type CallSource = 'contact' | 'invite' | 'unknown';
 
@@ -103,7 +103,10 @@ export function IncomingCallModal({ fromAddress, isVideo, onAccept, onReject, ca
             <span className="text-sm">Decline</span>
           </Button>
           <Button
-            onClick={onAccept}
+            onClick={async () => {
+              await unlockAudio();
+              onAccept();
+            }}
             className="h-16 bg-emerald-500 hover:bg-emerald-600 rounded-2xl flex flex-col items-center justify-center gap-1"
             data-testid="button-accept"
           >
