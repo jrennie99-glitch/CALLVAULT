@@ -1,14 +1,26 @@
-import { Capacitor } from '@capacitor/core';
+function getCapacitorSafe() {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  try {
+    const { Capacitor } = require('@capacitor/core');
+    return Capacitor;
+  } catch {
+    return null;
+  }
+}
 
-export const IS_NATIVE = Capacitor.isNativePlatform();
+const Capacitor = getCapacitorSafe();
 
-export const PLATFORM = Capacitor.getPlatform();
+export const IS_NATIVE = Capacitor?.isNativePlatform?.() ?? false;
+
+export const PLATFORM = Capacitor?.getPlatform?.() ?? 'web';
 
 export const IS_IOS = PLATFORM === 'ios';
 
 export const IS_ANDROID = PLATFORM === 'android';
 
-export const IS_WEB = PLATFORM === 'web';
+export const IS_WEB = PLATFORM === 'web' || !IS_NATIVE;
 
 export function getPlatformInfo() {
   return {

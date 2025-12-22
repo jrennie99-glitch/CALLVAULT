@@ -4,3 +4,7 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+
+# Capacitor native platforms (regenerate locally with npx cap add)
+android/
+ios/

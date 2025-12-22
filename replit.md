@@ -32,6 +32,7 @@ Preferred communication style: Simple, everyday language.
 - **Free Tier Cost Shield**: Server-side enforcement of usage limits (e.g., 2 calls/day, 30 min/month, 10-min max call duration) and feature restrictions for free users.
 - **Freeze Mode**: User-controlled feature to block unwanted calls, converting them to call requests, with bypass rules for emergency contacts and paid callers.
 - **PWA Support**: Progressive Web App capabilities including manifest, service worker for caching, install prompt, and offline page.
+- **Capacitor Mobile Wrapper**: Native iOS and Android app builds using Capacitor, sharing the same codebase as the web app. See `MOBILE_BUILD.md` for build instructions.
 - **Admin Diagnostics**: Real-time system health checks via Admin Console for database, Stripe, free tier gating, RBAC, and security events.
 - **Admin Bootstrap**: Secure first-time admin creation via environment variable or one-time API endpoint.
 - **Admin Login**: Username/password authentication for admin console with bcrypt hashing, account lockout, session-based auth, and audit logging.
