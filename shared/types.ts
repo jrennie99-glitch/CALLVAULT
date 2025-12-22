@@ -431,7 +431,8 @@ export type FeatureFlag =
   | 'FEATURE_TEAM_MANAGEMENT'
   | 'FEATURE_CUSTOM_BRANDING'
   | 'FEATURE_PRIORITY_SUPPORT'
-  | 'FEATURE_PRIORITY_ROUTING';
+  | 'FEATURE_PRIORITY_ROUTING'
+  | 'FEATURE_AVAILABILITY_CONTROLS';
 
 export interface FeatureFlags {
   FEATURE_MODE_SWITCHER: boolean;
@@ -449,6 +450,7 @@ export interface FeatureFlags {
   FEATURE_CUSTOM_BRANDING: boolean;
   FEATURE_PRIORITY_SUPPORT: boolean;
   FEATURE_PRIORITY_ROUTING: boolean;
+  FEATURE_AVAILABILITY_CONTROLS: boolean;
 }
 
 export interface EffectiveEntitlements {
@@ -478,6 +480,7 @@ export interface EffectiveEntitlements {
   allowCustomBranding: boolean;
   allowPrioritySupport: boolean;
   allowPriorityRouting: boolean;
+  allowAvailabilityControls: boolean;
   
   // Computed feature flags for UI visibility
   flags: FeatureFlags;

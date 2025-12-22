@@ -20,6 +20,7 @@ export const VALID_ENTITLEMENT_KEYS = new Set([
   'allowCustomBranding',
   'allowPrioritySupport',
   'allowPriorityRouting',
+  'allowAvailabilityControls',
 ]);
 
 export function isValidEntitlementKey(key: string): boolean {
@@ -42,6 +43,7 @@ const DEFAULT_FEATURE_FLAGS: FeatureFlags = {
   FEATURE_CUSTOM_BRANDING: false,
   FEATURE_PRIORITY_SUPPORT: false,
   FEATURE_PRIORITY_ROUTING: false,
+  FEATURE_AVAILABILITY_CONTROLS: false,
 };
 
 const MODE_FEATURE_VISIBILITY: Record<UserMode, Partial<FeatureFlags>> = {
@@ -103,6 +105,7 @@ export async function getEffectiveEntitlements(userAddress: string): Promise<Eff
     allowCustomBranding: isBusiness,
     allowPrioritySupport: isBusiness,
     allowPriorityRouting: isPro,
+    allowAvailabilityControls: isPro,
   };
   
   const overrides = (userOverrides?.overrides as Record<string, any>) || {};
@@ -130,6 +133,7 @@ export async function getEffectiveEntitlements(userAddress: string): Promise<Eff
     FEATURE_CUSTOM_BRANDING: effectiveEntitlements.allowCustomBranding,
     FEATURE_PRIORITY_SUPPORT: effectiveEntitlements.allowPrioritySupport,
     FEATURE_PRIORITY_ROUTING: effectiveEntitlements.allowPriorityRouting,
+    FEATURE_AVAILABILITY_CONTROLS: effectiveEntitlements.allowAvailabilityControls,
     ...userFlags,
   };
   
@@ -155,6 +159,7 @@ export async function getEffectiveEntitlements(userAddress: string): Promise<Eff
     allowCustomBranding: effectiveEntitlements.allowCustomBranding,
     allowPrioritySupport: effectiveEntitlements.allowPrioritySupport,
     allowPriorityRouting: effectiveEntitlements.allowPriorityRouting,
+    allowAvailabilityControls: effectiveEntitlements.allowAvailabilityControls,
     flags,
     hasOverrides: !!userOverrides,
     overrideExpiresAt: userOverrides?.expiresAt ? new Date(userOverrides.expiresAt).getTime() : undefined,

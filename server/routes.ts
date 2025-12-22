@@ -991,15 +991,27 @@ export async function registerRoutes(
     try {
       const profileData = req.body;
       
-      // Check if trying to set branding fields - requires Business plan
+      // Check if trying to set branding fields - requires Business plan (check presence, not truthiness)
       const brandingFields = ['brandingColor', 'brandingAccentColor', 'logoUrl', 'bannerUrl', 'customTheme', 'customCss'];
-      const hasBrandingData = brandingFields.some(field => field in profileData && profileData[field]);
+      const hasBrandingData = brandingFields.some(field => field in profileData);
       
-      if (hasBrandingData && profileData.ownerAddress) {
+      // Check if trying to set availability controls - requires Pro plan (check presence, not truthiness)
+      const availabilityFields = ['businessHours', 'afterHoursBehavior', 'afterHoursMessage'];
+      const hasAvailabilityData = availabilityFields.some(field => field in profileData);
+      
+      if (profileData.ownerAddress) {
         const entitlements = await getEffectiveEntitlements(profileData.ownerAddress);
-        if (!entitlements.allowCustomBranding) {
+        
+        if (hasBrandingData && !entitlements.allowCustomBranding) {
           return res.status(403).json({ 
             error: 'Custom branding requires a Business plan',
+            upgradeRequired: true
+          });
+        }
+        
+        if (hasAvailabilityData && !entitlements.allowAvailabilityControls) {
+          return res.status(403).json({ 
+            error: 'Availability controls require a Pro or Business plan',
             upgradeRequired: true
           });
         }
@@ -1022,14 +1034,24 @@ export async function registerRoutes(
       const brandingFields = ['brandingColor', 'brandingAccentColor', 'logoUrl', 'bannerUrl', 'customTheme', 'customCss'];
       const hasBrandingUpdates = brandingFields.some(field => field in updates);
       
-      if (hasBrandingUpdates) {
-        const entitlements = await getEffectiveEntitlements(address);
-        if (!entitlements.allowCustomBranding) {
-          return res.status(403).json({ 
-            error: 'Custom branding requires a Business plan',
-            upgradeRequired: true
-          });
-        }
+      // Check if trying to update availability controls - requires Pro plan
+      const availabilityFields = ['businessHours', 'afterHoursBehavior', 'afterHoursMessage'];
+      const hasAvailabilityUpdates = availabilityFields.some(field => field in updates);
+      
+      const entitlements = await getEffectiveEntitlements(address);
+      
+      if (hasBrandingUpdates && !entitlements.allowCustomBranding) {
+        return res.status(403).json({ 
+          error: 'Custom branding requires a Business plan',
+          upgradeRequired: true
+        });
+      }
+      
+      if (hasAvailabilityUpdates && !entitlements.allowAvailabilityControls) {
+        return res.status(403).json({ 
+          error: 'Availability controls require a Pro or Business plan',
+          upgradeRequired: true
+        });
       }
       
       const profile = await storage.updateCreatorProfile(address, updates);
