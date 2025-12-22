@@ -19,5 +19,26 @@
       "nonce": "xvsf0gvl0grmjgqt2io",
       "status": "sent"
     }
+  },
+  {
+    "id": "dm_1uq6qrq_10e690i_wjh70g",
+    "type": "direct",
+    "participant_addresses": [
+      "call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehgaZxj9ua2wq:iMbPcedKjup",
+      "call:9i1xWRaYCJp7ajMUcbwGUPJ5VAvx3XMPQ17Dnop%0AHZX6%3A%202uoEG6Mpe1t"
+    ],
+    "created_at": 1766384710833,
+    "created_by": "call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehgaZxj9ua2wq:iMbPcedKjup",
+    "last_message": {
+      "id": "msg_1766384710417_9ld23kfse",
+      "convo_id": "dm_1uq6qrq_10e690i_wjh70g",
+      "from_address": "call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehgaZxj9ua2wq:iMbPcedKjup",
+      "to_address": "call:9i1xWRaYCJp7ajMUcbwGUPJ5VAvx3XMPQ17Dnop%0AHZX6%3A%202uoEG6Mpe1t",
+      "timestamp": 1766384710417,
+      "type": "text",
+      "content": "Hey",
+      "nonce": "wzif4okjk8amjgrulg1",
+      "status": "sent"
+    }
   }
 ]

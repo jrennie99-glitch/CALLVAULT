@@ -709,6 +709,29 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
               data-testid="input-display-name"
             />
           </div>
+          {identity && (
+            <div>
+              <Label className="text-slate-300">Your Call ID</Label>
+              <div className="mt-1 flex items-center gap-2">
+                <div className="flex-1 p-2.5 bg-slate-900/50 border border-slate-600 rounded-md font-mono text-xs text-emerald-400 truncate" data-testid="text-call-id-header">
+                  {identity.address}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    navigator.clipboard.writeText(identity.address);
+                    toast.success('Call ID copied!');
+                  }}
+                  className="border-slate-600 shrink-0"
+                  data-testid="button-copy-call-id"
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
+              <p className="text-slate-500 text-xs mt-1">Share this ID with others so they can call you</p>
+            </div>
+          )}
         </CardContent>
       </Card>
 
