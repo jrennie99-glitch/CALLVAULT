@@ -523,6 +523,21 @@ export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR, onOpenCha
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (onOpenChat) {
+                      onOpenChat(contact.address);
+                    } else {
+                      toast.error('Chat not available');
+                    }
+                  }}
+                  className="w-10 h-10 rounded-full flex items-center justify-center text-purple-400 hover:bg-purple-500/20 transition-colors"
+                  data-testid={`button-message-${contact.id}`}
+                  title="Send Message"
+                >
+                  <MessageSquare className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
                     onStartCall(contact.address, true);
                   }}
                   className="w-10 h-10 rounded-full flex items-center justify-center text-emerald-400 hover:bg-emerald-500/20 transition-colors"
