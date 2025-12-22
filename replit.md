@@ -23,6 +23,7 @@ Preferred communication style: Simple, everyday language.
 
 ### Key Features
 - **Call Features**: Video/voice calls, in-call controls, call timer, connection status, incoming call modal, ICE restart, network change detection, pre-call device test (camera/microphone check).
+- **Enhanced Call Reliability**: WebSocket connection validation ensures only live connections receive calls. Periodic dead connection cleanup (every 30 seconds) removes stale sockets. Connection status indicators show when reconnecting or call is connecting/ringing. Wait time extended to 30 seconds for recipient to come online after push notification.
 - **STUN-First, TURN Fallback**: Prioritizes STUN for cost efficiency, falls back to TURN for paid users after 8 seconds if STUN fails. Free users are prompted to upgrade.
 - **User Experience**: Mobile-first design, bottom tab navigation, contacts-first onboarding, auto-generated avatars, PWA support.
 - **Monetization (Creator/Business Mode)**: Customizable creator profiles, paid calls (per-session/per-minute), call queue management, subscription tiers (Free, Pro, Business), and invite links for trial access.
