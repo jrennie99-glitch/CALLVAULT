@@ -51,8 +51,16 @@ Preferred communication style: Simple, everyday language.
 - Rate limiting.
 - Optional biometric app lock (WebAuthn).
 
+### TURN Server Configuration
+- **TURN_MODE env var**: Controls TURN server availability
+  - `public` (default): Free OpenRelay TURN for all users - TESTING ONLY, not for production
+  - `custom`: Plan-gated TURN using `TURN_URLS`, `TURN_USERNAME`, `TURN_CREDENTIAL` env vars
+  - `off`: STUN only, no TURN for anyone
+- **Metered.ca Integration**: If `METERED_APP_NAME` and `METERED_SECRET_KEY` are set, uses Metered API (takes priority over custom)
+- **ICE Debug Indicator**: Call screen badge shows connection type (host/srflx/relay) with ICE details logged to console
+
 ## External Dependencies
-- **WebRTC**: Google STUN servers, optional TURN server.
+- **WebRTC**: Google STUN servers, configurable TURN servers (OpenRelay for testing, Metered.ca or custom for production).
 - **Cryptography**: `tweetnacl`, `bs58`.
 - **UI/UX**: Radix UI, Tailwind CSS, Lucide React, Sonner.
 - **Database**: PostgreSQL, Drizzle ORM.
