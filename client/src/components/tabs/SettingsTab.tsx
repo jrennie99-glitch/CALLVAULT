@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { User, Shield, Wifi, ChevronDown, ChevronUp, Copy, RefreshCw, Fingerprint, Eye, EyeOff, MessageSquare, CheckCheck, Clock, Phone, Ban, Bot, Wallet, ChevronRight, Ticket, Briefcase, BarChart3, Crown, Lock, Sparkles, CreditCard, ExternalLink, Snowflake, Download, Upload, Cloud, CloudOff, Check, LogOut, AlertTriangle } from 'lucide-react';
+import { User, Shield, Wifi, ChevronDown, ChevronUp, Copy, RefreshCw, Fingerprint, Eye, EyeOff, MessageSquare, CheckCheck, Clock, Phone, Ban, Bot, Wallet, ChevronRight, Ticket, Briefcase, BarChart3, Crown, Lock, Sparkles, CreditCard, ExternalLink, Snowflake, Download, Upload, Cloud, CloudOff, Check, LogOut, AlertTriangle, BellOff, Video, Mic } from 'lucide-react';
 import { FreezeModeSetupModal } from '@/components/FreezeModeSetupModal';
 import { ModeSettings } from '@/components/ModeSettings';
 import { Button } from '@/components/ui/button';
@@ -65,6 +65,14 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
   const [vaultPinHint, setVaultPinHint] = useState('');
   const [isCreatingVault, setIsCreatingVault] = useState(false);
   const [showSignOutDialog, setShowSignOutDialog] = useState(false);
+  const [dndEnabled, setDndEnabled] = useState(false);
+  const [isTogglingDnd, setIsTogglingDnd] = useState(false);
+  const [showDeviceTest, setShowDeviceTest] = useState(false);
+  const [deviceTestStatus, setDeviceTestStatus] = useState<{
+    camera: 'pending' | 'success' | 'error';
+    microphone: 'pending' | 'success' | 'error';
+  }>({ camera: 'pending', microphone: 'pending' });
+  const [testStream, setTestStream] = useState<MediaStream | null>(null);
 
   useEffect(() => {
     isPlatformAuthenticatorAvailable().then(setBiometricAvailable);
@@ -77,6 +85,13 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
         .then(data => {
           setFreezeMode(data.enabled || false);
           setFreezeModeSetupCompleted(data.setupCompleted || false);
+        })
+        .catch(() => {});
+      
+      fetch(`/api/dnd/${identity.address}`)
+        .then(res => res.json())
+        .then(data => {
+          setDndEnabled(data.doNotDisturb || false);
         })
         .catch(() => {});
     }
@@ -294,6 +309,65 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
     } catch (error) {
       toast.error('Failed to complete setup');
     }
+  };
+
+  const handleDndToggle = async (enabled: boolean) => {
+    if (!identity?.address) return;
+    
+    setIsTogglingDnd(true);
+    try {
+      const res = await fetch(`/api/dnd/${identity.address}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled })
+      });
+      
+      if (!res.ok) {
+        throw new Error('Failed to update DND');
+      }
+      
+      setDndEnabled(enabled);
+      toast.success(enabled ? 'Do Not Disturb enabled' : 'Do Not Disturb disabled');
+    } catch (error) {
+      toast.error('Failed to update Do Not Disturb');
+    } finally {
+      setIsTogglingDnd(false);
+    }
+  };
+
+  const startDeviceTest = async () => {
+    setShowDeviceTest(true);
+    setDeviceTestStatus({ camera: 'pending', microphone: 'pending' });
+    
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      setTestStream(stream);
+      
+      const videoTracks = stream.getVideoTracks();
+      const audioTracks = stream.getAudioTracks();
+      
+      setDeviceTestStatus({
+        camera: videoTracks.length > 0 && videoTracks[0].readyState === 'live' ? 'success' : 'error',
+        microphone: audioTracks.length > 0 && audioTracks[0].readyState === 'live' ? 'success' : 'error'
+      });
+    } catch (error: any) {
+      if (error.name === 'NotAllowedError') {
+        setDeviceTestStatus({ camera: 'error', microphone: 'error' });
+        toast.error('Camera and microphone access denied');
+      } else {
+        setDeviceTestStatus({ camera: 'error', microphone: 'error' });
+        toast.error('Could not access camera or microphone');
+      }
+    }
+  };
+
+  const stopDeviceTest = () => {
+    if (testStream) {
+      testStream.getTracks().forEach(track => track.stop());
+      setTestStream(null);
+    }
+    setShowDeviceTest(false);
+    setDeviceTestStatus({ camera: 'pending', microphone: 'pending' });
   };
 
   const updatePrivacy = (updates: Partial<PrivacySettings>) => {
@@ -616,6 +690,48 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
               />
             </div>
           </div>
+
+          <div className={`p-3 rounded-lg ${dndEnabled ? 'bg-amber-500/10 border border-amber-500/30' : 'bg-slate-900/30'}`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <BellOff className={`w-5 h-5 ${dndEnabled ? 'text-amber-400' : 'text-slate-400'}`} />
+                <div>
+                  <p className="text-white font-medium flex items-center gap-2">
+                    Do Not Disturb
+                    {dndEnabled && (
+                      <Badge className="bg-amber-500/20 text-amber-400 text-xs">Active</Badge>
+                    )}
+                  </p>
+                  <p className="text-slate-500 text-sm">
+                    {dndEnabled 
+                      ? 'All calls go to voicemail' 
+                      : 'Block incoming calls temporarily'}
+                  </p>
+                </div>
+              </div>
+              <Switch
+                checked={dndEnabled}
+                onCheckedChange={handleDndToggle}
+                disabled={isTogglingDnd}
+                data-testid="switch-dnd"
+              />
+            </div>
+          </div>
+
+          <button
+            onClick={startDeviceTest}
+            className="w-full flex items-center justify-between p-3 bg-slate-900/30 rounded-lg hover:bg-slate-900/50 transition-colors"
+            data-testid="button-device-test"
+          >
+            <div className="flex items-center gap-3">
+              <Video className="w-5 h-5 text-blue-400" />
+              <div className="text-left">
+                <p className="text-white font-medium">Pre-Call Device Test</p>
+                <p className="text-slate-500 text-sm">Check camera & microphone</p>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-slate-400" />
+          </button>
 
           <button
             onClick={() => onNavigate?.('call_permissions')}
@@ -1314,6 +1430,89 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
                 {isCreatingVault ? 'Encrypting...' : (vaultExists ? 'Update PIN' : 'Enable Sync')}
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showDeviceTest} onOpenChange={(open) => !open && stopDeviceTest()}>
+        <DialogContent className="bg-slate-800 border-slate-700 max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <Video className="w-5 h-5 text-blue-400" />
+              Pre-Call Device Test
+            </DialogTitle>
+            <DialogDescription className="text-slate-400">
+              Test your camera and microphone before making a call
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            {testStream && (
+              <div className="relative rounded-lg overflow-hidden bg-slate-900 aspect-video">
+                <video
+                  autoPlay
+                  muted
+                  playsInline
+                  ref={(el) => {
+                    if (el && testStream) {
+                      el.srcObject = testStream;
+                    }
+                  }}
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            )}
+            
+            <div className="space-y-3">
+              <div className="flex items-center justify-between p-3 bg-slate-900/50 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <Video className={`w-5 h-5 ${
+                    deviceTestStatus.camera === 'success' ? 'text-green-400' :
+                    deviceTestStatus.camera === 'error' ? 'text-red-400' : 'text-slate-400'
+                  }`} />
+                  <span className="text-white">Camera</span>
+                </div>
+                <Badge className={
+                  deviceTestStatus.camera === 'success' ? 'bg-green-500/20 text-green-400' :
+                  deviceTestStatus.camera === 'error' ? 'bg-red-500/20 text-red-400' : 'bg-slate-600'
+                }>
+                  {deviceTestStatus.camera === 'success' ? 'Working' :
+                   deviceTestStatus.camera === 'error' ? 'Not Available' : 'Testing...'}
+                </Badge>
+              </div>
+              
+              <div className="flex items-center justify-between p-3 bg-slate-900/50 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <Mic className={`w-5 h-5 ${
+                    deviceTestStatus.microphone === 'success' ? 'text-green-400' :
+                    deviceTestStatus.microphone === 'error' ? 'text-red-400' : 'text-slate-400'
+                  }`} />
+                  <span className="text-white">Microphone</span>
+                </div>
+                <Badge className={
+                  deviceTestStatus.microphone === 'success' ? 'bg-green-500/20 text-green-400' :
+                  deviceTestStatus.microphone === 'error' ? 'bg-red-500/20 text-red-400' : 'bg-slate-600'
+                }>
+                  {deviceTestStatus.microphone === 'success' ? 'Working' :
+                   deviceTestStatus.microphone === 'error' ? 'Not Available' : 'Testing...'}
+                </Badge>
+              </div>
+            </div>
+
+            {(deviceTestStatus.camera === 'error' || deviceTestStatus.microphone === 'error') && (
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+                <p className="text-amber-400 text-sm">
+                  Some devices aren't working. Check your browser permissions and make sure your camera/microphone are connected.
+                </p>
+              </div>
+            )}
+
+            <Button 
+              onClick={stopDeviceTest}
+              className="w-full bg-slate-700 hover:bg-slate-600"
+              data-testid="button-close-device-test"
+            >
+              Close
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

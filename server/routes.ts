@@ -3894,6 +3894,73 @@ export async function registerRoutes(
     }
   });
 
+  // Simple DND endpoints (same trust model as freeze-mode)
+  
+  // Get DND status for an address (works for primary or linked addresses)
+  app.get('/api/dnd/:address', async (req, res) => {
+    try {
+      const { address } = req.params;
+      
+      // Find owner address - either it's a primary identity or a linked address
+      let ownerAddress = address;
+      const directIdentity = await storage.getIdentity(address);
+      
+      if (!directIdentity) {
+        // Check if it's a linked address
+        const primaryAddress = await storage.getPrimaryAddress(address);
+        if (!primaryAddress) {
+          // Not found as direct identity or linked address - allow anyway for flexibility
+          res.json({ doNotDisturb: false });
+          return;
+        }
+        ownerAddress = primaryAddress;
+      }
+      
+      // Try to get existing settings for this specific call ID
+      const settings = await storage.getCallIdSettings(address);
+      res.json({ doNotDisturb: settings?.doNotDisturb || false });
+    } catch (error) {
+      console.error('Error fetching DND status:', error);
+      res.status(500).json({ error: 'Failed to fetch DND status' });
+    }
+  });
+
+  // Toggle DND for an address (same trust model as freeze-mode - works for caller's own address)
+  app.put('/api/dnd/:address', async (req, res) => {
+    try {
+      const { address } = req.params;
+      const { enabled } = req.body;
+      
+      if (typeof enabled !== 'boolean') {
+        return res.status(400).json({ error: 'enabled must be a boolean' });
+      }
+      
+      // Find owner address - either it's a primary identity or a linked address
+      let ownerAddress = address;
+      const directIdentity = await storage.getIdentity(address);
+      
+      if (!directIdentity) {
+        // Check if it's a linked address
+        const primaryAddress = await storage.getPrimaryAddress(address);
+        if (!primaryAddress) {
+          return res.status(404).json({ error: 'Address not found' });
+        }
+        ownerAddress = primaryAddress;
+      }
+      
+      // Ensure settings exist for this call ID
+      await storage.ensureCallIdSettings(address, ownerAddress);
+      const updated = await storage.updateCallIdSettings(address, { doNotDisturb: enabled });
+      
+      res.json({ 
+        doNotDisturb: updated?.doNotDisturb || false
+      });
+    } catch (error) {
+      console.error('Error updating DND:', error);
+      res.status(500).json({ error: 'Failed to update DND' });
+    }
+  });
+
   // PUSH NOTIFICATION ENDPOINTS
   
   // Get VAPID public key for push subscription
