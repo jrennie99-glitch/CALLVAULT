@@ -256,6 +256,8 @@ export type WSMessage =
   | { type: 'pong' }
   // Call unavailable (offline recipient)
   | { type: 'call:unavailable'; to_address: string; reason: string }
+  // Do Not Disturb (DND) - caller routed to voicemail
+  | { type: 'call:dnd'; to_address: string; reason: string; voicemail_enabled: boolean }
   // Phase 4: Monetization
   | { type: 'queue:join'; request: CallRequest; position: number }
   | { type: 'queue:update'; position: number; estimated_wait: number }

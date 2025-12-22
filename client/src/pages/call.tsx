@@ -30,6 +30,8 @@ import { getAppSettings, addCallRecord, getContactByAddress, getContacts, syncAl
 import { getLocalConversations, saveLocalConversation, getOrCreateDirectConvo, saveLocalMessage, incrementUnreadCount, getPrivacySettings } from '@/lib/messageStorage';
 import { addToLocalBlocklist, isCreatorAvailable, shouldRequirePayment, getCallPricingSettings } from '@/lib/policyStorage';
 import { PaymentRequiredScreen } from '@/components/PaymentRequiredScreen';
+import { PreCallCheckModal } from '@/components/PreCallCheckModal';
+import { VoicemailRecorderModal } from '@/components/VoicemailRecorderModal';
 import { initAudio } from '@/lib/audio';
 import type { CryptoIdentity, WSMessage, Conversation, Message, CallRequest, CallPricing } from '@shared/types';
 
@@ -75,6 +77,10 @@ export default function CallPage() {
     pricing: CallPricing;
   } | null>(null);
   const [userRole, setUserRole] = useState<{ isFounder: boolean; isAdmin: boolean }>({ isFounder: false, isAdmin: false });
+  const [showPreCallCheck, setShowPreCallCheck] = useState(false);
+  const [pendingPreCallCheck, setPendingPreCallCheck] = useState<{ address: string; video: boolean } | null>(null);
+  const [showVoicemailRecorder, setShowVoicemailRecorder] = useState(false);
+  const [voicemailRecipient, setVoicemailRecipient] = useState<string | null>(null);
 
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -420,6 +426,22 @@ export default function CallPage() {
       setCallDestination('');
     }
     
+    if (message.type === 'call:dnd') {
+      // Recipient has DND enabled - route to voicemail
+      const recipientAddr = message.to_address || pendingCallRef.current?.address;
+      pendingCallRef.current = null;
+      setInCall(false);
+      setCallDestination('');
+      
+      if (message.voicemail_enabled && recipientAddr) {
+        // Open voicemail recorder modal
+        setVoicemailRecipient(recipientAddr);
+        setShowVoicemailRecorder(true);
+      } else {
+        toast.info(message.reason || 'User is not available', { duration: 5000 });
+      }
+    }
+    
     if (message.type === 'call:request') {
       setCallRequests(prev => [...prev.filter(r => r.id !== message.request.id), message.request]);
       toast.info('Someone wants to call you');
@@ -494,15 +516,40 @@ export default function CallPage() {
       return;
     }
     
+    // Check if pre-call check should be shown
+    const skipPreCallCheck = localStorage.getItem('cv_skip_precall_check') === 'true';
+    if (!skipPreCallCheck) {
+      setPendingPreCallCheck({ address, video });
+      setShowPreCallCheck(true);
+      return;
+    }
+    
+    // Proceed directly with call initiation
+    proceedWithCall(address, video);
+  };
+  
+  const proceedWithCall = (address: string, video: boolean) => {
     // Note: For outbound calls, payment/availability enforcement happens on the recipient's end
     // The recipient's signaling server will reject or queue the call based on their settings
     
-    // Proceed with call initiation
     setCallDestination(address);
     setCallIsVideo(video);
     setCallIsInitiator(true);
     setInCall(true);
     pendingCallRef.current = { address, video };
+  };
+  
+  const handlePreCallCheckProceed = (config: { audioDeviceId?: string; videoDeviceId?: string }) => {
+    setShowPreCallCheck(false);
+    if (pendingPreCallCheck) {
+      proceedWithCall(pendingPreCallCheck.address, pendingPreCallCheck.video);
+    }
+    setPendingPreCallCheck(null);
+  };
+  
+  const handlePreCallCheckCancel = () => {
+    setShowPreCallCheck(false);
+    setPendingPreCallCheck(null);
   };
   
   const handlePayAndCall = (token?: string) => {
@@ -947,6 +994,28 @@ export default function CallPage() {
           onReject={handleRejectCall}
         />
       )}
+
+      <PreCallCheckModal
+        isOpen={showPreCallCheck}
+        isVideoCall={pendingPreCallCheck?.video || false}
+        onProceed={handlePreCallCheckProceed}
+        onCancel={handlePreCallCheckCancel}
+      />
+
+      <VoicemailRecorderModal
+        isOpen={showVoicemailRecorder}
+        recipientAddress={voicemailRecipient || ''}
+        senderAddress={identity?.address || ''}
+        senderName={identity?.address ? identity.address.slice(5, 15) : undefined}
+        onClose={() => {
+          setShowVoicemailRecorder(false);
+          setVoicemailRecipient(null);
+        }}
+        onSent={() => {
+          setShowVoicemailRecorder(false);
+          setVoicemailRecipient(null);
+        }}
+      />
 
       {showCreateGroup && (
         <CreateGroupModal

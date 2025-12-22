@@ -1,0 +1,118 @@
+REPLIT AGENT — IMPORTANT UPGRADE ONLY (Call Vault / CV)
+
+ABSOLUTE RULES:
+- DO NOT remove, rename, or break ANY existing feature or functionality.
+- DO NOT refactor large parts of the app. Minimal, surgical changes only.
+- KEEP all existing plans, Stripe, crypto (if currently present), RBAC admin console, PWA behavior, call + chat features, Freeze Mode, biometric lock, etc.
+- This task adds ONLY: (1) Do Not Disturb mode (DND) and (2) Pre-call Device Test (mic/cam/speaker). Keep existing push notifications as-is.
+- Must be 100% production-ready: secure, tested, no console errors, and mobile-friendly.
+
+GOAL:
+Add two features to the existing Call Vault app:
+1) Do Not Disturb (DND) mode (separate from Freeze Mode)
+2) Pre-call device test flow (mic/camera/speaker) before starting voice/video calls
+
+FEATURE 1 — DO NOT DISTURB (DND)
+Functional requirements:
+- Add a user-facing toggle: Settings → “Do Not Disturb”
+- When DND is ON:
+  - Incoming calls should NOT ring the UI or show the “incoming call modal”.
+  - The caller should immediately be routed to voicemail (existing voicemail UI must be used; if backend storage is incomplete, at minimum store the voicemail payload in the existing message/voicemail store used by the app so it appears in the Voicemail UI).
+  - If push notifications exist: send a silent “missed call / left voicemail” notification to callee instead of ring alert.
+  - The caller sees a clear message: “User is in Do Not Disturb. Please leave a voicemail.”
+- When DND is OFF:
+  - App behaves exactly as it does today.
+- DND must be persisted per-user:
+  - If you already have a DB/user profile storage, store it there.
+  - If not, store in secure local storage with integrity (signed) and default OFF.
+- DND must not interfere with:
+  - Freeze Mode / blocklist (those rules still apply)
+  - Business call queues / paid call invites
+  - Admin overrides (Admin can force DND off for troubleshooting if needed, but do NOT change existing admin logic—just add a toggle in admin if it’s easy and safe)
+
+Engineering details for DND:
+- Identify the call signaling entrypoint on the receiving side (incoming call event handler).
+- Add a gating check:
+  - If DND ON → respond with a “DECLINE_TO_VOICEMAIL” (or equivalent) signaling message to the caller and do not open the incoming call UI.
+- Implement voicemail routing:
+  - If voicemail system already has an API/event, call it.
+  - If not, create a minimal endpoint or message event to store voicemail metadata + media reference and surface it in Voicemail UI.
+- Add auditing:
+  - Log DND state changes in user activity log (if present) and show in admin view (optional but preferred).
+
+FEATURE 2 — PRE-CALL DEVICE TEST (Mic/Cam/Speaker)
+Functional requirements:
+- Before starting ANY call (voice or video) from the call button:
+  - Show a Pre-call Check modal/screen with:
+    - Microphone test: show input level meter + “I can hear myself” confirmation (use WebAudio analyser).
+    - Camera preview test (for video calls): show local preview and a toggle to switch front/back camera if supported.
+    - Speaker test: play a short test tone and ask user to confirm they heard it.
+    - Permission status UI: clearly show if mic/cam permissions are granted/blocked with “Fix” steps.
+  - Provide a “Skip next time” checkbox:
+    - Default ON for Free tier? (recommended: first time required, then optional)
+    - Persist user preference (securely) and allow user to re-enable in Settings.
+- After tests pass (or user chooses to proceed):
+  - Continue into call exactly as current behavior.
+- Must be mobile-first and fast:
+  - No more than ~1 second extra delay after user confirms.
+- Must handle failure gracefully:
+  - If mic permission denied → show steps and a “Proceed without mic” option only if that’s already supported; otherwise block start and prompt to enable.
+  - If camera denied for video → allow fallback to voice call OR start video call with camera off (must not crash).
+
+Engineering details for Pre-call Check:
+- Reuse existing getUserMedia logic; do not duplicate large code.
+- Create a reusable component/module:
+  - `PreCallCheck` that returns a success callback payload:
+    - selected audio device id (if any)
+    - selected video device id / facingMode
+    - confirmed speaker test boolean
+- Integrate at the call initiation point(s):
+  - For voice call button and video call button.
+- Ensure cleanup:
+  - Stop tracks after test to avoid locking camera/mic.
+  - Then reacquire for the call (or reuse only if safe and consistent).
+
+DO NOT ADD THESE (explicitly exclude for now):
+- No animated reactions
+- No custom themes/colors
+- No “quick-share files during call” in this change
+Only implement DND + Pre-call device test.
+
+SECURITY + RELIABILITY REQUIREMENTS:
+- Fix “Invalid signature or expired timestamp / Secure session expired” issues if they are related to time skew or signature TTL:
+  - Ensure server time is UTC and consistent.
+  - If signature includes timestamp, allow small clock drift (e.g., ±120 seconds) and provide automatic retry/refresh.
+  - Do NOT weaken security; just add drift tolerance + auto refresh of signed session tokens where appropriate.
+- Ensure TURN/STUN fallback remains intact:
+  - Keep existing OpenRelay / TURN configuration and do not break it.
+- No secrets in client code; use env vars for any keys.
+
+TEST PLAN (must run and pass before you finish):
+1) DND OFF:
+   - Incoming call rings and connects exactly as before.
+2) DND ON:
+   - Incoming call does NOT ring.
+   - Caller is immediately routed to voicemail UI/flow and can leave:
+     - audio voicemail
+     - (if supported) video voicemail
+     - (if supported) text voicemail
+   - Callee sees voicemail appear in Voicemail section and gets a missed call/voicemail notification (push if available; otherwise in-app).
+3) Pre-call device test:
+   - Voice call: mic meter works; speaker test works; proceeds into call; no device lock issues.
+   - Video call: camera preview works; switch camera works (where supported); proceeds into call.
+4) Signature/timestamp error regression:
+   - Start calls after leaving app idle 10+ minutes; no “secure session expired” failures. If expired, auto refresh and retry seamlessly.
+5) No console errors, no broken routes, no broken Stripe/admin.
+
+DELIVERABLES:
+- Implement the two features in the existing codebase.
+- Update Settings UI with:
+  - DND toggle
+  - Pre-call check preference toggle (enable/disable)
+- Add minimal documentation in README:
+  - What DND does
+  - How voicemail routing works
+  - Pre-call check behavior
+- Provide a short summary of changed files and how to test.
+
+NOW DO IT.

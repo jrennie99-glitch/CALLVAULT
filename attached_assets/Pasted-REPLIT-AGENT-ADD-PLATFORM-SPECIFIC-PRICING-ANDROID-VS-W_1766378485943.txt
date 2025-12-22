@@ -1,0 +1,48 @@
+REPLIT AGENT — ADD PLATFORM-SPECIFIC PRICING (ANDROID VS WEB/IOS) WITHOUT BREAKING EXISTING BILLING
+App: Call Vault (CV) is already built. DO NOT remove or change any existing feature or functionality. Keep current Stripe billing working for web/PWA exactly as-is.
+
+GOAL
+Implement platform-specific pricing and checkout:
+- Web/PWA uses existing Stripe plans/prices (unchanged).
+- Android native app shows a different price for the same plan (e.g., Pro $6.99, Business $14.99).
+- Entitlements are unified: Free/Pro/Business unlock the same features regardless of platform.
+
+REQUIREMENTS
+1) Add platform detection:
+   - web, android, ios
+   - If Capacitor is present and platform is android/ios, set platform accordingly.
+
+2) Add pricing config in backend (DB table or config file):
+   - plans: FREE, PRO, BUSINESS
+   - price_web, price_android, price_ios
+   - plus product identifiers for stores:
+     - google_play_product_id_pro, google_play_product_id_business
+     - apple_product_id_pro, apple_product_id_business (placeholder if not implementing iOS yet)
+
+3) API endpoints (ADD ONLY):
+   - GET /api/billing/plans?platform=<web|android|ios>
+     returns plan names + features + correct price + purchase method
+   - POST /api/billing/activate
+     accepts provider receipt payload and activates entitlement (server-verified)
+   Keep Stripe webhook logic unchanged.
+
+4) UI:
+   - Pricing page must show platform-correct prices based on detected platform:
+     - Web => current Stripe checkout buttons
+     - Android => “Subscribe in Google Play” button (stub if Play Billing not yet wired)
+     - iOS => keep showing Stripe only in web/PWA; if native iOS later, use Apple IAP
+
+5) Entitlements:
+   - DO NOT create separate plan names.
+   - Free/Pro/Business entitlements remain the single source of truth.
+   - Platform only changes the price + purchase provider.
+
+6) Safety:
+   - Do not break existing subscribers.
+   - Do not require users to re-subscribe.
+   - Add admin tool to manually set plan for support.
+
+DELIVERABLES
+- List all files changed/added
+- Where plan pricing is configured
+- Confirm web Stripe remains unchanged

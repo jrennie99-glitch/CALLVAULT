@@ -4551,23 +4551,29 @@ export async function registerRoutes(
     }
   });
 
-  // Create a voicemail (leave a message)
+  // Create a voicemail (leave a message - audio or text)
   app.post('/api/voicemails', async (req, res) => {
     try {
-      const { recipientAddress, senderAddress, senderName, audioData, audioFormat, durationSeconds } = req.body;
+      const { recipientAddress, senderAddress, senderName, audioData, audioFormat, durationSeconds, textContent } = req.body;
       
-      if (!recipientAddress || !senderAddress || !audioData || !durationSeconds) {
+      // Either audio or text content required
+      if (!recipientAddress || !senderAddress || (!audioData && !textContent)) {
         return res.status(400).json({ error: 'Missing required fields' });
       }
+      
+      const isTextOnly = !audioData && textContent;
       
       const voicemail = await storage.createVoicemail({
         recipientAddress,
         senderAddress,
-        senderName,
-        audioData,
-        audioFormat: audioFormat || 'webm',
-        durationSeconds,
-        transcriptionStatus: 'pending',
+        senderName: senderName || undefined,
+        messageType: isTextOnly ? 'text' : 'audio',
+        textContent: textContent || undefined,
+        audioData: audioData || undefined,
+        audioFormat: audioData ? (audioFormat || 'webm') : undefined,
+        durationSeconds: durationSeconds || undefined,
+        transcriptionStatus: isTextOnly ? 'text_only' : 'pending',
+        transcription: isTextOnly ? textContent : undefined,
       });
       
       res.status(201).json(voicemail);
@@ -5224,6 +5230,50 @@ export async function registerRoutes(
                       console.log(`Freeze Mode: ${callerAddress} → ${recipientAddress} converted to call request`);
                       return;
                     }
+                  }
+                }
+                
+                // DO NOT DISTURB (DND) ENFORCEMENT
+                const callIdSettings = await storage.getCallIdSettings(recipientAddress);
+                if (callIdSettings?.doNotDisturb) {
+                  // Check if caller is emergency/always-allowed contact (bypasses DND)
+                  const isAlwaysAllowed = await storage.isContactAlwaysAllowed(recipientAddress, callerAddress);
+                  
+                  if (!isAlwaysAllowed && !isPaidCall) {
+                    // DND is active - route to voicemail
+                    const callerIdentity = await storage.getIdentity(callerAddress);
+                    const callerContactInfo = await storage.getContact(recipientAddress, callerAddress);
+                    const callerDisplayName = callerContactInfo?.name || callerIdentity?.displayName || callerAddress.slice(0, 12) + '...';
+                    
+                    // Store missed call notification
+                    storage.storeMessage(
+                      callerAddress,
+                      recipientAddress,
+                      `missed-call-dnd-${callerAddress}-${recipientAddress}`,
+                      `Missed ${signedIntent.intent.media.video ? 'video' : 'voice'} call (DND was active)`,
+                      'system',
+                      undefined
+                    ).catch(console.error);
+                    
+                    // Send silent push notification about missed call
+                    sendPushNotification(recipientAddress, {
+                      type: 'missed_call_dnd',
+                      title: 'Missed Call (DND)',
+                      body: `${callerDisplayName} tried to call while Do Not Disturb was active`,
+                      from_address: callerAddress,
+                      tag: 'missed-call-dnd'
+                    }).catch(console.error);
+                    
+                    // Tell caller about DND - offer voicemail
+                    ws.send(JSON.stringify({
+                      type: 'call:dnd',
+                      reason: 'User is in Do Not Disturb mode. Please leave a voicemail.',
+                      to_address: recipientAddress,
+                      voicemail_enabled: callIdSettings.voicemailEnabled !== false
+                    } as WSMessage));
+                    
+                    console.log(`DND: Call from ${callerAddress} to ${recipientAddress} blocked - routed to voicemail`);
+                    return;
                   }
                 }
                 

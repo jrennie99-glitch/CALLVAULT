@@ -75,6 +75,9 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
     microphone: 'pending' | 'success' | 'error';
   }>({ camera: 'pending', microphone: 'pending' });
   const [testStream, setTestStream] = useState<MediaStream | null>(null);
+  const [skipPreCallCheck, setSkipPreCallCheck] = useState(() => 
+    localStorage.getItem('cv_skip_precall_check') === 'true'
+  );
   const [pushEnabled, setPushEnabled] = useState(false);
   const [isPushLoading, setIsPushLoading] = useState(false);
   const [pushPermission, setPushPermission] = useState<NotificationPermission>('default');
@@ -964,20 +967,41 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
             </button>
           )}
 
-          <button
-            onClick={startDeviceTest}
-            className="w-full flex items-center justify-between p-3 bg-slate-900/30 rounded-lg hover:bg-slate-900/50 transition-colors"
-            data-testid="button-device-test"
-          >
-            <div className="flex items-center gap-3">
-              <Video className="w-5 h-5 text-blue-400" />
-              <div className="text-left">
-                <p className="text-white font-medium">Pre-Call Device Test</p>
-                <p className="text-slate-500 text-sm">Check camera & microphone</p>
+          <div className="space-y-2">
+            <button
+              onClick={startDeviceTest}
+              className="w-full flex items-center justify-between p-3 bg-slate-900/30 rounded-lg hover:bg-slate-900/50 transition-colors"
+              data-testid="button-device-test"
+            >
+              <div className="flex items-center gap-3">
+                <Video className="w-5 h-5 text-blue-400" />
+                <div className="text-left">
+                  <p className="text-white font-medium">Pre-Call Device Test</p>
+                  <p className="text-slate-500 text-sm">Check camera & microphone</p>
+                </div>
               </div>
+              <ChevronRight className="w-5 h-5 text-slate-400" />
+            </button>
+            
+            <div className="flex items-center justify-between p-3 bg-slate-900/30 rounded-lg">
+              <div className="flex items-center gap-3">
+                <Video className="w-5 h-5 text-slate-400" />
+                <div>
+                  <p className="text-white font-medium text-sm">Skip before calls</p>
+                  <p className="text-slate-500 text-xs">Auto-start calls without device check</p>
+                </div>
+              </div>
+              <Switch
+                checked={skipPreCallCheck}
+                onCheckedChange={(checked) => {
+                  setSkipPreCallCheck(checked);
+                  localStorage.setItem('cv_skip_precall_check', checked ? 'true' : 'false');
+                  toast.success(checked ? 'Pre-call check disabled' : 'Pre-call check enabled');
+                }}
+                data-testid="switch-skip-precall"
+              />
             </div>
-            <ChevronRight className="w-5 h-5 text-slate-400" />
-          </button>
+          </div>
 
           <button
             onClick={() => onNavigate?.('call_permissions')}
