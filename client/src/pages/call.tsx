@@ -295,7 +295,22 @@ export default function CallPage() {
       const response = await fetch('/api/turn-config');
       if (response.ok) {
         const config = await response.json();
-        if (config.turnUrl) {
+        // New format: server returns iceServers array directly
+        if (config.iceServers && Array.isArray(config.iceServers) && config.iceServers.length > 0) {
+          // Merge default STUN servers with TURN servers from server
+          const serverServers = config.iceServers as RTCIceServer[];
+          // Check if there's at least one TURN server
+          const hasTurn = serverServers.some((s: RTCIceServer) => {
+            const urls = Array.isArray(s.urls) ? s.urls : [s.urls];
+            return urls.some(u => u.startsWith('turn:') || u.startsWith('turns:'));
+          });
+          setIceServers([...DEFAULT_ICE_SERVERS, ...serverServers]);
+          if (hasTurn) {
+            setTurnEnabled(true);
+            console.log('TURN servers configured:', serverServers.length, 'servers');
+          }
+        } else if (config.turnUrl) {
+          // Legacy format fallback
           const turnServer: RTCIceServer = {
             urls: config.turnUrl,
             username: config.turnUser,
