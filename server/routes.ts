@@ -339,11 +339,25 @@ export async function registerRoutes(
         } else {
           const errorText = await response.text();
           console.error('Metered API error:', response.status, errorText);
+          // Fall through to OpenRelay fallback
         }
       } catch (error) {
         console.error('Failed to fetch Metered TURN credentials:', error);
+        // Fall through to OpenRelay fallback
       }
     }
+    
+    // Use free OpenRelay TURN servers as fallback
+    const openRelayServers = [
+      { urls: 'stun:stun.relay.metered.ca:80' },
+      { urls: 'turn:standard.relay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+      { urls: 'turn:standard.relay.metered.ca:80?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+      { urls: 'turn:standard.relay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+      { urls: 'turns:standard.relay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+    ];
+    
+    // Return OpenRelay servers
+    return res.json({ iceServers: openRelayServers, openRelay: true });
     
     // Fallback to legacy TURN config
     const turnUrl = process.env.TURN_URL;
@@ -452,9 +466,24 @@ export async function registerRoutes(
             if (meteredResponse.ok) {
               const meteredServers = await meteredResponse.json();
               iceServers = meteredServers; // Metered provides complete ICE server list
+            } else {
+              // Fallback to OpenRelay free TURN servers
+              iceServers = [
+                { urls: 'stun:stun.relay.metered.ca:80' },
+                { urls: 'turn:standard.relay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+                { urls: 'turn:standard.relay.metered.ca:80?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+                { urls: 'turn:standard.relay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+                { urls: 'turns:standard.relay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+              ];
             }
           } catch (error) {
             console.error('Failed to fetch Metered TURN credentials:', error);
+            // Fallback to OpenRelay free TURN servers
+            iceServers = [
+              { urls: 'stun:stun.relay.metered.ca:80' },
+              { urls: 'turn:standard.relay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+              { urls: 'turn:standard.relay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' }
+            ];
           }
         } else if (legacyTurnConfigured) {
           // Use legacy TURN config
