@@ -854,5 +854,67 @@ export const insertUserEntitlementOverridesSchema = createInsertSchema(userEntit
 export type InsertUserEntitlementOverrides = z.infer<typeof insertUserEntitlementOverridesSchema>;
 export type UserEntitlementOverrides = typeof userEntitlementOverrides.$inferSelect;
 
+// Platform-Specific Pricing - different prices for web, android, ios
+export const platformPricing = pgTable("platform_pricing", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  planId: text("plan_id").notNull(), // 'free' | 'pro' | 'business'
+  planName: text("plan_name").notNull(), // Display name
+  
+  // Web/PWA pricing (Stripe)
+  priceWebCents: integer("price_web_cents").notNull().default(0), // Monthly price in cents
+  stripePriceId: text("stripe_price_id"), // Stripe price ID for web checkout
+  
+  // Android pricing (Google Play)
+  priceAndroidCents: integer("price_android_cents").notNull().default(0),
+  googlePlayProductId: text("google_play_product_id"), // e.g., 'cv_pro_monthly'
+  
+  // iOS pricing (Apple IAP)
+  priceIosCents: integer("price_ios_cents").notNull().default(0),
+  appleProductId: text("apple_product_id"), // e.g., 'cv.pro.monthly'
+  
+  // Common fields
+  interval: text("interval").notNull().default("month"), // 'month' | 'year'
+  features: jsonb("features").default([]), // Array of feature strings
+  isActive: boolean("is_active").default(true),
+  displayOrder: integer("display_order").default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertPlatformPricingSchema = createInsertSchema(platformPricing).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertPlatformPricing = z.infer<typeof insertPlatformPricingSchema>;
+export type PlatformPricing = typeof platformPricing.$inferSelect;
+
+// Subscription Purchase Records - tracks purchases from different providers
+export const subscriptionPurchases = pgTable("subscription_purchases", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userAddress: text("user_address").notNull(),
+  planId: text("plan_id").notNull(), // 'pro' | 'business'
+  provider: text("provider").notNull(), // 'stripe' | 'google_play' | 'apple_iap'
+  providerTransactionId: text("provider_transaction_id"), // Receipt/transaction ID from provider
+  providerProductId: text("provider_product_id"), // Product/price ID
+  purchaseToken: text("purchase_token"), // For Google Play verification
+  status: text("status").notNull().default("pending"), // 'pending' | 'active' | 'cancelled' | 'expired' | 'refunded'
+  purchasedAt: timestamp("purchased_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at"),
+  cancelledAt: timestamp("cancelled_at"),
+  refundedAt: timestamp("refunded_at"),
+  metadata: jsonb("metadata").default({}),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertSubscriptionPurchaseSchema = createInsertSchema(subscriptionPurchases).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertSubscriptionPurchase = z.infer<typeof insertSubscriptionPurchaseSchema>;
+export type SubscriptionPurchase = typeof subscriptionPurchases.$inferSelect;
+
 // Re-export chat models for Gemini integration
 export * from "./models/chat";

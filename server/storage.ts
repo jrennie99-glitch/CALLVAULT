@@ -36,6 +36,8 @@ import {
   identityVaults, type IdentityVault, type InsertIdentityVault,
   vaultAccessLogs, type VaultAccessLog, type InsertVaultAccessLog,
   callIdSettings, type CallIdSettings, type InsertCallIdSettings,
+  platformPricing, type PlatformPricing, type InsertPlatformPricing,
+  subscriptionPurchases, type SubscriptionPurchase, type InsertSubscriptionPurchase,
 } from "@shared/schema";
 import type { UserMode, FeatureFlags } from "@shared/types";
 import { randomUUID, createHash } from "crypto";
@@ -298,6 +300,17 @@ export interface IStorage {
   deleteAllDevicePushTokens(userAddress: string): Promise<number>;
   updateDevicePushTokenStatus(token: string, success: boolean, error?: string): Promise<void>;
   getAllDevicePushTokensForUsers(userAddresses: string[]): Promise<{ userAddress: string; platform: string; token: string }[]>;
+  
+  // Platform pricing (platform-specific prices for web/android/ios)
+  getPlatformPricing(): Promise<PlatformPricing[]>;
+  getPlatformPricingByPlan(planId: string): Promise<PlatformPricing | undefined>;
+  upsertPlatformPricing(pricing: InsertPlatformPricing): Promise<PlatformPricing>;
+  
+  // Subscription purchases (cross-provider purchase tracking)
+  createSubscriptionPurchase(purchase: InsertSubscriptionPurchase): Promise<SubscriptionPurchase>;
+  getSubscriptionPurchaseByUser(userAddress: string): Promise<SubscriptionPurchase | undefined>;
+  getSubscriptionPurchaseByTransaction(provider: string, transactionId: string): Promise<SubscriptionPurchase | undefined>;
+  updateSubscriptionPurchase(id: string, updates: Partial<SubscriptionPurchase>): Promise<SubscriptionPurchase | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2575,6 +2588,62 @@ export class DatabaseStorage implements IStorage {
 
   async getAllUserOverrides(): Promise<UserEntitlementOverrides[]> {
     return db.select().from(userEntitlementOverrides).orderBy(desc(userEntitlementOverrides.updatedAt));
+  }
+  
+  // Platform pricing implementation
+  async getPlatformPricing(): Promise<PlatformPricing[]> {
+    return db.select().from(platformPricing).where(eq(platformPricing.isActive, true)).orderBy(asc(platformPricing.displayOrder));
+  }
+  
+  async getPlatformPricingByPlan(planId: string): Promise<PlatformPricing | undefined> {
+    const [result] = await db.select().from(platformPricing).where(eq(platformPricing.planId, planId));
+    return result || undefined;
+  }
+  
+  async upsertPlatformPricing(pricing: InsertPlatformPricing): Promise<PlatformPricing> {
+    const existing = await this.getPlatformPricingByPlan(pricing.planId);
+    if (existing) {
+      const [updated] = await db.update(platformPricing)
+        .set({ ...pricing, updatedAt: new Date() })
+        .where(eq(platformPricing.planId, pricing.planId))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(platformPricing).values(pricing).returning();
+    return created;
+  }
+  
+  // Subscription purchases implementation
+  async createSubscriptionPurchase(purchase: InsertSubscriptionPurchase): Promise<SubscriptionPurchase> {
+    const [created] = await db.insert(subscriptionPurchases).values(purchase).returning();
+    return created;
+  }
+  
+  async getSubscriptionPurchaseByUser(userAddress: string): Promise<SubscriptionPurchase | undefined> {
+    const [result] = await db.select().from(subscriptionPurchases)
+      .where(and(
+        eq(subscriptionPurchases.userAddress, userAddress),
+        eq(subscriptionPurchases.status, 'active')
+      ))
+      .orderBy(desc(subscriptionPurchases.purchasedAt));
+    return result || undefined;
+  }
+  
+  async getSubscriptionPurchaseByTransaction(provider: string, transactionId: string): Promise<SubscriptionPurchase | undefined> {
+    const [result] = await db.select().from(subscriptionPurchases)
+      .where(and(
+        eq(subscriptionPurchases.provider, provider),
+        eq(subscriptionPurchases.providerTransactionId, transactionId)
+      ));
+    return result || undefined;
+  }
+  
+  async updateSubscriptionPurchase(id: string, updates: Partial<SubscriptionPurchase>): Promise<SubscriptionPurchase | undefined> {
+    const [updated] = await db.update(subscriptionPurchases)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(subscriptionPurchases.id, id))
+      .returning();
+    return updated || undefined;
   }
 }
 

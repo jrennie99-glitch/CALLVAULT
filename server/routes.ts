@@ -1682,6 +1682,235 @@ export async function registerRoutes(
   });
 
   // ============================================
+  // PLATFORM-SPECIFIC BILLING API (ADD ONLY)
+  // Web uses Stripe (unchanged), Android uses Google Play, iOS uses Apple IAP
+  // ============================================
+
+  // Default pricing config (seeded on startup if not in DB)
+  const DEFAULT_PLATFORM_PRICING = [
+    {
+      planId: 'free',
+      planName: 'Free',
+      priceWebCents: 0,
+      priceAndroidCents: 0,
+      priceIosCents: 0,
+      interval: 'month',
+      features: ['Basic video calls', 'Up to 5 contacts', 'Standard quality'],
+      displayOrder: 0,
+    },
+    {
+      planId: 'pro',
+      planName: 'Pro',
+      priceWebCents: 900,
+      priceAndroidCents: 699, // Discounted for Android
+      priceIosCents: 999, // iOS may have different pricing
+      stripePriceId: process.env.STRIPE_PRO_PRICE_ID || 'price_pro_monthly',
+      googlePlayProductId: 'cv_pro_monthly',
+      appleProductId: 'cv.pro.monthly',
+      interval: 'month',
+      features: ['Unlimited video calls', 'Unlimited contacts', 'HD quality', 'Creator profile', 'Accept paid calls', 'Priority support'],
+      displayOrder: 1,
+    },
+    {
+      planId: 'business',
+      planName: 'Business',
+      priceWebCents: 2900,
+      priceAndroidCents: 1499, // Discounted for Android
+      priceIosCents: 2999,
+      stripePriceId: process.env.STRIPE_BUSINESS_PRICE_ID || 'price_business_monthly',
+      googlePlayProductId: 'cv_business_monthly',
+      appleProductId: 'cv.business.monthly',
+      interval: 'month',
+      features: ['Everything in Pro', 'Team management', 'Analytics dashboard', 'Custom branding', 'API access', 'Dedicated support'],
+      displayOrder: 2,
+    },
+  ];
+
+  // Seed platform pricing on startup
+  async function seedPlatformPricing() {
+    try {
+      const existing = await storage.getPlatformPricing();
+      if (existing.length === 0) {
+        console.log('Seeding platform pricing...');
+        for (const pricing of DEFAULT_PLATFORM_PRICING) {
+          await storage.upsertPlatformPricing(pricing as any);
+        }
+        console.log('Platform pricing seeded successfully');
+      }
+    } catch (error) {
+      console.error('Error seeding platform pricing:', error);
+    }
+  }
+  seedPlatformPricing();
+
+  // GET /api/billing/plans?platform=<web|android|ios>
+  // Returns plan info with platform-correct pricing and purchase method
+  app.get('/api/billing/plans', async (req, res) => {
+    try {
+      const platform = (req.query.platform as string) || 'web';
+      const validPlatforms = ['web', 'android', 'ios'];
+      
+      if (!validPlatforms.includes(platform)) {
+        return res.status(400).json({ error: 'Invalid platform. Use: web, android, or ios' });
+      }
+      
+      const pricingData = await storage.getPlatformPricing();
+      
+      // If no DB data, use defaults
+      const plans = pricingData.length > 0 ? pricingData : DEFAULT_PLATFORM_PRICING;
+      
+      const formattedPlans = plans.map((plan: any) => {
+        let price: number;
+        let purchaseMethod: string;
+        let productId: string | undefined;
+        
+        switch (platform) {
+          case 'android':
+            price = plan.priceAndroidCents || plan.priceWebCents;
+            purchaseMethod = plan.planId === 'free' ? 'none' : 'google_play';
+            productId = plan.googlePlayProductId;
+            break;
+          case 'ios':
+            price = plan.priceIosCents || plan.priceWebCents;
+            purchaseMethod = plan.planId === 'free' ? 'none' : 'apple_iap';
+            productId = plan.appleProductId;
+            break;
+          default: // web
+            price = plan.priceWebCents;
+            purchaseMethod = plan.planId === 'free' ? 'none' : 'stripe';
+            productId = plan.stripePriceId;
+        }
+        
+        return {
+          id: plan.planId,
+          name: plan.planName,
+          price, // In cents
+          priceDisplay: price === 0 ? 'Free' : `$${(price / 100).toFixed(2)}/mo`,
+          interval: plan.interval || 'month',
+          features: plan.features || [],
+          purchaseMethod,
+          productId,
+          platform,
+        };
+      });
+      
+      res.json({ plans: formattedPlans, platform });
+    } catch (error) {
+      console.error('Error fetching billing plans:', error);
+      res.status(500).json({ error: 'Failed to fetch plans' });
+    }
+  });
+
+  // POST /api/billing/activate
+  // Accepts provider receipt payload and activates entitlement (server-verified)
+  // This is a stub for Google Play / Apple IAP verification - implement fully when integrating stores
+  app.post('/api/billing/activate', async (req, res) => {
+    try {
+      const { 
+        userAddress, 
+        provider, // 'stripe' | 'google_play' | 'apple_iap'
+        planId,   // 'pro' | 'business'
+        purchaseToken, // For Google Play
+        transactionId, // Provider-specific transaction ID
+        receipt,  // For Apple IAP
+      } = req.body;
+      
+      if (!userAddress || !provider || !planId) {
+        return res.status(400).json({ error: 'Missing required fields: userAddress, provider, planId' });
+      }
+      
+      const validProviders = ['stripe', 'google_play', 'apple_iap'];
+      if (!validProviders.includes(provider)) {
+        return res.status(400).json({ error: 'Invalid provider. Use: stripe, google_play, or apple_iap' });
+      }
+      
+      const validPlans = ['pro', 'business'];
+      if (!validPlans.includes(planId)) {
+        return res.status(400).json({ error: 'Invalid plan. Use: pro or business' });
+      }
+      
+      const identity = await storage.getIdentity(userAddress);
+      if (!identity) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      // Check for duplicate transaction
+      if (transactionId) {
+        const existingPurchase = await storage.getSubscriptionPurchaseByTransaction(provider, transactionId);
+        if (existingPurchase) {
+          return res.status(409).json({ error: 'Transaction already processed' });
+        }
+      }
+      
+      // For Stripe, we already have webhook handling - this endpoint is mainly for mobile stores
+      if (provider === 'stripe') {
+        return res.status(400).json({ 
+          error: 'Stripe subscriptions should use /api/stripe/create-checkout-session and webhooks' 
+        });
+      }
+      
+      // For Google Play: Verify purchase with Google Play Developer API (stub)
+      if (provider === 'google_play') {
+        if (!purchaseToken) {
+          return res.status(400).json({ error: 'Missing purchaseToken for Google Play verification' });
+        }
+        
+        // TODO: Implement actual Google Play verification
+        // const isValid = await verifyGooglePlayPurchase(purchaseToken, productId);
+        // For now, we'll trust the client but log for manual review
+        console.log(`[BILLING] Google Play activation requested: user=${userAddress}, plan=${planId}, token=${purchaseToken?.slice(0, 20)}...`);
+      }
+      
+      // For Apple IAP: Verify receipt with Apple (stub)
+      if (provider === 'apple_iap') {
+        if (!receipt) {
+          return res.status(400).json({ error: 'Missing receipt for Apple IAP verification' });
+        }
+        
+        // TODO: Implement actual Apple receipt verification
+        console.log(`[BILLING] Apple IAP activation requested: user=${userAddress}, plan=${planId}`);
+      }
+      
+      // Record the purchase
+      const purchase = await storage.createSubscriptionPurchase({
+        userAddress,
+        planId,
+        provider,
+        providerTransactionId: transactionId || undefined,
+        purchaseToken: purchaseToken || undefined,
+        status: 'active',
+        purchasedAt: new Date(),
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
+        metadata: { receipt: receipt ? 'provided' : undefined },
+      });
+      
+      // Update user's plan
+      await storage.updateIdentity(userAddress, {
+        plan: planId,
+        planStatus: 'active',
+      } as any);
+      
+      // Log the activation
+      await storage.createAuditLog({
+        actorAddress: userAddress,
+        targetAddress: userAddress,
+        actionType: 'SUBSCRIPTION_ACTIVATED',
+        metadata: { provider, planId, purchaseId: purchase.id },
+      });
+      
+      res.json({ 
+        success: true, 
+        plan: planId,
+        purchaseId: purchase.id,
+        message: `${planId.charAt(0).toUpperCase() + planId.slice(1)} plan activated via ${provider}`
+      });
+    } catch (error) {
+      console.error('Error activating subscription:', error);
+      res.status(500).json({ error: 'Failed to activate subscription' });
+    }
+  });
+
+  // ============================================
   // ADMIN CONSOLE API ROUTES (Phase 6)
   // ============================================
 
