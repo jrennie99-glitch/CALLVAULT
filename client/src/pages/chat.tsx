@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useRoute } from 'wouter';
-import { ArrowLeft, Send, Paperclip, Mic, Image, File, X, Play, Pause, Check, CheckCheck, Users, MoreVertical, Phone, Video, VideoIcon, Camera, Crown, Smile, ImageIcon } from 'lucide-react';
+import { ArrowLeft, Send, Paperclip, Mic, Image, File, X, Play, Pause, Check, CheckCheck, Users, MoreVertical, Phone, Video, VideoIcon, Camera, Crown, Smile, ImageIcon, Search, RotateCcw, AlertCircle } from 'lucide-react';
 import { Avatar } from '@/components/Avatar';
 import { EncryptionIndicator } from '@/components/EncryptionIndicator';
 import { EmojiReactionPicker, MessageReactions, ReactionTrigger } from '@/components/EmojiReactions';
 import { EmojiPicker } from '@/components/EmojiPicker';
 import { MemePicker } from '@/components/MemePicker';
 import { MessageContextMenu } from '@/components/MessageContextMenu';
+import { MessageSearch } from '@/components/MessageSearch';
 import { getContacts, type Contact } from '@/lib/storage';
 import { getLocalMessages, saveLocalMessage, updateLocalMessageStatus, getLocalConversation, clearUnreadCount, getPrivacySettings, generateMessageId } from '@/lib/messageStorage';
 import { signMessage } from '@/lib/crypto';
@@ -43,6 +44,9 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
     position: { x: number; y: number };
     message: Message | null;
   }>({ isOpen: false, position: { x: 0, y: 0 }, message: null });
+  const [showSearch, setShowSearch] = useState(false);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -664,13 +668,61 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const handleJumpToMessage = useCallback((messageId: string) => {
+    setHighlightedMessageId(messageId);
+    const el = messageRefs.current[messageId];
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => setHighlightedMessageId(null), 2000);
+    }
+  }, []);
+
+  const retryMessage = async (msg: Message) => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      toast.error('Not connected');
+      return;
+    }
+    
+    msg.status = 'sending';
+    msg.timestamp = Date.now();
+    saveLocalMessage(msg);
+    setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, status: 'sending' } : m));
+    
+    try {
+      const signedMessage = await signMessage(identity, msg);
+      ws.send(JSON.stringify({
+        type: 'msg:send',
+        data: signedMessage
+      }));
+      
+      msg.status = 'sent';
+      saveLocalMessage(msg);
+      setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, status: 'sent' } : m));
+    } catch (error) {
+      console.error('Retry failed:', error);
+      msg.status = 'failed';
+      saveLocalMessage(msg);
+      setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, status: 'failed' } : m));
+    }
+  };
+
   const renderMessageStatus = (msg: Message) => {
     if (msg.from_address !== identity.address) return null;
     switch (msg.status) {
-      case 'sending': return <span className="text-slate-500 text-xs">○</span>;
+      case 'sending': return <span className="text-slate-500 text-xs animate-pulse">○</span>;
       case 'sent': return <Check className="w-3 h-3 text-slate-400" />;
       case 'delivered': return <CheckCheck className="w-3 h-3 text-slate-400" />;
       case 'read': return <CheckCheck className="w-3 h-3 text-emerald-400" />;
+      case 'failed': return (
+        <button 
+          onClick={() => retryMessage(msg)} 
+          className="flex items-center gap-1 text-red-400 hover:text-red-300"
+          data-testid={`button-retry-${msg.id}`}
+        >
+          <AlertCircle className="w-3 h-3" />
+          <RotateCcw className="w-3 h-3" />
+        </button>
+      );
       default: return null;
     }
   };
@@ -795,25 +847,43 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
           )}
         </div>
         
-        {convo.type === 'direct' && (
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => onStartCall(getOtherAddress(), false)}
-              className="w-10 h-10 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800"
-              data-testid="button-voice-call"
-            >
-              <Phone className="w-5 h-5" />
-            </button>
-            <button
-              onClick={() => onStartCall(getOtherAddress(), true)}
-              className="w-10 h-10 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800"
-              data-testid="button-video-call"
-            >
-              <Video className="w-5 h-5" />
-            </button>
-          </div>
-        )}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setShowSearch(!showSearch)}
+            className="w-10 h-10 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800"
+            data-testid="button-search-messages"
+          >
+            <Search className="w-5 h-5" />
+          </button>
+          {convo.type === 'direct' && (
+            <>
+              <button
+                onClick={() => onStartCall(getOtherAddress(), false)}
+                className="w-10 h-10 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800"
+                data-testid="button-voice-call"
+              >
+                <Phone className="w-5 h-5" />
+              </button>
+              <button
+                onClick={() => onStartCall(getOtherAddress(), true)}
+                className="w-10 h-10 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800"
+                data-testid="button-video-call"
+              >
+                <Video className="w-5 h-5" />
+              </button>
+            </>
+          )}
+        </div>
       </header>
+      
+      {showSearch && (
+        <MessageSearch
+          convoId={convo.id}
+          messages={messages}
+          onJumpToMessage={handleJumpToMessage}
+          onClose={() => setShowSearch(false)}
+        />
+      )}
 
       <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[radial-gradient(circle_at_center,_rgba(16,185,129,0.03)_0%,_transparent_50%)]">
         {messages.length === 0 && (
@@ -834,7 +904,10 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
           return (
             <div
               key={msg.id}
-              className={`flex items-end gap-2 ${isMe ? 'flex-row-reverse' : ''}`}
+              ref={(el) => { messageRefs.current[msg.id] = el; }}
+              className={`flex items-end gap-2 ${isMe ? 'flex-row-reverse' : ''} ${
+                highlightedMessageId === msg.id ? 'animate-pulse bg-emerald-500/20 rounded-lg -mx-2 px-2 py-1' : ''
+              }`}
             >
               {!isMe && showAvatar && convo.type === 'group' && (
                 <Avatar name={getContactName(msg.from_address)} address={msg.from_address} size="xs" />

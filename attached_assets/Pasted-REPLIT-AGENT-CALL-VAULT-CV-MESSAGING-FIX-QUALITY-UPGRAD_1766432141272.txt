@@ -1,0 +1,90 @@
+REPLIT AGENT — CALL VAULT (CV) MESSAGING FIX + QUALITY UPGRADE (ONE-PASS, PRODUCTION-READY)
+
+App: Call Vault (CV) is ALREADY BUILT.
+NON-NEGOTIABLE RULES:
+	•	DO NOT remove, rename, or break any existing features, routes, UI, billing, auth, encryption, or admin tools.
+	•	DO NOT replace the current architecture. Only ADD/REPAIR/IMPROVE.
+	•	NO mock data. Everything must work end-to-end in the real app.
+	•	Preserve styling/theme. Any new UI must match existing design.
+	•	After changes, run tests and provide a short “What changed / Where” summary.
+
+GOAL
+Fix current messaging bugs (lag/delay, reliability, media issues) and add: read receipts, typing indicators, in-chat file/video sharing, and message search — all production-grade.
+
+PRIMARY BUGS TO FIX (MUST)
+	1.	Messaging feels delayed / buggy
+
+	•	Diagnose where latency comes from:
+	•	websocket / realtime channel (disconnects, reconnect loops, backpressure)
+	•	server event handling, queueing, DB writes, indexes
+	•	client state updates, debouncing, rendering bottlenecks
+	•	Fix so messages appear instantly and reliably:
+	•	optimistic UI (message shows immediately with “sending…” then “sent”)
+	•	retry with exponential backoff
+	•	idempotency keys to prevent duplicates
+	•	guaranteed ordering per conversation (server timestamp + sequence)
+	•	robust reconnect: resume missed messages by “last_seen_message_id/timestamp”
+	•	ensure “offline delivery” is truly persistent and syncs correctly across refresh
+
+	2.	I can’t share video
+
+	•	Fix media picker/upload so videos show and can be sent (not just photos).
+	•	Support common mobile formats: mp4, mov, webm (where available).
+	•	Ensure max file size limits are clear and enforced (client + server).
+	•	Ensure uploads work on iOS Safari / Android Chrome / desktop.
+	•	Provide graceful fallback if the browser blocks a format.
+	•	Store media safely (existing storage approach) and generate secure URLs/tokens as needed without breaking privacy/security model.
+
+FEATURES TO ADD (MUST, WITHOUT BREAKING ANYTHING)
+A) Read receipts (1-on-1 + group)
+	•	Per message status: sent, delivered, read
+	•	Update when a recipient opens the conversation (or scrolls to bottom)
+	•	Must not spam DB: batch updates + debounce
+	•	UI: subtle checkmarks / “Read” indicator consistent with current style
+
+B) Typing indicators (1-on-1 + group)
+	•	“User is typing…” with timeout (e.g., 3–5s)
+	•	Must be lightweight: ephemeral events via realtime channel, not permanent DB writes
+	•	Do not leak typing events when user is in “Private/Freeze” style modes (respect existing privacy logic)
+
+C) File sharing inside chat (including videos)
+	•	Attachment button inside chat composer
+	•	Support: images, videos, audio, generic files (PDF) if allowed
+	•	Show upload progress + cancel
+	•	Show inline previews for image/video; for others show filename + size + download
+	•	Respect subscription tiers if your app has that: define limits per tier (Free vs Pro vs Business vs Founder)
+
+D) Search messages
+	•	Search within a conversation and optionally global search
+	•	Must be fast: add DB indexes / full-text where appropriate
+	•	UI: search bar + results highlight + jump-to-message
+
+PRODUCTION HARDENING (MUST)
+	•	Validate and sanitize all uploads (MIME sniffing + extension checks)
+	•	Rate limit spam (message send + upload)
+	•	Security: keep signature verification rules intact; do not weaken crypto checks
+	•	Ensure “Invalid signature / expired timestamp” style errors don’t happen for normal messaging operations:
+	•	Verify server time sync logic and token timestamp tolerances
+	•	Add clock-skew tolerance window (e.g., ±2–5 minutes) for signed requests if applicable
+	•	If a signed payload uses timestamps, ensure refresh/renew is automatic and seamless
+
+TEST PLAN (MUST RUN)
+	•	1-on-1 messaging: send 50 messages quickly; no drops, no duplicates, correct order
+	•	Group messaging: 3+ users; typing indicators; read receipts; ordering
+	•	Offline test: turn on airplane mode, send queued messages, restore network; verify delivery and ordering
+	•	Media test: send image + mp4 + mov from iPhone and Android; verify preview and playback
+	•	Search test: search for keywords; jump to message works
+	•	Regression: calls still work; billing unaffected; admin console unaffected
+
+DELIVERABLES
+	1.	List all files changed/added (with paths)
+	2.	Explain the exact bug cause(s) found for messaging delay + video sharing issue
+	3.	Confirm all existing features still work and nothing was removed
+	4.	Provide any new env vars required (only if absolutely necessary)
+	5.	If storage changes are needed, use the simplest option that matches current stack and document it clearly
+
+NOW DO IT:
+	•	Make the changes directly in the repo.
+	•	Run the test plan.
+	•	Fix any failing issues until all tests pass.
+	•	Keep it production-ready.

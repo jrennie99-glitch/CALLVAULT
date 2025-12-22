@@ -209,13 +209,14 @@ export type WSMessage =
   | { type: 'webrtc:answer'; to_address: string; answer: RTCSessionDescriptionInit }
   | { type: 'webrtc:ice'; to_address: string; candidate: RTCIceCandidateInit }
   // Messaging
-  | { type: 'msg:send'; data: SignedMessage }
+  | { type: 'msg:send'; data: SignedMessage; idempotency_key?: string }
   | { type: 'msg:incoming'; message: Message; from_pubkey: string }
   | { type: 'msg:delivered'; message_id: string; convo_id: string }
   | { type: 'msg:queued'; message_id: string; convo_id: string }
   | { type: 'msg:read'; message_ids: string[]; convo_id: string; reader_address: string }
   | { type: 'msg:typing'; convo_id: string; from_address: string; is_typing: boolean }
   | { type: 'msg:reaction'; convo_id: string; message_id: string; emoji: string; from_address: string }
+  | { type: 'msg:ack'; message_id: string; status: 'duplicate' | 'sent' }
   // Conversations
   | { type: 'convo:create'; convo: Conversation }
   | { type: 'convo:update'; convo: Conversation }

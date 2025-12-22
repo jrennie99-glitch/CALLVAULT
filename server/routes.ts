@@ -911,6 +911,27 @@ export async function registerRoutes(
     res.json(messages);
   });
 
+  app.get('/api/messages/:convoId/search', (req, res) => {
+    const { convoId } = req.params;
+    const query = (req.query.q as string) || '';
+    const limit = parseInt(req.query.limit as string) || 50;
+    const messages = messageStore.searchMessages(query, convoId, limit);
+    res.json(messages);
+  });
+
+  app.get('/api/messages/search/global', (req, res) => {
+    const query = (req.query.q as string) || '';
+    const limit = parseInt(req.query.limit as string) || 50;
+    const messages = messageStore.searchMessages(query, undefined, limit);
+    res.json(messages);
+  });
+
+  app.get('/api/messages/:convoId/since/:timestamp', (req, res) => {
+    const { convoId, timestamp } = req.params;
+    const messages = messageStore.getMessagesSince(convoId, parseInt(timestamp));
+    res.json(messages);
+  });
+
   // Phase 5: Creator Profile API
   app.get('/api/creator/:address', async (req, res) => {
     try {
@@ -6251,6 +6272,16 @@ export async function registerRoutes(
             }
             
             const msg = signedMsg.message;
+            
+            if (messageStore.hasMessage(msg.id, msg.nonce)) {
+              ws.send(JSON.stringify({
+                type: 'msg:ack',
+                message_id: msg.id,
+                status: 'duplicate' as const
+              } as WSMessage));
+              return;
+            }
+            
             msg.status = 'sent';
             
             const convo = messageStore.getConversation(msg.convo_id);

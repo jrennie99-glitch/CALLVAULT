@@ -138,10 +138,11 @@ export function updateConversationLastMessage(convoId: string, message: Message)
 
 export function createGroup(name: string, creatorAddress: string, participants: string[], icon?: string): Conversation {
   const id = `grp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const uniqueParticipants = Array.from(new Set([creatorAddress, ...participants]));
   const convo: Conversation = {
     id,
     type: 'group',
-    participant_addresses: [...new Set([creatorAddress, ...participants])],
+    participant_addresses: uniqueParticipants,
     name,
     icon,
     created_at: Date.now(),
@@ -177,4 +178,40 @@ export function removeGroupMember(groupId: string, memberAddress: string): boole
 export function isGroupAdmin(groupId: string, address: string): boolean {
   const group = store.conversations.find(c => c.id === groupId && c.type === 'group');
   return group?.admin_addresses?.includes(address) || false;
+}
+
+export function searchMessages(query: string, convoId?: string, limit = 50): Message[] {
+  const searchLower = query.toLowerCase().trim();
+  if (!searchLower) return [];
+  
+  const results: Message[] = [];
+  const conversationsToSearch = convoId 
+    ? { [convoId]: store.messages[convoId] || [] }
+    : store.messages;
+  
+  for (const [, messages] of Object.entries(conversationsToSearch)) {
+    for (const msg of messages) {
+      if (msg.content && msg.content.toLowerCase().includes(searchLower)) {
+        results.push(msg);
+        if (results.length >= limit) break;
+      }
+    }
+    if (results.length >= limit) break;
+  }
+  
+  return results.sort((a, b) => b.timestamp - a.timestamp).slice(0, limit);
+}
+
+export function getMessagesSince(convoId: string, sinceTimestamp: number): Message[] {
+  const convoMessages = store.messages[convoId] || [];
+  return convoMessages.filter(m => m.timestamp > sinceTimestamp);
+}
+
+export function hasMessage(messageId: string, nonce: string): boolean {
+  for (const convoMessages of Object.values(store.messages)) {
+    if (convoMessages.some(m => m.id === messageId || m.nonce === nonce)) {
+      return true;
+    }
+  }
+  return false;
 }
