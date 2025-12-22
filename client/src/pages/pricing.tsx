@@ -1,19 +1,34 @@
 import { useLocation } from 'wouter';
+import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { 
   Shield, Check, X, ArrowLeft, Sparkles, 
-  Video, Lock, Users, Zap, Crown, Snowflake, AlertCircle
+  Video, Lock, Users, Zap, Crown, Snowflake, AlertCircle, Loader2
 } from 'lucide-react';
+import { PLATFORM } from '@/lib/platform';
 
-const plans = [
-  {
-    name: 'Free',
-    price: '$0',
-    period: 'forever',
+type PlanFeature = { text: string; included: boolean; limit?: boolean };
+
+type PlanDisplay = {
+  name: string;
+  price: string;
+  period: string;
+  description: string;
+  badge: string | null;
+  note: string | null;
+  features: PlanFeature[];
+  cta: string;
+  ctaVariant: 'outline' | 'default';
+  popular: boolean;
+  purchaseMethod: string;
+  productId?: string;
+};
+
+const planFeatures: Record<string, { features: PlanFeature[]; description: string; note: string | null }> = {
+  free: {
     description: 'Privacy & spam protection',
-    badge: null,
     note: 'Outbound limits apply',
     features: [
       { text: 'Unlimited incoming calls', included: true },
@@ -28,16 +43,9 @@ const plans = [
       { text: 'Paid call links', included: false },
       { text: 'Public profile', included: false },
     ],
-    cta: 'Get Started',
-    ctaVariant: 'outline' as const,
-    popular: false,
   },
-  {
-    name: 'Pro',
-    price: '$9',
-    period: '/month',
+  pro: {
     description: 'For creators who monetize their time',
-    badge: 'Most Popular',
     note: null,
     features: [
       { text: 'Everything in Free', included: true },
@@ -52,16 +60,9 @@ const plans = [
       { text: 'Public profile page', included: false },
       { text: 'Call queue management', included: false },
     ],
-    cta: 'Start Free Trial',
-    ctaVariant: 'default' as const,
-    popular: true,
   },
-  {
-    name: 'Business',
-    price: '$29',
-    period: '/month',
+  business: {
     description: 'Full business features for professionals',
-    badge: null,
     note: null,
     features: [
       { text: 'Everything in Pro', included: true },
@@ -75,14 +76,59 @@ const plans = [
       { text: 'Priority support', included: true },
       { text: 'Future team/assistant support', included: true },
     ],
-    cta: 'Start Free Trial',
-    ctaVariant: 'default' as const,
-    popular: false,
   },
-];
+};
+
+function formatPrice(cents: number): string {
+  if (cents === 0) return '$0';
+  return `$${(cents / 100).toFixed(2).replace(/\.00$/, '')}`;
+}
+
+function getPurchaseMethodLabel(method: string): string {
+  switch (method) {
+    case 'google_play': return 'via Google Play';
+    case 'apple_iap': return 'via App Store';
+    case 'stripe': return '';
+    default: return '';
+  }
+}
 
 export default function PricingPage() {
   const [, setLocation] = useLocation();
+  
+  const { data: pricingData, isLoading } = useQuery({
+    queryKey: ['billing-plans', PLATFORM],
+    queryFn: async () => {
+      const response = await fetch(`/api/billing/plans?platform=${PLATFORM}`);
+      if (!response.ok) throw new Error('Failed to fetch plans');
+      return response.json();
+    },
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+  });
+  
+  const plans: PlanDisplay[] = (pricingData?.plans || []).map((plan: any) => {
+    const meta = planFeatures[plan.id] || { features: [], description: '', note: null };
+    return {
+      name: plan.name,
+      price: formatPrice(plan.price),
+      period: plan.id === 'free' ? 'forever' : '/month',
+      description: meta.description,
+      badge: plan.id === 'pro' ? 'Most Popular' : null,
+      note: meta.note,
+      features: meta.features,
+      cta: plan.id === 'free' ? 'Get Started' : 'Start Free Trial',
+      ctaVariant: plan.id === 'free' ? 'outline' : 'default',
+      popular: plan.id === 'pro',
+      purchaseMethod: plan.purchaseMethod,
+      productId: plan.productId,
+    };
+  });
+  
+  const platformLabel = pricingData?.platform === 'android' 
+    ? ' (Android)' 
+    : pricingData?.platform === 'ios' 
+      ? ' (iOS)' 
+      : '';
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 text-white">
@@ -105,7 +151,7 @@ export default function PricingPage() {
       <main className="px-4 py-12 max-w-6xl mx-auto">
         <div className="text-center mb-12">
           <Badge className="mb-4 bg-purple-500/20 text-purple-300 border-purple-500/30">
-            <Sparkles className="w-3 h-3 mr-1" /> Simple Pricing
+            <Sparkles className="w-3 h-3 mr-1" /> Simple Pricing{platformLabel}
           </Badge>
           <h1 className="text-4xl font-bold mb-4">Choose Your Plan</h1>
           <p className="text-slate-400 max-w-xl mx-auto">
@@ -120,66 +166,77 @@ export default function PricingPage() {
           </p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-6 mb-16">
-          {plans.map((plan) => (
-            <Card 
-              key={plan.name}
-              className={`bg-slate-800/50 border-slate-700 backdrop-blur relative ${
-                plan.popular ? 'ring-2 ring-purple-500 md:scale-105' : ''
-              }`}
-            >
-              {plan.badge && (
-                <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 bg-purple-500">
-                  <Crown className="w-3 h-3 mr-1" />
-                  {plan.badge}
-                </Badge>
-              )}
-              <CardHeader className="text-center pb-2">
-                <CardTitle className="text-xl text-white">{plan.name}</CardTitle>
-                <div className="mt-2">
-                  <span className="text-4xl font-bold text-white">{plan.price}</span>
-                  <span className="text-slate-400">{plan.period}</span>
-                </div>
-                <p className="text-slate-400 text-sm mt-2">{plan.description}</p>
-                {plan.note && (
-                  <p className="text-amber-400/80 text-xs mt-2 flex items-center justify-center gap-1">
-                    <AlertCircle className="w-3 h-3" />
-                    {plan.note}
-                  </p>
+        {isLoading ? (
+          <div className="flex justify-center py-12">
+            <Loader2 className="w-8 h-8 animate-spin text-purple-400" />
+          </div>
+        ) : (
+          <div className="grid md:grid-cols-3 gap-6 mb-16">
+            {plans.map((plan) => (
+              <Card 
+                key={plan.name}
+                className={`bg-slate-800/50 border-slate-700 backdrop-blur relative ${
+                  plan.popular ? 'ring-2 ring-purple-500 md:scale-105' : ''
+                }`}
+              >
+                {plan.badge && (
+                  <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 bg-purple-500">
+                    <Crown className="w-3 h-3 mr-1" />
+                    {plan.badge}
+                  </Badge>
                 )}
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <ul className="space-y-2.5">
-                  {plan.features.map((feature, idx) => (
-                    <li key={idx} className="flex items-start gap-3">
-                      {feature.included ? (
-                        <Check className={`w-5 h-5 flex-shrink-0 ${(feature as any).limit ? 'text-amber-400' : 'text-green-400'}`} />
-                      ) : (
-                        <X className="w-5 h-5 text-slate-600 flex-shrink-0" />
-                      )}
-                      <span className={`text-sm ${feature.included ? ((feature as any).limit ? 'text-amber-200' : 'text-slate-300') : 'text-slate-500'}`}>
-                        {feature.text}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-                
-                <Button 
-                  className={`w-full ${
-                    plan.popular 
-                      ? 'bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700' 
-                      : ''
-                  }`}
-                  variant={plan.ctaVariant}
-                  onClick={() => setLocation('/app')}
-                  data-testid={`button-plan-${plan.name.toLowerCase()}`}
-                >
-                  {plan.cta}
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                <CardHeader className="text-center pb-2">
+                  <CardTitle className="text-xl text-white">{plan.name}</CardTitle>
+                  <div className="mt-2">
+                    <span className="text-4xl font-bold text-white">{plan.price}</span>
+                    <span className="text-slate-400">{plan.period}</span>
+                  </div>
+                  <p className="text-slate-400 text-sm mt-2">{plan.description}</p>
+                  {plan.purchaseMethod !== 'none' && plan.purchaseMethod !== 'stripe' && (
+                    <p className="text-purple-400/80 text-xs mt-1">
+                      {getPurchaseMethodLabel(plan.purchaseMethod)}
+                    </p>
+                  )}
+                  {plan.note && (
+                    <p className="text-amber-400/80 text-xs mt-2 flex items-center justify-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      {plan.note}
+                    </p>
+                  )}
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <ul className="space-y-2.5">
+                    {plan.features.map((feature, idx) => (
+                      <li key={idx} className="flex items-start gap-3">
+                        {feature.included ? (
+                          <Check className={`w-5 h-5 flex-shrink-0 ${feature.limit ? 'text-amber-400' : 'text-green-400'}`} />
+                        ) : (
+                          <X className="w-5 h-5 text-slate-600 flex-shrink-0" />
+                        )}
+                        <span className={`text-sm ${feature.included ? (feature.limit ? 'text-amber-200' : 'text-slate-300') : 'text-slate-500'}`}>
+                          {feature.text}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  
+                  <Button 
+                    className={`w-full ${
+                      plan.popular 
+                        ? 'bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700' 
+                        : ''
+                    }`}
+                    variant={plan.ctaVariant}
+                    onClick={() => setLocation('/app')}
+                    data-testid={`button-plan-${plan.name.toLowerCase()}`}
+                  >
+                    {plan.cta}
+                  </Button>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
 
         <section className="py-12">
           <h2 className="text-2xl font-bold text-center mb-8">All Plans Include</h2>
