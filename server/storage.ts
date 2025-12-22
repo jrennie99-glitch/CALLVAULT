@@ -1874,6 +1874,34 @@ export class DatabaseStorage implements IStorage {
       ));
   }
 
+  async deleteAllPushSubscriptions(userAddress: string): Promise<number> {
+    const result = await db.delete(pushSubscriptions)
+      .where(eq(pushSubscriptions.userAddress, userAddress))
+      .returning();
+    return result.length;
+  }
+
+  async getPushSubscriptionStats(): Promise<{ totalSubscriptions: number; uniqueUsers: number }> {
+    const totalResult = await db.select({ count: sql<number>`count(*)::int` }).from(pushSubscriptions);
+    const usersResult = await db.select({ count: sql<number>`count(distinct user_address)::int` }).from(pushSubscriptions);
+    return {
+      totalSubscriptions: totalResult[0]?.count || 0,
+      uniqueUsers: usersResult[0]?.count || 0
+    };
+  }
+
+  async getAllPushSubscriptionsWithUsers(limit: number = 100): Promise<{ userAddress: string; endpoint: string; createdAt: Date }[]> {
+    const results = await db.select({
+      userAddress: pushSubscriptions.userAddress,
+      endpoint: pushSubscriptions.endpoint,
+      createdAt: pushSubscriptions.createdAt
+    })
+      .from(pushSubscriptions)
+      .orderBy(desc(pushSubscriptions.createdAt))
+      .limit(limit);
+    return results;
+  }
+
   // Token metrics implementation
   async recordTokenMetric(eventType: string, userAddress?: string, userAgent?: string, ipAddress?: string, details?: string): Promise<void> {
     await db.insert(tokenMetrics).values({

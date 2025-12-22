@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
-import { User, Shield, Wifi, ChevronDown, ChevronUp, Copy, RefreshCw, Fingerprint, Eye, EyeOff, MessageSquare, CheckCheck, Clock, Phone, Ban, Bot, Wallet, ChevronRight, Ticket, Briefcase, BarChart3, Crown, Lock, Sparkles, CreditCard, ExternalLink, Snowflake, Download, Upload, Cloud, CloudOff, Check, LogOut, AlertTriangle, BellOff, Video, Mic } from 'lucide-react';
+import { User, Shield, Wifi, ChevronDown, ChevronUp, Copy, RefreshCw, Fingerprint, Eye, EyeOff, MessageSquare, CheckCheck, Clock, Phone, Ban, Bot, Wallet, ChevronRight, Ticket, Briefcase, BarChart3, Crown, Lock, Sparkles, CreditCard, ExternalLink, Snowflake, Download, Upload, Cloud, CloudOff, Check, LogOut, AlertTriangle, BellOff, Video, Mic, Bell, Smartphone } from 'lucide-react';
+import nacl from 'tweetnacl';
+import bs58 from 'bs58';
 import { FreezeModeSetupModal } from '@/components/FreezeModeSetupModal';
 import { ModeSettings } from '@/components/ModeSettings';
 import { Button } from '@/components/ui/button';
@@ -73,9 +75,31 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
     microphone: 'pending' | 'success' | 'error';
   }>({ camera: 'pending', microphone: 'pending' });
   const [testStream, setTestStream] = useState<MediaStream | null>(null);
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [isPushLoading, setIsPushLoading] = useState(false);
+  const [pushPermission, setPushPermission] = useState<NotificationPermission>('default');
+  const [canInstallPwa, setCanInstallPwa] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
   useEffect(() => {
     isPlatformAuthenticatorAvailable().then(setBiometricAvailable);
+    
+    // Check notification permission
+    if ('Notification' in window) {
+      setPushPermission(Notification.permission);
+    }
+    
+    // Listen for PWA install prompt
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setCanInstallPwa(true);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
   }, []);
 
   useEffect(() => {
@@ -92,6 +116,14 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
         .then(res => res.json())
         .then(data => {
           setDndEnabled(data.doNotDisturb || false);
+        })
+        .catch(() => {});
+      
+      // Check push notification status
+      fetch(`/api/push/status/${identity.address}`)
+        .then(res => res.json())
+        .then(data => {
+          setPushEnabled(data.enabled || false);
         })
         .catch(() => {});
     }
@@ -384,6 +416,148 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
     setShowDeviceTest(false);
     setDeviceTestStatus({ camera: 'pending', microphone: 'pending' });
   };
+
+  const handlePushToggle = async (enabled: boolean) => {
+    if (!identity?.address) return;
+    
+    setIsPushLoading(true);
+    try {
+      if (enabled) {
+        // Request permission
+        if (!('Notification' in window)) {
+          toast.error('Notifications not supported in this browser');
+          return;
+        }
+        
+        const permission = await Notification.requestPermission();
+        setPushPermission(permission);
+        
+        if (permission !== 'granted') {
+          toast.error('Notification permission denied. Please enable in browser settings.');
+          return;
+        }
+        
+        // Get VAPID key
+        const vapidRes = await fetch('/api/push/vapid-public-key');
+        if (!vapidRes.ok) {
+          toast.error('Push notifications not configured on server');
+          return;
+        }
+        const { vapidPublicKey } = await vapidRes.json();
+        
+        // Get service worker registration
+        const registration = await navigator.serviceWorker.ready;
+        
+        // Subscribe to push
+        const subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
+        });
+        
+        // Send subscription to server
+        const subscribeRes = await fetch('/api/push/subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userAddress: identity.address,
+            subscription: subscription.toJSON()
+          })
+        });
+        
+        if (subscribeRes.ok) {
+          setPushEnabled(true);
+          toast.success('Notifications enabled! You will receive alerts for incoming calls.');
+        } else {
+          toast.error('Failed to save notification subscription');
+        }
+      } else {
+        // Unsubscribe
+        const registration = await navigator.serviceWorker.ready;
+        const subscription = await registration.pushManager.getSubscription();
+        
+        if (subscription) {
+          await subscription.unsubscribe();
+          await fetch('/api/push/unsubscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userAddress: identity.address,
+              endpoint: subscription.endpoint
+            })
+          });
+        }
+        
+        setPushEnabled(false);
+        toast.success('Notifications disabled');
+      }
+    } catch (error) {
+      console.error('Push notification error:', error);
+      toast.error('Failed to update notification settings');
+    } finally {
+      setIsPushLoading(false);
+    }
+  };
+
+  const sendTestNotification = async () => {
+    if (!identity?.address || !identity?.keypair) return;
+    
+    try {
+      const timestamp = Date.now().toString();
+      const nonce = Array.from(crypto.getRandomValues(new Uint8Array(8)))
+        .map(b => b.toString(16).padStart(2, '0')).join('');
+      
+      // Sign the request
+      const message = `push-test:${identity.address}:${timestamp}:${nonce}`;
+      const messageBytes = new TextEncoder().encode(message);
+      const signatureBytes = nacl.sign.detached(messageBytes, identity.keypair.secretKey);
+      const signature = bs58.encode(signatureBytes);
+      
+      const res = await fetch('/api/push/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          userAddress: identity.address,
+          signature,
+          timestamp,
+          nonce
+        })
+      });
+      
+      const data = await res.json();
+      if (data.success) {
+        toast.success('Test notification sent!');
+      } else {
+        toast.error(data.message || data.error || 'Failed to send test notification');
+      }
+    } catch (error) {
+      console.error('Test notification error:', error);
+      toast.error('Failed to send test notification');
+    }
+  };
+
+  const handleInstallPwa = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        toast.success('App installed! You can now receive calls even when browser is closed.');
+        setCanInstallPwa(false);
+      }
+      setDeferredPrompt(null);
+    }
+  };
+
+  // Helper function to convert VAPID key
+  function urlBase64ToUint8Array(base64String: string): Uint8Array {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  }
 
   const updatePrivacy = (updates: Partial<PrivacySettings>) => {
     const newPrivacy = { ...privacy, ...updates };
@@ -732,6 +906,63 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
               />
             </div>
           </div>
+
+          <div className={`p-3 rounded-lg ${pushEnabled ? 'bg-green-500/10 border border-green-500/30' : 'bg-slate-900/30'}`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Bell className={`w-5 h-5 ${pushEnabled ? 'text-green-400' : 'text-slate-400'}`} />
+                <div>
+                  <p className="text-white font-medium flex items-center gap-2">
+                    Call Notifications
+                    {pushEnabled && (
+                      <Badge className="bg-green-500/20 text-green-400 text-xs">Enabled</Badge>
+                    )}
+                  </p>
+                  <p className="text-slate-500 text-sm">
+                    {pushEnabled 
+                      ? 'Receive alerts for incoming calls' 
+                      : pushPermission === 'denied' 
+                        ? 'Enable in browser settings'
+                        : 'Get notified when someone calls'}
+                  </p>
+                </div>
+              </div>
+              <Switch
+                checked={pushEnabled}
+                onCheckedChange={handlePushToggle}
+                disabled={isPushLoading || pushPermission === 'denied'}
+                data-testid="switch-push-notifications"
+              />
+            </div>
+            {pushEnabled && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-2 w-full border-green-500/30 text-green-400 hover:bg-green-500/10"
+                onClick={sendTestNotification}
+                data-testid="button-test-notification"
+              >
+                Send Test Notification
+              </Button>
+            )}
+          </div>
+
+          {canInstallPwa && (
+            <button
+              onClick={handleInstallPwa}
+              className="w-full flex items-center justify-between p-3 bg-gradient-to-r from-blue-500/20 to-purple-500/20 border border-blue-500/30 rounded-lg hover:from-blue-500/30 hover:to-purple-500/30 transition-colors"
+              data-testid="button-install-pwa"
+            >
+              <div className="flex items-center gap-3">
+                <Smartphone className="w-5 h-5 text-blue-400" />
+                <div className="text-left">
+                  <p className="text-white font-medium">Install Call Vault</p>
+                  <p className="text-slate-400 text-sm">Get the app for better notifications</p>
+                </div>
+              </div>
+              <Badge className="bg-blue-500 text-white">Install</Badge>
+            </button>
+          )}
 
           <button
             onClick={startDeviceTest}

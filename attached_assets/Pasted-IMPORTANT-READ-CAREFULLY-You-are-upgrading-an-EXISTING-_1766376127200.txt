@@ -1,0 +1,116 @@
+IMPORTANT — READ CAREFULLY:
+You are upgrading an EXISTING app called “Call Vault (CV)”. DO NOT remove, rename, refactor away, or break any existing feature, UI, routes, payments, auth, admin console, or call logic. DO NOT delete files. Only ADD new capability in a backward-compatible way.
+
+GOAL:
+Make Call Vault behave more like WhatsApp when the browser is closed by adding PWA install + Web Push Notifications for incoming calls/messages. When a call comes in, the callee should receive a push notification (even if the tab is closed) and tapping it opens Call Vault directly into the incoming call screen to answer. This is not native CallKit; it’s PWA + Web Push.
+
+CONSTRAINTS:
+- Keep current STUN/TURN logic unchanged. Only add push + PWA + server endpoints.
+- Must be production-ready: secure endpoints, auth checks, rate limiting, retries, logging, and graceful fallback if push isn’t enabled.
+- Must work on iOS/Android as a PWA (iOS requires “Add to Home Screen” and user permission). Add clear UX prompts.
+- Store push subscriptions in the EXISTING database (not localStorage-only).
+
+DELIVERABLES:
+A) PWA
+1) Add/verify PWA assets:
+   - public/manifest.webmanifest (name: Call Vault, short_name: CV)
+   - public/icons (192x192, 512x512 at minimum)
+   - Service worker registered from the client (do not break existing SW if present; extend it).
+
+2) Ensure HTTPS requirement is met in production. In dev/Replit, allow local behavior but keep prod-safe.
+
+B) WEB PUSH (VAPID) — BACKEND
+1) Add dependencies for Web Push in the backend:
+   - Node: use “web-push”
+   - Python: use “pywebpush”
+Choose based on current backend. Do NOT rewrite backend; integrate into existing server.
+
+2) Create a new DB table/collection:
+   - push_subscriptions:
+     - id
+     - user_id (FK to existing users table)
+     - endpoint (string)
+     - p256dh (string)
+     - auth (string)
+     - user_agent (string)
+     - created_at
+     - updated_at
+     - last_success_at
+     - last_error (string)
+   Add unique constraint on (user_id, endpoint).
+
+3) Add environment variables:
+   - VAPID_PUBLIC_KEY
+   - VAPID_PRIVATE_KEY
+   - VAPID_SUBJECT (e.g. "mailto:support@yourdomain.com")
+If missing, generate once and print instructions in README, but do not auto-regenerate every boot.
+
+4) Add authenticated API endpoints:
+   - GET  /api/push/vapid-public-key
+     Returns { publicKey }
+   - POST /api/push/subscribe
+     Body: { subscription } (standard PushSubscription JSON)
+     Store in DB for the authenticated user.
+   - POST /api/push/unsubscribe
+     Remove the subscription for the authenticated user.
+   - POST /api/push/test
+     Sends a test push to the authenticated user.
+   - POST /api/calls/invite
+     Body: { calleeUserId OR calleeAddress, callSessionId, callerDisplayName, callType: "voice"|"video" }
+     Server verifies caller is authenticated and allowed, then sends push to callee’s stored subscriptions.
+
+SECURITY REQUIREMENTS:
+- All push endpoints require auth (existing session/JWT).
+- Rate limit /api/calls/invite and /api/push/test per user/IP.
+- Validate subscription payload shape.
+- If a push endpoint returns 410/404, mark subscription invalid and delete it.
+
+C) SERVICE WORKER — FRONTEND
+1) Extend/add service worker to handle:
+   - self.addEventListener('push', ...) to display notification:
+     Title: "Incoming Call"
+     Body: "<CallerName> is calling you"
+     Data payload must include: { url: "/app?incoming=1&session=<callSessionId>&type=<voice|video>" }
+   - self.addEventListener('notificationclick', ...) to open/focus the app at that URL.
+
+2) Add client-side code:
+   - Settings screen toggle: “Enable Incoming Call Notifications”
+     - Requests permission
+     - Subscribes via PushManager using VAPID public key
+     - POSTs to /api/push/subscribe
+   - Add “Send Test Notification” button.
+   - If permission denied, show instructions.
+   - On login, if enabled, ensure subscription exists (silent re-sync).
+
+D) INCOMING CALL UX
+1) When app opens via notification URL (/app?incoming=1&session=...), the client must:
+   - Fetch session details from existing call/session backend (or add GET /api/calls/session/:id if needed).
+   - Show an “Incoming Call” screen with Answer / Decline.
+   - Answer joins existing WebRTC logic (do not replace current calling).
+   - Decline sends a “declined” signal via existing signaling channel; if none exists, add minimal API POST /api/calls/decline.
+
+2) If push is not enabled:
+   - Keep current behavior (call won’t ring when browser closed).
+   - Show a banner recommending enabling notifications + installing PWA.
+
+E) ADMIN (ADD ONLY)
+Add to existing admin console:
+- View push subscription counts
+- Force revoke a user’s push subscriptions
+- View recent push send errors
+Do not break existing admin RBAC; extend it.
+
+F) QA / TESTING
+Add a “Push & PWA Checklist” page in admin or docs:
+- Install PWA steps (iOS/Android)
+- Enable notifications
+- Two-device test steps
+- Troubleshooting (Focus/DND, iOS requirements)
+
+WHAT TO OUTPUT BACK TO ME:
+1) List of files added/changed (no deletions).
+2) Exact env vars required and example values.
+3) Where in the UI I enable notifications and how to test.
+4) Confirm nothing existing was removed and all prior features still work.
+
+BEGIN NOW. DO NOT ASK ME QUESTIONS UNLESS YOU CANNOT DETECT THE BACKEND STACK. IF YOU CAN DETECT IT, IMPLEMENT USING THE EXISTING STACK.

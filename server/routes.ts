@@ -3177,6 +3177,40 @@ export async function registerRoutes(
     }
   });
 
+  // Admin push subscription management endpoints
+  app.get('/api/admin/push-stats', requirePermission('audit.read'), async (_req, res) => {
+    try {
+      const stats = await storage.getPushSubscriptionStats();
+      res.json(stats);
+    } catch (error) {
+      console.error('Error fetching push stats:', error);
+      res.status(500).json({ error: 'Failed to fetch push stats' });
+    }
+  });
+
+  app.get('/api/admin/push-subscriptions', requirePermission('audit.read'), async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+      const subscriptions = await storage.getAllPushSubscriptionsWithUsers(limit);
+      res.json({ subscriptions });
+    } catch (error) {
+      console.error('Error fetching push subscriptions:', error);
+      res.status(500).json({ error: 'Failed to fetch push subscriptions' });
+    }
+  });
+
+  app.delete('/api/admin/push-subscriptions/:address', requirePermission('users.manage'), async (req, res) => {
+    try {
+      const { address } = req.params;
+      const deletedCount = await storage.deleteAllPushSubscriptions(address);
+      console.log(`Admin revoked ${deletedCount} push subscriptions for ${address}`);
+      res.json({ success: true, deletedCount });
+    } catch (error) {
+      console.error('Error revoking push subscriptions:', error);
+      res.status(500).json({ error: 'Failed to revoke push subscriptions' });
+    }
+  });
+
   // Get user's free tier remaining limits
   app.get('/api/free-tier/limits/:address', async (req, res) => {
     try {
@@ -3975,6 +4009,90 @@ export async function registerRoutes(
     } catch (error) {
       console.error('Error removing push subscription:', error);
       res.status(500).json({ error: 'Failed to remove push subscription' });
+    }
+  });
+
+  // Send test push notification to the authenticated user (signature verified)
+  app.post('/api/push/test', async (req, res) => {
+    try {
+      const { userAddress, signature, timestamp, nonce } = req.body;
+      
+      if (!userAddress || !signature || !timestamp || !nonce) {
+        return res.status(400).json({ error: 'Missing required fields' });
+      }
+      
+      // Verify timestamp is recent (within 2 minutes)
+      const now = Date.now();
+      const requestTime = parseInt(timestamp, 10);
+      if (isNaN(requestTime) || Math.abs(now - requestTime) > 2 * 60 * 1000) {
+        return res.status(400).json({ error: 'Request expired. Please try again.' });
+      }
+      
+      // Verify signature using Ed25519
+      const message = `push-test:${userAddress}:${timestamp}:${nonce}`;
+      const messageBytes = new TextEncoder().encode(message);
+      
+      try {
+        // Extract public key from address (format: call:<base58pubkey>:<suffix>)
+        const parts = userAddress.split(':');
+        if (parts.length !== 3 || parts[0] !== 'call') {
+          return res.status(400).json({ error: 'Invalid address format' });
+        }
+        const publicKey = bs58.decode(parts[1]);
+        const signatureBytes = bs58.decode(signature);
+        
+        const isValid = nacl.sign.detached.verify(messageBytes, signatureBytes, publicKey);
+        if (!isValid) {
+          return res.status(403).json({ error: 'Invalid signature' });
+        }
+      } catch (sigError) {
+        console.error('Signature verification error:', sigError);
+        return res.status(403).json({ error: 'Signature verification failed' });
+      }
+      
+      // Rate limit: max 3 test notifications per minute
+      const rateKey = `push_test:${userAddress}`;
+      const existing = rateLimitMap.get(rateKey);
+      if (existing && now < existing.resetTime && existing.count >= 3) {
+        return res.status(429).json({ error: 'Too many test notifications. Please wait a minute.' });
+      }
+      if (!existing || now >= existing.resetTime) {
+        rateLimitMap.set(rateKey, { count: 1, resetTime: now + 60000 });
+      } else {
+        existing.count++;
+      }
+      
+      const sent = await sendPushNotification(userAddress, {
+        type: 'test',
+        title: 'Test Notification',
+        body: 'Push notifications are working! You will receive alerts for incoming calls.',
+        tag: 'test-notification'
+      });
+      
+      if (sent) {
+        res.json({ success: true, message: 'Test notification sent' });
+      } else {
+        res.json({ success: false, message: 'No push subscriptions found or push not configured' });
+      }
+    } catch (error) {
+      console.error('Error sending test push:', error);
+      res.status(500).json({ error: 'Failed to send test notification' });
+    }
+  });
+
+  // Get push subscription status for a user
+  app.get('/api/push/status/:address', async (req, res) => {
+    try {
+      const { address } = req.params;
+      const subscriptions = await storage.getPushSubscriptions(address);
+      res.json({
+        enabled: subscriptions.length > 0,
+        subscriptionCount: subscriptions.length,
+        vapidConfigured: !!(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY)
+      });
+    } catch (error) {
+      console.error('Error getting push status:', error);
+      res.status(500).json({ error: 'Failed to get push status' });
     }
   });
 
