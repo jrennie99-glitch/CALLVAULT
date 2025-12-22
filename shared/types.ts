@@ -50,6 +50,8 @@ export interface Message {
   nonce: string;
   status?: MessageStatus;
   reactions?: MessageReaction[];
+  seq?: number; // Server-assigned sequence number for ordering
+  server_timestamp?: number; // Server timestamp for ordering
 }
 
 export interface SignedMessage {
@@ -216,7 +218,7 @@ export type WSMessage =
   | { type: 'msg:read'; message_ids: string[]; convo_id: string; reader_address: string }
   | { type: 'msg:typing'; convo_id: string; from_address: string; is_typing: boolean }
   | { type: 'msg:reaction'; convo_id: string; message_id: string; emoji: string; from_address: string }
-  | { type: 'msg:ack'; message_id: string; status: 'duplicate' | 'received' }
+  | { type: 'msg:ack'; message_id: string; status: 'duplicate' | 'received' | 'error'; seq?: number; server_timestamp?: number; error?: string }
   // Conversations
   | { type: 'convo:create'; convo: Conversation }
   | { type: 'convo:update'; convo: Conversation }

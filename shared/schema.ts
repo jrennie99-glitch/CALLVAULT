@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, jsonb, real } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, jsonb, real, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -713,10 +713,23 @@ export const persistentMessages = pgTable("persistent_messages", {
   mediaType: text("media_type"), // 'text' | 'image' | 'video' | 'audio' | 'voice_note'
   mediaUrl: text("media_url"),
   status: text("status").notNull().default("pending"), // 'pending' | 'delivered' | 'read'
+  seq: integer("seq"), // Server-assigned sequence number for ordering within conversation
+  serverTimestamp: timestamp("server_timestamp").defaultNow().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   deliveredAt: timestamp("delivered_at"),
   readAt: timestamp("read_at"),
-});
+  nonce: text("nonce"), // For idempotency
+  messageType: text("message_type").default("text"), // Full message type
+  attachmentName: text("attachment_name"),
+  attachmentSize: integer("attachment_size"),
+}, (table) => ({
+  convoIdSeqIdx: index("pm_convo_id_seq_idx").on(table.convoId, table.seq),
+  convoIdCreatedAtIdx: index("pm_convo_id_created_at_idx").on(table.convoId, table.createdAt),
+  fromAddressIdx: index("pm_from_address_idx").on(table.fromAddress),
+  toAddressIdx: index("pm_to_address_idx").on(table.toAddress),
+  statusIdx: index("pm_status_idx").on(table.status),
+  nonceIdx: index("pm_nonce_idx").on(table.nonce),
+}));
 
 export const insertPersistentMessageSchema = createInsertSchema(persistentMessages).omit({
   id: true,

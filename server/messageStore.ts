@@ -10,12 +10,26 @@ const CONVERSATIONS_FILE = path.join(DATA_DIR, 'conversations.json');
 interface MessageStore {
   messages: Record<string, Message[]>;
   conversations: Conversation[];
+  seqCounters: Record<string, number>; // Per-conversation sequence counters
 }
 
 let store: MessageStore = {
   messages: {},
-  conversations: []
+  conversations: [],
+  seqCounters: {}
 };
+
+// Get next sequence number for a conversation
+function getNextSeq(convoId: string): number {
+  if (!store.seqCounters[convoId]) {
+    // Initialize from existing messages
+    const messages = store.messages[convoId] || [];
+    const maxSeq = messages.reduce((max, m) => Math.max(max, m.seq || 0), 0);
+    store.seqCounters[convoId] = maxSeq;
+  }
+  store.seqCounters[convoId]++;
+  return store.seqCounters[convoId];
+}
 
 function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) {
@@ -51,12 +65,40 @@ function saveConversations() {
 
 loadStore();
 
-export function addMessage(message: Message): void {
+export function addMessage(message: Message): Message {
   if (!store.messages[message.convo_id]) {
     store.messages[message.convo_id] = [];
   }
+  // Honor pre-assigned seq/server_timestamp from DB if present, otherwise assign locally
+  if (!message.seq) {
+    message.seq = getNextSeq(message.convo_id);
+  } else {
+    // Update seq counter to stay in sync with DB
+    if (!store.seqCounters[message.convo_id] || message.seq > store.seqCounters[message.convo_id]) {
+      store.seqCounters[message.convo_id] = message.seq;
+    }
+  }
+  if (!message.server_timestamp) {
+    message.server_timestamp = Date.now();
+  }
   store.messages[message.convo_id].push(message);
   saveMessages();
+  return message;
+}
+
+// Get messages since a specific seq for sync/resume
+export function getMessagesSinceSeq(convoId: string, sinceSeq: number, limit = 100): Message[] {
+  const convoMessages = store.messages[convoId] || [];
+  return convoMessages
+    .filter(m => (m.seq || 0) > sinceSeq)
+    .sort((a, b) => (a.seq || 0) - (b.seq || 0))
+    .slice(0, limit);
+}
+
+// Get latest seq for a conversation
+export function getLatestSeq(convoId: string): number {
+  const messages = store.messages[convoId] || [];
+  return messages.reduce((max, m) => Math.max(max, m.seq || 0), 0);
 }
 
 export function getMessages(convoId: string, limit = 50, before?: number): Message[] {

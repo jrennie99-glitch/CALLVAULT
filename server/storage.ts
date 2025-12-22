@@ -24,7 +24,7 @@ import {
   voicemails, type Voicemail, type InsertVoicemail,
   callTokenNonces, type CallTokenNonce,
   tokenMetrics, type TokenMetric,
-  persistentMessages,
+  persistentMessages, type PersistentMessage,
   callRooms, type CallRoom, type InsertCallRoom,
   callRoomParticipants, type CallRoomParticipant, type InsertCallRoomParticipant,
   userModeSettings, type UserModeSettings, type InsertUserModeSettings,
@@ -42,7 +42,7 @@ import {
 import type { UserMode, FeatureFlags } from "@shared/types";
 import { randomUUID, createHash } from "crypto";
 import { db } from "./db";
-import { eq, and, desc, asc, sql, gte, lte, ilike, or } from "drizzle-orm";
+import { eq, and, desc, asc, sql, gte, lte, ilike, or, gt } from "drizzle-orm";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -2181,6 +2181,113 @@ export class DatabaseStorage implements IStorage {
     await db.update(persistentMessages)
       .set({ status: 'read', readAt: new Date() })
       .where(eq(persistentMessages.id, messageId));
+  }
+
+  // Store message with server-assigned seq and timestamp (WhatsApp-like reliability)
+  // Uses optimistic insert with unique constraint (convo_id, seq) and retry on conflict
+  async storeMessageWithSeq(
+    fromAddress: string,
+    toAddress: string,
+    convoId: string,
+    content: string,
+    options?: { 
+      mediaType?: string; 
+      mediaUrl?: string; 
+      nonce?: string; 
+      messageType?: string;
+      attachmentName?: string;
+      attachmentSize?: number;
+    }
+  ): Promise<{ id: string; seq: number; serverTimestamp: Date; createdAt: Date }> {
+    const serverTimestamp = new Date();
+    const maxRetries = 5;
+    
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        // Use advisory lock for the conversation to ensure sequential access
+        // pg_advisory_xact_lock uses the hash of convo_id as the lock key
+        const result = await db.execute(sql`
+          SELECT pg_advisory_xact_lock(hashtext(${convoId}));
+          INSERT INTO persistent_messages (
+            from_address, to_address, convo_id, content, media_type, media_url, 
+            status, seq, server_timestamp, nonce, message_type, attachment_name, attachment_size
+          )
+          VALUES (
+            ${fromAddress}, ${toAddress}, ${convoId}, ${content}, 
+            ${options?.mediaType || 'text'}, ${options?.mediaUrl || null},
+            'pending',
+            COALESCE((SELECT MAX(seq) FROM persistent_messages WHERE convo_id = ${convoId}), 0) + 1,
+            ${serverTimestamp}, ${options?.nonce || null}, ${options?.messageType || 'text'},
+            ${options?.attachmentName || null}, ${options?.attachmentSize || null}
+          )
+          RETURNING id, seq, server_timestamp, created_at
+        `) as any;
+        
+        const row = (result as any).rows?.[0] || result;
+        return { 
+          id: row.id, 
+          seq: row.seq, 
+          serverTimestamp: row.server_timestamp || serverTimestamp, 
+          createdAt: row.created_at || serverTimestamp 
+        };
+      } catch (error: any) {
+        // Retry on unique constraint violation (race condition)
+        if (error.code === '23505' && attempt < maxRetries - 1) {
+          await new Promise(r => setTimeout(r, Math.random() * 50));
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new Error('Failed to assign seq after max retries');
+  }
+
+  // Get messages since a specific seq for cross-device sync
+  async getMessagesSinceSeq(convoId: string, sinceSeq: number, limit: number = 100): Promise<PersistentMessage[]> {
+    return db.select()
+      .from(persistentMessages)
+      .where(and(
+        eq(persistentMessages.convoId, convoId),
+        gt(persistentMessages.seq, sinceSeq)
+      ))
+      .orderBy(asc(persistentMessages.seq))
+      .limit(limit);
+  }
+
+  // Get latest seq for a conversation
+  async getLatestSeq(convoId: string): Promise<number> {
+    const [result] = await db.select({ maxSeq: sql<number>`COALESCE(MAX(${persistentMessages.seq}), 0)` })
+      .from(persistentMessages)
+      .where(eq(persistentMessages.convoId, convoId));
+    return result?.maxSeq || 0;
+  }
+
+  // Get all conversations for a user with latest seq
+  async getConversationsWithSeq(userAddress: string): Promise<{ convoId: string; latestSeq: number; lastMessage: string | null; lastMessageAt: Date | null }[]> {
+    // Get all unique conversations for this user
+    const convos = await db.selectDistinct({ convoId: persistentMessages.convoId })
+      .from(persistentMessages)
+      .where(or(
+        eq(persistentMessages.fromAddress, userAddress),
+        eq(persistentMessages.toAddress, userAddress)
+      ));
+    
+    // For each conversation, get latest seq and last message
+    const result = await Promise.all(convos.map(async ({ convoId }) => {
+      const latestSeq = await this.getLatestSeq(convoId);
+      const [lastMsg] = await db.select({ content: persistentMessages.content, createdAt: persistentMessages.createdAt })
+        .from(persistentMessages)
+        .where(eq(persistentMessages.convoId, convoId))
+        .orderBy(desc(persistentMessages.createdAt))
+        .limit(1);
+      return {
+        convoId,
+        latestSeq,
+        lastMessage: lastMsg?.content || null,
+        lastMessageAt: lastMsg?.createdAt || null,
+      };
+    }));
+    return result;
   }
 
   // Call Rooms (group calls)

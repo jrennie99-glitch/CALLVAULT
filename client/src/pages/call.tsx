@@ -331,6 +331,7 @@ export default function CallPage() {
   const wsHeartbeatInterval = useRef<NodeJS.Timeout | null>(null);
   const wsLastPong = useRef<number>(Date.now());
   const wsHasBeenConnected = useRef(false);
+  const wsLastSeenSeq = useRef<Record<string, number>>({}); // Track last seen seq per conversation
   const [wsConnected, setWsConnected] = useState(false);
   const [callStatus, setCallStatus] = useState('');
   

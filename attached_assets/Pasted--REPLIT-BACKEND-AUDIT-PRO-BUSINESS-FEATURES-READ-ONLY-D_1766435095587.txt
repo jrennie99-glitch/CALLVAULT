@@ -1,0 +1,86 @@
+🚨 REPLIT BACKEND AUDIT — PRO & BUSINESS FEATURES (READ ONLY) 🚨
+
+DO NOT modify, generate, refactor, or delete any code.
+DO NOT add features.
+DO NOT assume functionality.
+This is an AUDIT ONLY task.
+
+OBJECTIVE:
+Audit the entire codebase (frontend + backend) to verify whether the Pro and Business features shown on the pricing page are actually implemented AND enforced by the backend.
+
+You must inspect:
+- All backend routes (/api, /server, /routes, /pages/api, /app/api)
+- Middleware and authorization logic
+- Database schemas / models / migrations
+- Stripe billing logic and webhooks
+- Feature flags, entitlements, or plan enforcement logic
+
+AUDIT EACH FEATURE INDIVIDUALLY.
+
+FEATURE LIST TO VERIFY:
+
+FREE PLAN
+- Unlimited incoming calls
+- End-to-end encrypted calls
+- Cryptographic identity
+- Contact allowlist
+- Freeze mode
+- Outbound call limits (5/day)
+- 15 minute max call duration
+- 1 call at a time
+
+PRO PLAN
+- Unlimited outbound calls
+- Unlimited call duration
+- Unlimited daily calls
+- Call scheduling
+- Availability controls
+- Paid call links
+- Creator mode
+- Higher call priority
+
+BUSINESS PLAN
+- Public profile page
+- Call queue management
+- Earnings dashboard
+- Business mode
+- Priority routing
+- Custom branding
+- Admin controls
+- Priority support (flag only)
+- Team / assistant support (future-ready)
+
+FOR EACH FEATURE:
+Determine ONE status only:
+✅ Fully Implemented (backend + enforcement)
+🟡 Partially Implemented (UI or backend only)
+❌ Not Implemented (pricing text only)
+
+STRICT REQUIREMENTS:
+- If a feature exists only in UI or pricing, mark ❌
+- If backend exists but no plan or role enforcement, mark 🟡
+- If backend + plan/role enforcement exists, mark ✅
+- Frontend-only checks do NOT count as implemented
+
+OUTPUT FORMAT (MANDATORY):
+
+Return ONE table with these columns:
+
+| Feature | Status | Evidence (file path + function/route) | Notes |
+
+Evidence MUST reference:
+- Exact file paths
+- Function or route names
+- Database tables or fields (if applicable)
+
+AFTER THE TABLE, INCLUDE:
+1) Summary count of Fully / Partial / Missing features
+2) Missing backend pieces required for Business Admin functionality
+3) Risk assessment if Pro or Business plans are sold today
+
+STOP after completing the audit.
+Do NOT suggest improvements.
+Do NOT write code.
+Do NOT optimize.
+
+END OF PROMPT.

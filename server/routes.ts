@@ -932,6 +932,35 @@ export async function registerRoutes(
     res.json(messages);
   });
 
+  // Sync endpoints for cross-device support (WhatsApp-like) - uses DB layer
+  app.get('/api/messages/:convoId/sync', async (req, res) => {
+    try {
+      const { convoId } = req.params;
+      const sinceSeq = parseInt(req.query.since_seq as string) || 0;
+      const limit = parseInt(req.query.limit as string) || 100;
+      const messages = await storage.getMessagesSinceSeq(convoId, sinceSeq, limit);
+      const latestSeq = await storage.getLatestSeq(convoId);
+      res.json({ messages, latest_seq: latestSeq, has_more: messages.length >= limit });
+    } catch (error) {
+      console.error('Sync error:', error);
+      res.status(500).json({ error: 'Failed to sync messages' });
+    }
+  });
+
+  app.get('/api/conversations/sync', async (req, res) => {
+    try {
+      const address = req.query.address as string;
+      if (!address) {
+        return res.status(400).json({ error: 'Address required' });
+      }
+      const conversations = await storage.getConversationsWithSeq(address);
+      res.json(conversations);
+    } catch (error) {
+      console.error('Conversations sync error:', error);
+      res.status(500).json({ error: 'Failed to sync conversations' });
+    }
+  });
+
   // Phase 5: Creator Profile API
   app.get('/api/creator/:address', async (req, res) => {
     try {
@@ -6284,11 +6313,47 @@ export async function registerRoutes(
             
             msg.status = 'sent';
             
-            // Send acknowledgment that message was received by server
+            // Store to DB with atomic server-assigned seq (WhatsApp-like reliability)
+            let serverSeq: number;
+            let serverTimestamp: Date;
+            try {
+              const dbResult = await storage.storeMessageWithSeq(
+                msg.from_address,
+                msg.to_address,
+                msg.convo_id,
+                msg.content,
+                {
+                  mediaType: msg.type,
+                  nonce: msg.nonce,
+                  messageType: msg.type,
+                  attachmentName: (msg as any).attachment?.name,
+                  attachmentSize: (msg as any).attachment?.size,
+                }
+              );
+              serverSeq = dbResult.seq;
+              serverTimestamp = dbResult.serverTimestamp;
+              // Apply DB-assigned values to message for consistent broadcasting
+              (msg as any).seq = serverSeq;
+              (msg as any).server_timestamp = serverTimestamp.getTime();
+            } catch (dbError) {
+              console.error('Failed to persist message to DB:', dbError);
+              // Return error to client instead of silent fallback
+              ws.send(JSON.stringify({
+                type: 'msg:ack',
+                message_id: msg.id,
+                status: 'error' as any,
+                error: 'Failed to persist message'
+              } as WSMessage));
+              return;
+            }
+            
+            // Send acknowledgment with server-assigned seq for ordering
             ws.send(JSON.stringify({
               type: 'msg:ack',
               message_id: msg.id,
-              status: 'received' as const
+              status: 'received' as const,
+              seq: serverSeq,
+              server_timestamp: serverTimestamp.getTime()
             } as WSMessage));
             
             const convo = messageStore.getConversation(msg.convo_id);
