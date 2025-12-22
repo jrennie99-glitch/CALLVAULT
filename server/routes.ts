@@ -193,10 +193,49 @@ function removeConnection(address: string, connectionId: string) {
   }
 }
 
-// Helper to get first active connection for an address (backwards compatibility)
+// Helper to get first ALIVE connection for an address
+// Verifies the WebSocket is actually open before returning
 function getConnection(address: string): ClientConnection | undefined {
   const conns = connections.get(address);
-  return conns?.[0];
+  if (!conns) return undefined;
+  
+  // Find first connection with an open socket
+  for (const conn of conns) {
+    if (conn.ws.readyState === WebSocket.OPEN) {
+      return conn;
+    }
+  }
+  
+  // No open connections found - clean up dead ones
+  const openConns = conns.filter(c => c.ws.readyState === WebSocket.OPEN);
+  if (openConns.length === 0) {
+    connections.delete(address);
+    console.log(`[cleanup] Removed all dead connections for ${address.slice(0, 20)}...`);
+  } else {
+    connections.set(address, openConns);
+  }
+  
+  return undefined;
+}
+
+// Get all ALIVE connections for an address (for multi-device support)
+function getAllConnections(address: string): ClientConnection[] {
+  const conns = connections.get(address);
+  if (!conns) return [];
+  
+  // Filter to only open connections
+  const openConns = conns.filter(c => c.ws.readyState === WebSocket.OPEN);
+  
+  // Update stored connections if we filtered any dead ones
+  if (openConns.length !== conns.length) {
+    if (openConns.length === 0) {
+      connections.delete(address);
+    } else {
+      connections.set(address, openConns);
+    }
+  }
+  
+  return openConns;
 }
 
 // Helper to check if a specific WebSocket belongs to an address
@@ -239,6 +278,32 @@ function cleanupExpiredNonces() {
 }
 
 setInterval(cleanupExpiredNonces, 30000);
+
+// Periodic cleanup of dead WebSocket connections
+// This catches connections that died without firing the 'close' event
+function cleanupDeadConnections() {
+  let totalCleaned = 0;
+  for (const [address, conns] of Array.from(connections.entries())) {
+    const aliveConns = conns.filter(c => c.ws.readyState === WebSocket.OPEN);
+    const deadCount = conns.length - aliveConns.length;
+    
+    if (deadCount > 0) {
+      totalCleaned += deadCount;
+      if (aliveConns.length === 0) {
+        connections.delete(address);
+      } else {
+        connections.set(address, aliveConns);
+      }
+    }
+  }
+  
+  if (totalCleaned > 0) {
+    console.log(`[cleanup] Removed ${totalCleaned} dead WebSocket connections`);
+  }
+}
+
+// Run cleanup every 30 seconds
+setInterval(cleanupDeadConnections, 30000);
 
 // Server-side call monitoring: check for stale calls and terminate them
 setInterval(async () => {
@@ -5385,13 +5450,24 @@ export async function registerRoutes(
               return;
             }
             
-            const targetConnection = getConnection(signedIntent.intent.to_address);
+            const callerAddr = signedIntent.intent.from_address;
+            const recipientAddr = signedIntent.intent.to_address;
+            const mediaObj = signedIntent.intent.media || { audio: true, video: false };
+            const mediaType = mediaObj.video ? 'video' : 'audio';
+            
+            console.log(`[call:init] ${callerAddr.slice(0, 12)}... calling ${recipientAddr.slice(0, 12)}... (${mediaType})`);
+            
+            // Check if recipient is online with an active connection
+            let targetConnection = getConnection(recipientAddr);
+            
             if (!targetConnection) {
-              // Recipient is offline - try push notification first
-              const callerAddr = signedIntent.intent.from_address;
-              const recipientAddr = signedIntent.intent.to_address;
-              const mediaObj = signedIntent.intent.media || { audio: true, video: false };
-              const mediaType = mediaObj.video ? 'video' : 'audio';
+              // Recipient not immediately available - tell caller we're connecting
+              console.log(`[call:init] Recipient ${recipientAddr.slice(0, 12)}... not immediately online`);
+              ws.send(JSON.stringify({ 
+                type: 'call:connecting', 
+                message: 'Connecting to recipient...',
+                to_address: recipientAddr
+              } as WSMessage));
               
               // Get caller's display name for notification
               const callerIdentity = await storage.getIdentity(callerAddr);
@@ -5412,30 +5488,46 @@ export async function registerRoutes(
               });
               
               if (pushSent) {
-                // Push was sent - wait briefly for recipient to come online
-                console.log(`Push notification sent to ${recipientAddr}, waiting for connection...`);
+                console.log(`[call:init] Push notification sent to ${recipientAddr.slice(0, 12)}...`);
+              }
+              
+              // Wait up to 30 seconds for recipient to come online (increased from 15)
+              let waitTime = 0;
+              const checkInterval = 500; // Check every 500ms for faster response
+              const maxWait = 30000;
+              
+              while (waitTime < maxWait) {
+                await new Promise(resolve => setTimeout(resolve, checkInterval));
+                waitTime += checkInterval;
                 
-                // Wait up to 15 seconds for recipient to come online
-                let waitTime = 0;
-                const checkInterval = 1000; // Check every second
-                const maxWait = 15000;
-                
-                while (waitTime < maxWait) {
-                  await new Promise(resolve => setTimeout(resolve, checkInterval));
-                  waitTime += checkInterval;
+                // Re-check for connection
+                targetConnection = getConnection(recipientAddr);
+                if (targetConnection) {
+                  // Recipient came online! Forward the call
+                  console.log(`[call:init] Recipient ${recipientAddr.slice(0, 12)}... came online after ${waitTime}ms`);
+                  targetConnection.ws.send(JSON.stringify({
+                    type: 'call:incoming',
+                    from_address: callerAddr,
+                    from_pubkey: signedIntent.intent.from_pubkey,
+                    media: mediaObj
+                  } as WSMessage));
                   
-                  const newConnection = getConnection(recipientAddr);
-                  if (newConnection) {
-                    // Recipient came online! Forward the call
-                    console.log(`Recipient ${recipientAddr} came online after push, forwarding call`);
-                    newConnection.ws.send(JSON.stringify({
-                      type: 'call:incoming',
-                      from_address: callerAddr,
-                      from_pubkey: signedIntent.intent.from_pubkey,
-                      media: mediaObj
-                    } as WSMessage));
-                    return;
-                  }
+                  // Tell caller the call is ringing
+                  ws.send(JSON.stringify({ 
+                    type: 'call:ringing', 
+                    message: 'Ringing...',
+                    to_address: recipientAddr
+                  } as WSMessage));
+                  return;
+                }
+                
+                // Send periodic updates to caller (every 5 seconds)
+                if (waitTime % 5000 === 0 && waitTime < maxWait) {
+                  ws.send(JSON.stringify({ 
+                    type: 'call:connecting', 
+                    message: 'Still connecting...',
+                    to_address: recipientAddr
+                  } as WSMessage));
                 }
               }
               
@@ -5449,7 +5541,7 @@ export async function registerRoutes(
                 undefined
               ).catch(console.error);
               
-              console.log(`Recipient ${recipientAddr} offline - recorded missed call from ${callerAddr}`);
+              console.log(`[call:init] Recipient ${recipientAddr.slice(0, 12)}... offline after ${maxWait}ms - recorded missed call`);
               
               // Tell caller the recipient is unavailable
               ws.send(JSON.stringify({ 
@@ -5459,6 +5551,15 @@ export async function registerRoutes(
               } as WSMessage));
               return;
             }
+            
+            console.log(`[call:init] Recipient ${recipientAddr.slice(0, 12)}... is online, forwarding call`);
+            
+            // Recipient is online - send "ringing" status to caller
+            ws.send(JSON.stringify({ 
+              type: 'call:ringing', 
+              message: 'Ringing...',
+              to_address: recipientAddr
+            } as WSMessage));
             
             const recipientAddress = signedIntent.intent.to_address;
             const callerAddress = signedIntent.intent.from_address;

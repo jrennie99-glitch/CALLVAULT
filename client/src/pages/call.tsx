@@ -331,6 +331,7 @@ export default function CallPage() {
   const wsHeartbeatInterval = useRef<NodeJS.Timeout | null>(null);
   const wsLastPong = useRef<number>(Date.now());
   const [wsConnected, setWsConnected] = useState(false);
+  const [callStatus, setCallStatus] = useState('');
   
   // Heartbeat interval: send ping every 30 seconds, expect response within 15s
   const WS_HEARTBEAT_INTERVAL = 30000;
@@ -492,6 +493,24 @@ export default function CallPage() {
       pendingCallRef.current = null;
       setInCall(false);
       setCallDestination('');
+      setCallStatus('');
+    }
+    
+    // Handle call connection status updates
+    if (message.type === 'call:connecting') {
+      setCallStatus(message.message || 'Connecting...');
+    }
+    
+    if (message.type === 'call:ringing') {
+      setCallStatus('Ringing...');
+    }
+    
+    if (message.type === 'call:unavailable') {
+      toast.error(message.reason || 'Recipient is unavailable');
+      pendingCallRef.current = null;
+      setInCall(false);
+      setCallDestination('');
+      setCallStatus('');
     }
     
     if (message.type === 'call:dnd') {
@@ -500,6 +519,7 @@ export default function CallPage() {
       pendingCallRef.current = null;
       setInCall(false);
       setCallDestination('');
+      setCallStatus('');
       
       if (message.voicemail_enabled && recipientAddr) {
         // Open voicemail recorder modal
@@ -734,6 +754,7 @@ export default function CallPage() {
     setInCall(false);
     setCallDestination('');
     setCallIsInitiator(true);
+    setCallStatus('');
     forceUpdate({});
   };
 
@@ -840,6 +861,22 @@ export default function CallPage() {
   return (
     <div className="min-h-screen bg-slate-900 text-white flex flex-col">
       <TopBar isFounder={userRole.isFounder} isAdmin={userRole.isAdmin} />
+      
+      {/* Connection status indicator */}
+      {!wsConnected && (
+        <div className="bg-red-600/90 text-white text-sm py-2 px-4 text-center flex items-center justify-center gap-2">
+          <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
+          <span>Reconnecting to server...</span>
+        </div>
+      )}
+      
+      {/* Call status indicator (connecting/ringing) */}
+      {callStatus && !inCall && (
+        <div className="bg-blue-600/90 text-white text-sm py-2 px-4 text-center flex items-center justify-center gap-2">
+          <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
+          <span>{callStatus}</span>
+        </div>
+      )}
       
       {pendingPaidCall && identity && (
         <PaymentRequiredScreen

@@ -149,6 +149,39 @@
       "content": "👍🏿👍🏿👍🏿",
       "nonce": "ympk6cvyhjmjh09u5i",
       "status": "sent"
+    },
+    {
+      "id": "msg_1766399316339_zciwg56nf",
+      "convo_id": "dm_xz0hgn_1q26r5v_1mr22xt",
+      "from_address": "call:BjfBj55s9zBkM7mdRZhrAuWsVZDaQaSXKpEtq2d7nL5W:DVPDhvQ3NtG",
+      "to_address": "call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehgaZxj9ua2wq:iMbPcedKjup",
+      "timestamp": 1766399316339,
+      "type": "text",
+      "content": "😊",
+      "nonce": "k18m5u8djmfmjh0jng3",
+      "status": "sent"
+    },
+    {
+      "id": "msg_1766399467082_vbzuiaq35",
+      "convo_id": "dm_xz0hgn_1q26r5v_1mr22xt",
+      "from_address": "call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehgaZxj9ua2wq:iMbPcedKjup",
+      "to_address": "call:BjfBj55s9zBkM7mdRZhrAuWsVZDaQaSXKpEtq2d7nL5W:DVPDhvQ3NtG",
+      "timestamp": 1766399467082,
+      "type": "text",
+      "content": "Press enter",
+      "nonce": "vd2q5rfoysmjh0mvre",
+      "status": "read"
+    },
+    {
+      "id": "msg_1766399465490_7ed90bsks",
+      "convo_id": "dm_xz0hgn_1q26r5v_1mr22xt",
+      "from_address": "call:BjfBj55s9zBkM7mdRZhrAuWsVZDaQaSXKpEtq2d7nL5W:DVPDhvQ3NtG",
+      "to_address": "call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehgaZxj9ua2wq:iMbPcedKjup",
+      "timestamp": 1766399465490,
+      "type": "text",
+      "content": "Ok",
+      "nonce": "b5u5rpb5uxmjh0muj6",
+      "status": "read"
     }
   ]
 }

@@ -261,6 +261,9 @@ export type WSMessage =
   // Heartbeat
   | { type: 'ping' }
   | { type: 'pong' }
+  // Call connection status messages
+  | { type: 'call:connecting'; to_address: string; message: string }
+  | { type: 'call:ringing'; to_address: string; message: string }
   // Call unavailable (offline recipient)
   | { type: 'call:unavailable'; to_address: string; reason: string }
   // Do Not Disturb (DND) - caller routed to voicemail
