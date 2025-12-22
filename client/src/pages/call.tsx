@@ -37,6 +37,7 @@ import type { CryptoIdentity, WSMessage, Conversation, Message, CallRequest, Cal
 
 type SettingsScreen = 'main' | 'call_permissions' | 'blocklist' | 'ai_guardian' | 'wallet' | 'passes' | 'creator_mode' | 'earnings_dashboard' | 'admin_console' | 'voicemail';
 
+// Default ICE servers - STUN only (TURN is plan-gated and fetched from server)
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' }

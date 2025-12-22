@@ -28,6 +28,7 @@ import type { CryptoIdentity, WSMessage } from '@shared/types';
 
 type CallState = 'idle' | 'calling' | 'ringing' | 'connecting' | 'connected' | 'reconnecting' | 'ended';
 type ConnectionRoute = 'unknown' | 'direct' | 'relay';
+type IceCandidateType = 'unknown' | 'host' | 'srflx' | 'prflx' | 'relay';
 
 interface CallSessionToken {
   token: string;
@@ -77,6 +78,7 @@ export function CallView({
   
   // STUN-first, TURN fallback state
   const [connectionRoute, setConnectionRoute] = useState<ConnectionRoute>('unknown');
+  const [iceCandidateType, setIceCandidateType] = useState<IceCandidateType>('unknown');
   const [callSession, setCallSession] = useState<CallSessionToken | null>(null);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [isRetryingWithTurn, setIsRetryingWithTurn] = useState(false);
@@ -198,12 +200,33 @@ export function CallView({
       stats.forEach(report => {
         if (report.type === 'candidate-pair' && report.state === 'succeeded') {
           const localCandidate = stats.get(report.localCandidateId);
+          const remoteCandidate = stats.get(report.remoteCandidateId);
           if (localCandidate) {
-            const candidateType = localCandidate.candidateType;
+            const candidateType = localCandidate.candidateType as IceCandidateType;
+            setIceCandidateType(candidateType || 'unknown');
+            
+            // Log ICE candidate details for debugging
+            console.log(`[ICE] Connection established via ${candidateType}`, {
+              local: {
+                type: candidateType,
+                protocol: localCandidate.protocol,
+                address: localCandidate.address,
+                port: localCandidate.port
+              },
+              remote: remoteCandidate ? {
+                type: remoteCandidate.candidateType,
+                protocol: remoteCandidate.protocol,
+                address: remoteCandidate.address,
+                port: remoteCandidate.port
+              } : 'unknown'
+            });
+            
             if (candidateType === 'relay') {
               setConnectionRoute('relay');
+              console.log('[ICE] Using TURN relay - connection going through relay server');
             } else if (candidateType === 'host' || candidateType === 'srflx' || candidateType === 'prflx') {
               setConnectionRoute('direct');
+              console.log(`[ICE] Direct connection - ${candidateType === 'host' ? 'local network' : 'NAT traversal via STUN'}`);
             }
           }
         }
@@ -906,12 +929,14 @@ export function CallView({
                       : 'bg-amber-500/20 text-amber-400 border-amber-500/50'
                   }`}
                   data-testid="badge-connection-route"
+                  title={`ICE: ${iceCandidateType}`}
                 >
                   {connectionRoute === 'direct' ? (
                     <><Wifi className="w-3 h-3 mr-1 inline" /> Direct</>
                   ) : (
                     <><Radio className="w-3 h-3 mr-1 inline" /> Relay</>
                   )}
+                  <span className="ml-1 opacity-60 text-[10px]">({iceCandidateType})</span>
                 </Badge>
               )}
               {callState === 'connected' && isFeatureEnabled('E2E_ENCRYPTION_INDICATOR') && (

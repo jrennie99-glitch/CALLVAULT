@@ -446,62 +446,84 @@ export async function registerRoutes(
     });
   });
   
-  // Legacy turn-config endpoint (kept for backwards compatibility)
+  // TURN configuration endpoint with TURN_MODE support
+  // TURN_MODE: "public" (default) | "custom" | "off"
+  // - "public": Use free OpenRelay TURN servers (TESTING ONLY - not for production)
+  // - "custom": Use TURN_URLS, TURN_USERNAME, TURN_CREDENTIAL env vars
+  // - "off": STUN only, no TURN
   app.get('/api/turn-config', async (_req, res) => {
-    // Check for Metered.ca config first
+    const turnMode = (process.env.TURN_MODE || 'public').toLowerCase();
+    
+    // Base STUN servers (always included)
+    const stunServers = [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' }
+    ];
+    
+    // TURN_MODE = "off" - STUN only
+    if (turnMode === 'off') {
+      console.log('TURN_MODE=off: Using STUN only');
+      return res.json({ iceServers: stunServers, mode: 'stun_only' });
+    }
+    
+    // TURN_MODE = "custom" - Use custom TURN servers from env vars
+    if (turnMode === 'custom') {
+      const turnUrls = process.env.TURN_URLS?.split(',').map(u => u.trim()).filter(Boolean);
+      const turnUsername = process.env.TURN_USERNAME;
+      const turnCredential = process.env.TURN_CREDENTIAL;
+      
+      if (turnUrls && turnUrls.length > 0 && turnUsername && turnCredential) {
+        const customServers = [
+          ...stunServers,
+          { urls: turnUrls, username: turnUsername, credential: turnCredential }
+        ];
+        console.log('TURN_MODE=custom: Using custom TURN servers');
+        return res.json({ iceServers: customServers, mode: 'custom' });
+      } else {
+        console.warn('TURN_MODE=custom but missing TURN_URLS, TURN_USERNAME, or TURN_CREDENTIAL - falling back to public');
+      }
+    }
+    
+    // Check for Metered.ca config first (takes priority over OpenRelay)
     let meteredAppName = process.env.METERED_APP_NAME;
     const meteredSecretKey = process.env.METERED_SECRET_KEY;
     
     if (meteredAppName && meteredSecretKey) {
-      // Strip ".metered.live" suffix if user included it
       meteredAppName = meteredAppName.replace(/\.metered\.live$/i, '');
       
       try {
-        // Fetch TURN credentials from Metered.ca API
         const url = `https://${meteredAppName}.metered.live/api/v1/turn/credentials?apiKey=${meteredSecretKey}`;
         console.log(`Fetching Metered TURN credentials from: ${meteredAppName}.metered.live`);
         const response = await fetch(url);
         if (response.ok) {
           const iceServers = await response.json();
           console.log('Metered TURN credentials fetched successfully:', iceServers.length, 'servers');
-          return res.json({ iceServers, metered: true });
+          return res.json({ iceServers, mode: 'metered' });
         } else {
           const errorText = await response.text();
           console.error('Metered API error:', response.status, errorText);
-          // Fall through to OpenRelay fallback
         }
       } catch (error) {
         console.error('Failed to fetch Metered TURN credentials:', error);
-        // Fall through to OpenRelay fallback
       }
     }
     
-    // Use free OpenRelay TURN servers as fallback
+    // TURN_MODE = "public" (default) - Use free OpenRelay TURN servers
+    // ⚠️ OpenRelay public TURN is TESTING ONLY — not for production customers
     const openRelayServers = [
+      ...stunServers,
       { urls: 'stun:stun.relay.metered.ca:80' },
+      { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+      { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+      { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
       { urls: 'turn:standard.relay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
       { urls: 'turn:standard.relay.metered.ca:80?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
       { urls: 'turn:standard.relay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
       { urls: 'turns:standard.relay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
     ];
     
-    // Return OpenRelay servers
-    return res.json({ iceServers: openRelayServers, openRelay: true });
-    
-    // Fallback to legacy TURN config
-    const turnUrl = process.env.TURN_URL;
-    const turnUser = process.env.TURN_USER;
-    const turnPass = process.env.TURN_PASS;
-
-    if (turnUrl && turnUser && turnPass) {
-      res.json({
-        turnUrl,
-        turnUser,
-        turnPass
-      });
-    } else {
-      res.json({});
-    }
+    console.log('TURN_MODE=public: Using OpenRelay free TURN (TESTING ONLY)');
+    return res.json({ iceServers: openRelayServers, mode: 'public_openrelay' });
   });
 
   // Cleanup expired call tokens from database every hour
@@ -558,11 +580,40 @@ export async function registerRoutes(
         }
       }
 
-      // Check if TURN is configured on server (Metered.ca or legacy)
+      // Check TURN_MODE and if TURN is configured on server
+      // TURN_MODE: "public" (default) | "custom" | "off"
+      // - "public": Use free OpenRelay TURN servers for ALL users (TESTING ONLY)
+      // - "custom": Use TURN_URLS, TURN_USERNAME, TURN_CREDENTIAL (plan-gated)
+      // - "off": STUN only, no TURN for anyone
+      const turnMode = (process.env.TURN_MODE || 'public').toLowerCase();
       const meteredConfigured = !!(process.env.METERED_APP_NAME && process.env.METERED_SECRET_KEY);
+      const customTurnConfigured = !!(process.env.TURN_URLS && process.env.TURN_USERNAME && process.env.TURN_CREDENTIAL);
       const legacyTurnConfigured = !!(process.env.TURN_URL && process.env.TURN_USER && process.env.TURN_PASS);
-      const turnConfigured = meteredConfigured || legacyTurnConfigured;
-      const finalAllowTurn = allowTurn && turnConfigured;
+      
+      // Determine actual TURN availability based on TURN_MODE
+      // - "off": TURN is never available (turnConfigured = false)
+      // - "public": TURN is always available (free OpenRelay)
+      // - "custom": TURN is available only if custom env vars are set (not legacy fallback)
+      // - Metered always takes priority if configured
+      let turnConfigured: boolean;
+      let finalAllowTurn: boolean;
+      
+      if (turnMode === 'off') {
+        turnConfigured = false;
+        finalAllowTurn = false;
+      } else if (turnMode === 'public') {
+        turnConfigured = true;
+        finalAllowTurn = true; // Everyone gets TURN in public mode
+      } else if (turnMode === 'custom') {
+        // Custom mode: only configured if custom env vars are present (not legacy)
+        // Metered takes priority over custom
+        turnConfigured = meteredConfigured || customTurnConfigured;
+        finalAllowTurn = allowTurn && turnConfigured;
+      } else {
+        // Default: metered, custom, or legacy (for backwards compatibility)
+        turnConfigured = meteredConfigured || customTurnConfigured || legacyTurnConfigured;
+        finalAllowTurn = allowTurn && turnConfigured;
+      }
 
       // Create database-backed token with server timestamps
       const tokenData = await storage.createCallToken(
@@ -582,9 +633,19 @@ export async function registerRoutes(
         { urls: 'stun:stun1.l.google.com:19302' }
       ];
 
-      // Add TURN servers for paid users if configured
+      // Add TURN servers based on TURN_MODE and user entitlements
       if (finalAllowTurn) {
-        if (meteredConfigured) {
+        if (turnMode === 'public') {
+          // ⚠️ OpenRelay free TURN servers - TESTING ONLY, not for production
+          iceServers = [
+            { urls: 'stun:stun.relay.metered.ca:80' },
+            { urls: 'turn:standard.relay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+            { urls: 'turn:standard.relay.metered.ca:80?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+            { urls: 'turn:standard.relay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+            { urls: 'turns:standard.relay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+          ];
+          console.log('[TURN] Using public OpenRelay servers (TESTING MODE)');
+        } else if (meteredConfigured) {
           // Fetch from Metered.ca API
           try {
             // Strip ".metered.live" suffix if user included it
@@ -595,6 +656,7 @@ export async function registerRoutes(
             if (meteredResponse.ok) {
               const meteredServers = await meteredResponse.json();
               iceServers = meteredServers; // Metered provides complete ICE server list
+              console.log('[TURN] Using Metered.ca TURN servers');
             } else {
               // Fallback to OpenRelay free TURN servers
               iceServers = [
@@ -604,6 +666,7 @@ export async function registerRoutes(
                 { urls: 'turn:standard.relay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
                 { urls: 'turns:standard.relay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
               ];
+              console.log('[TURN] Metered API failed, falling back to OpenRelay');
             }
           } catch (error) {
             console.error('Failed to fetch Metered TURN credentials:', error);
@@ -614,17 +677,23 @@ export async function registerRoutes(
               { urls: 'turn:standard.relay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' }
             ];
           }
-        } else if (legacyTurnConfigured) {
-          // Use legacy TURN config
-          const turnUrls = process.env.TURN_URLS 
-            ? process.env.TURN_URLS.split(',').map(u => u.trim())
-            : [process.env.TURN_URL!];
-          
+        } else if (customTurnConfigured) {
+          // Use custom TURN config from env vars
+          const turnUrls = process.env.TURN_URLS!.split(',').map(u => u.trim());
           iceServers.push({
             urls: turnUrls,
-            username: process.env.TURN_USERNAME || process.env.TURN_USER,
-            credential: process.env.TURN_CREDENTIAL || process.env.TURN_PASS
+            username: process.env.TURN_USERNAME,
+            credential: process.env.TURN_CREDENTIAL
           });
+          console.log('[TURN] Using custom TURN servers');
+        } else if (legacyTurnConfigured && turnMode !== 'custom') {
+          // Use legacy TURN config (only if not in custom mode - no fallback to legacy in custom mode)
+          iceServers.push({
+            urls: [process.env.TURN_URL!],
+            username: process.env.TURN_USER,
+            credential: process.env.TURN_PASS
+          });
+          console.log('[TURN] Using legacy TURN config');
         }
       }
 

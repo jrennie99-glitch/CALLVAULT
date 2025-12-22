@@ -47,3 +47,4 @@ integrations = ["stripe:2.0.0", "javascript_database:1.0.0", "javascript_gemini_
 [userenv.shared]
 ENABLE_CRYPTO_PAYMENTS = "false"
 VAPID_PUBLIC_KEY = "BLJCoelzf8UhZ7YHwSRcnyHgecYeMlh_EnKxR9Nbd-GaPVuofPqyrd-WA-w8l9IkjQDjXozvf9ygc_dAALLUhoQ"
+TURN_MODE = "public"

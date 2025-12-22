@@ -1,0 +1,57 @@
+REPLIT AGENT — ADD FREE PUBLIC TURN (OPENRELAY) FOR TESTING ONLY (DO NOT BREAK ANYTHING)
+
+App: Call Vault (CV) is already built. DO NOT remove or change any existing feature or functionality. This is an upgrade only.
+
+GOAL
+Make WebRTC calls work more reliably on cellular/mobile data by adding a free public TURN fallback for testing now.
+
+REQUIREMENTS
+1) Find where the app builds the WebRTC ICE servers (RTCPeerConnection config). This may be in:
+   - client/src/* (WebRTC service)
+   - lib/webrtc.ts / webrtc.js
+   - callService.* / rtcService.*
+   - any file that creates: new RTCPeerConnection({ iceServers: ... })
+
+2) Keep any existing STUN servers and TURN logic exactly as-is.
+
+3) Add these ICE servers to the existing iceServers list (do not remove anything):
+
+   - STUN:
+     stun:stun.l.google.com:19302
+     stun:stun1.l.google.com:19302
+
+   - TURN (Free public OpenRelay — TESTING ONLY):
+     turn:openrelay.metered.ca:80 (udp)
+     turn:openrelay.metered.ca:443 (udp/tls)
+     turn:openrelay.metered.ca:443?transport=tcp
+
+   Credentials:
+     username: openrelayproject
+     credential: openrelayproject
+
+4) Add a feature flag so I can switch later:
+   - Env var: TURN_MODE = "public" | "custom" | "off"
+   - Default to "public" for now (if missing)
+   - If TURN_MODE="custom", read env vars:
+       TURN_URLS (comma separated)
+       TURN_USERNAME
+       TURN_CREDENTIAL
+   - If TURN_MODE="off", keep STUN only.
+
+5) IMPORTANT: Add clear comments in code:
+   "OpenRelay public TURN is TESTING ONLY — not for production customers."
+
+6) Add logging in dev mode so we can see if TURN is being used:
+   - Log selected ICE candidate type and/or selected pair (relay vs srflx vs host)
+   - Add a small debug indicator on the call screen: "ICE: host/srflx/relay"
+
+7) Test Plan (must run and confirm):
+   - Place a call device-to-device over Wi-Fi
+   - Place a call device-to-device over cellular/mobile data (or hotspot)
+   - Confirm connection succeeds and relay fallback works if needed
+   - Confirm no existing features are broken
+
+DELIVERABLES
+- List all files changed
+- Confirm existing STUN/TURN logic remains intact
+- Confirm TURN_MODE env var works
