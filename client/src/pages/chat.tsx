@@ -345,6 +345,9 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
   };
 
   const handleLongPressStart = (e: React.TouchEvent | React.MouseEvent, msg: Message) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
     const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
     
@@ -357,7 +360,7 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
       if ('vibrate' in navigator) {
         navigator.vibrate(50);
       }
-    }, 500);
+    }, 400);
   };
 
   const handleLongPressEnd = () => {
@@ -840,14 +843,19 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
                         ? 'bg-emerald-600 text-white rounded-br-md'
                         : 'bg-slate-800 text-white rounded-bl-md'
                     }`}
-                    onTouchStart={(e) => handleLongPressStart(e, msg)}
-                    onTouchEnd={handleLongPressEnd}
+                    style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', touchAction: 'pan-y' }}
+                    onTouchStart={(e) => {
+                      handleLongPressStart(e, msg);
+                    }}
+                    onTouchEnd={(e) => {
+                      e.preventDefault();
+                      handleLongPressEnd();
+                    }}
                     onTouchCancel={handleLongPressEnd}
-                    onMouseDown={(e) => handleLongPressStart(e, msg)}
-                    onMouseUp={handleLongPressEnd}
-                    onMouseLeave={handleLongPressEnd}
+                    onTouchMove={handleLongPressEnd}
                     onContextMenu={(e) => {
                       e.preventDefault();
+                      e.stopPropagation();
                       setContextMenu({
                         isOpen: true,
                         position: { x: e.clientX, y: e.clientY },
