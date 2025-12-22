@@ -137,6 +137,18 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
           return { ...m, reactions: [...(m.reactions || []), { emoji, from_address, timestamp: Date.now() }] };
         }));
       }
+
+      // Handle message acknowledgment from server
+      if (data.type === 'msg:ack') {
+        const { message_id, status } = data;
+        // 'received' = server got the message, 'duplicate' = message already exists
+        if (status === 'received' || status === 'duplicate') {
+          updateLocalMessageStatus(message_id, 'sent');
+          setMessages(prev => prev.map(m => 
+            m.id === message_id ? { ...m, status: 'sent' } : m
+          ));
+        }
+      }
     };
 
     ws.addEventListener('message', handleMessage);
@@ -242,15 +254,14 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
         type: 'msg:send',
         data: signedMessage
       }));
-      
-      message.status = 'sent';
-      saveLocalMessage(message);
-      setMessages(prev => prev.map(m => m.id === message.id ? { ...m, status: 'sent' } : m));
+      // Status remains 'sending' until we receive msg:ack from server
+      // The WebSocket message handler will update status to 'sent' on ack
     } catch (error) {
       console.error('Failed to send message:', error);
-      message.status = 'sent';
-      saveLocalMessage(message);
-      setMessages(prev => prev.map(m => m.id === message.id ? { ...m, status: 'sent' } : m));
+      // Mark as failed so user can retry
+      const failedMessage = { ...message, status: 'failed' as const };
+      saveLocalMessage(failedMessage);
+      setMessages(prev => prev.map(m => m.id === message.id ? failedMessage : m));
     }
   };
 
@@ -321,28 +332,77 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
     }, 3000);
   };
 
+  const [activeUploads, setActiveUploads] = useState<Map<string, { name: string; progress: number }>>(new Map());
+  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB - server enforced
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
+
   const handleFileUpload = async (file: File, type: 'image' | 'file' | 'video') => {
+    // Client-side size check for quick feedback (server enforces actual limit)
+    if (file.size > MAX_FILE_SIZE) {
+      toast.error(`File too large. Max size: ${formatFileSize(MAX_FILE_SIZE)}`);
+      return;
+    }
+
+    const uploadId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
     try {
-      const res = await fetch('/api/upload', {
-        method: 'POST',
-        body: file,
-        headers: {
-          'Content-Type': file.type,
-          'X-Filename': file.name
-        }
+      setActiveUploads(prev => new Map(prev).set(uploadId, { name: file.name, progress: 0 }));
+      
+      const xhr = new XMLHttpRequest();
+      const uploadPromise = new Promise<{url: string, name: string, size: number}>((resolve, reject) => {
+        xhr.upload.addEventListener('progress', (e) => {
+          if (e.lengthComputable) {
+            const progress = Math.round((e.loaded / e.total) * 100);
+            setActiveUploads(prev => {
+              const newMap = new Map(prev);
+              const existing = newMap.get(uploadId);
+              if (existing) {
+                newMap.set(uploadId, { ...existing, progress });
+              }
+              return newMap;
+            });
+          }
+        });
+
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(JSON.parse(xhr.responseText));
+          } else {
+            try {
+              const err = JSON.parse(xhr.responseText);
+              reject(new Error(err.error || 'Upload failed'));
+            } catch {
+              reject(new Error('Upload failed'));
+            }
+          }
+        });
+
+        xhr.addEventListener('error', () => reject(new Error('Upload failed')));
+        xhr.addEventListener('abort', () => reject(new Error('Upload cancelled')));
+
+        xhr.open('POST', '/api/upload');
+        xhr.setRequestHeader('Content-Type', file.type);
+        xhr.setRequestHeader('X-Filename', encodeURIComponent(file.name));
+        xhr.send(file);
       });
-      
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Upload failed');
-      }
-      
-      const { url, name, size } = await res.json();
+
+      const { url, name, size } = await uploadPromise;
       sendMessage(type, '', url, name, size);
       setShowAttachMenu(false);
-    } catch (error) {
-      toast.error('Failed to upload file');
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to upload file');
       console.error(error);
+    } finally {
+      setActiveUploads(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(uploadId);
+        return newMap;
+      });
     }
   };
 
@@ -683,26 +743,30 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
       return;
     }
     
-    msg.status = 'sending';
-    msg.timestamp = Date.now();
-    saveLocalMessage(msg);
-    setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, status: 'sending' } : m));
+    // Create updated message without mutating original
+    const updatedMsg: Message = {
+      ...msg,
+      status: 'sending',
+      timestamp: Date.now()
+    };
+    
+    saveLocalMessage(updatedMsg);
+    setMessages(prev => prev.map(m => m.id === msg.id ? updatedMsg : m));
     
     try {
-      const signedMessage = await signMessage(identity, msg);
+      const signedMessage = await signMessage(identity, updatedMsg);
       ws.send(JSON.stringify({
         type: 'msg:send',
         data: signedMessage
       }));
-      
-      msg.status = 'sent';
-      saveLocalMessage(msg);
-      setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, status: 'sent' } : m));
+      // Note: Status will be updated when we receive msg:ack from server
+      // If no ack within timeout, message remains in 'sending' state
+      // and user can retry again
     } catch (error) {
       console.error('Retry failed:', error);
-      msg.status = 'failed';
-      saveLocalMessage(msg);
-      setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, status: 'failed' } : m));
+      const failedMsg: Message = { ...updatedMsg, status: 'failed' };
+      saveLocalMessage(failedMsg);
+      setMessages(prev => prev.map(m => m.id === msg.id ? failedMsg : m));
     }
   };
 
@@ -980,6 +1044,26 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
           );
         })}
         <div ref={messagesEndRef} />
+        
+        {activeUploads.size > 0 && (
+          <div className="space-y-2 mx-4 mb-2">
+            {Array.from(activeUploads.entries()).map(([id, { name, progress }]) => (
+              <div key={id} className="flex items-center gap-3 px-4 py-2 bg-slate-800 rounded-xl border border-slate-700">
+                <div className="w-5 h-5 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm text-slate-300 mb-1 truncate">{name}</div>
+                  <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-emerald-500 transition-all duration-200"
+                      style={{ width: `${progress}%` }}
+                    />
+                  </div>
+                </div>
+                <span className="text-sm text-slate-400 font-mono">{progress}%</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {isVideoRecording ? (

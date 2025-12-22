@@ -6284,6 +6284,13 @@ export async function registerRoutes(
             
             msg.status = 'sent';
             
+            // Send acknowledgment that message was received by server
+            ws.send(JSON.stringify({
+              type: 'msg:ack',
+              message_id: msg.id,
+              status: 'received' as const
+            } as WSMessage));
+            
             const convo = messageStore.getConversation(msg.convo_id);
             if (convo) {
               messageStore.addMessage(msg);
