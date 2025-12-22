@@ -116,7 +116,7 @@ export default function CallPage() {
 
     fetchTurnConfig();
     initWebSocket(newIdentity);
-    loadConversations();
+    loadConversations(newIdentity.address);
 
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js')
@@ -138,11 +138,63 @@ export default function CallPage() {
     };
   }, []);
 
-  const loadConversations = () => {
-    const convos = getLocalConversations();
-    setConversations(convos);
-    const total = convos.reduce((sum, c) => sum + (c.unread_count || 0), 0);
+  const loadConversations = async (userAddress?: string) => {
+    // Load local conversations first for instant display
+    const localConvos = getLocalConversations();
+    setConversations(localConvos);
+    const total = localConvos.reduce((sum, c) => sum + (c.unread_count || 0), 0);
     setUnreadCount(total);
+    
+    // Use passed address or fall back to state identity
+    const address = userAddress || identity?.address;
+    if (!address) return;
+    
+    // Then fetch from server to get any we might have missed
+    try {
+      const response = await fetch(`/api/conversations/${encodeURIComponent(address)}`);
+      if (response.ok) {
+        const serverConvos: Conversation[] = await response.json();
+        if (serverConvos && serverConvos.length > 0) {
+          // Create a map of local conversations for quick lookup
+          const localConvoMap = new Map(localConvos.map(c => [c.id, c]));
+          const updatedConvos: Conversation[] = [];
+          
+          for (const serverConvo of serverConvos) {
+            const localConvo = localConvoMap.get(serverConvo.id);
+            if (localConvo) {
+              // Update existing conversation with server data (e.g., last_message)
+              const merged = {
+                ...localConvo,
+                ...serverConvo,
+                // Preserve local unread count if higher (server might not have it)
+                unread_count: Math.max(localConvo.unread_count || 0, serverConvo.unread_count || 0)
+              };
+              saveLocalConversation(merged);
+              updatedConvos.push(merged);
+            } else {
+              // New conversation from server
+              saveLocalConversation(serverConvo);
+              updatedConvos.push(serverConvo);
+            }
+          }
+          
+          // Add any local-only conversations that aren't on server
+          for (const localConvo of localConvos) {
+            if (!serverConvos.find(s => s.id === localConvo.id)) {
+              updatedConvos.push(localConvo);
+            }
+          }
+          
+          setConversations(updatedConvos);
+          
+          // Recalculate unread count after merge
+          const newTotal = updatedConvos.reduce((sum, c) => sum + (c.unread_count || 0), 0);
+          setUnreadCount(newTotal);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch conversations from server:', error);
+    }
   };
 
   // Register identity with server for founder detection, plan tracking, etc.

@@ -5,7 +5,7 @@ import { Avatar } from '@/components/Avatar';
 import { getContacts, type Contact } from '@/lib/storage';
 import { getLocalMessages, saveLocalMessage, updateLocalMessageStatus, getLocalConversation, clearUnreadCount, getPrivacySettings, generateMessageId } from '@/lib/messageStorage';
 import { signMessage } from '@/lib/crypto';
-import type { Message, Conversation, CryptoIdentity, WSMessage, MessageType } from '@shared/types';
+import type { Message, Conversation, CryptoIdentity, WSMessage, MessageType, MessageStatus } from '@shared/types';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 
@@ -46,6 +46,18 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
     setContacts(getContacts());
     loadMessages();
     clearUnreadCount(convo.id);
+  }, [convo.id]);
+  
+  // Reload messages when page gains focus (for multi-device sync)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadMessages();
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [convo.id]);
 
   useEffect(() => {
@@ -100,9 +112,63 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
     return () => ws.removeEventListener('message', handleMessage);
   }, [ws, convo.id, identity.address, privacySettings]);
 
-  const loadMessages = () => {
+  const loadMessages = async () => {
+    // First load local messages for instant display
     const localMsgs = getLocalMessages(convo.id);
     setMessages(localMsgs);
+    
+    // Then fetch from server to get any messages we might have missed
+    try {
+      const response = await fetch(`/api/messages/${encodeURIComponent(convo.id)}?limit=100`);
+      if (response.ok) {
+        const serverMsgs: Message[] = await response.json();
+        if (serverMsgs && serverMsgs.length > 0) {
+          // Create a map of local messages for quick lookup
+          const localMsgMap = new Map(localMsgs.map(m => [m.id, m]));
+          const mergedMsgs: Message[] = [];
+          
+          // Process all server messages, updating local versions if needed
+          for (const serverMsg of serverMsgs) {
+            const localMsg = localMsgMap.get(serverMsg.id);
+            if (localMsg) {
+              // Update existing message with server data (e.g., status updates)
+              const merged = {
+                ...localMsg,
+                ...serverMsg,
+                // Keep the more advanced status
+                status: getMoreAdvancedStatus(localMsg.status, serverMsg.status)
+              };
+              saveLocalMessage(merged);
+              mergedMsgs.push(merged);
+              localMsgMap.delete(serverMsg.id); // Mark as processed
+            } else {
+              // New message from server
+              saveLocalMessage(serverMsg);
+              mergedMsgs.push(serverMsg);
+            }
+          }
+          
+          // Add any local-only messages that aren't on server
+          localMsgMap.forEach((localMsg) => {
+            mergedMsgs.push(localMsg);
+          });
+          
+          // Sort by timestamp
+          mergedMsgs.sort((a, b) => a.timestamp - b.timestamp);
+          setMessages(mergedMsgs);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch messages from server:', error);
+    }
+  };
+  
+  // Helper to determine which message status is more advanced
+  const getMoreAdvancedStatus = (status1?: MessageStatus, status2?: MessageStatus): MessageStatus => {
+    const statusOrder: MessageStatus[] = ['sending', 'sent', 'delivered', 'read'];
+    const idx1 = statusOrder.indexOf(status1 || 'sending');
+    const idx2 = statusOrder.indexOf(status2 || 'sending');
+    return statusOrder[Math.max(idx1, idx2)] || 'sent';
   };
 
   const getContactName = (address: string): string => {
