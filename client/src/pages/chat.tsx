@@ -662,7 +662,18 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
         )}
       </header>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[radial-gradient(circle_at_center,_rgba(16,185,129,0.03)_0%,_transparent_50%)]">
+        {messages.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full text-center px-8">
+            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-500/20 to-teal-500/20 flex items-center justify-center mb-4">
+              <Send className="w-8 h-8 text-emerald-500 opacity-60" />
+            </div>
+            <h3 className="text-lg font-medium text-slate-300 mb-2">Start a conversation</h3>
+            <p className="text-sm text-slate-500 max-w-[250px]">
+              Send a message to {convo.type === 'group' ? 'the group' : getContactName(getOtherAddress())}. Your messages are end-to-end encrypted.
+            </p>
+          </div>
+        )}
         {messages.map((msg, idx) => {
           const isMe = msg.from_address === identity.address;
           const showAvatar = !isMe && (idx === 0 || messages[idx - 1].from_address !== msg.from_address);
