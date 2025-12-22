@@ -9,14 +9,14 @@
     "created_at": 1766229108689,
     "created_by": "call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehgaZxj9ua2wq:iMbPcedKjup",
     "last_message": {
-      "id": "msg_1766380661654_5lopy9v7b",
+      "id": "msg_1766382959616_qrn1cbn89",
       "convo_id": "dm_call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehga",
-      "from_address": "call:Frp14YTeJb4TvgvWpPjfgHKggeuyuczX86sfRQnnoUyP:9RwA82PjCEv",
-      "to_address": "call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehgaZxj9ua2wq:iMbPcedKjup",
-      "timestamp": 1766380661654,
+      "from_address": "call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehgaZxj9ua2wq:iMbPcedKjup",
+      "to_address": "call:Gpi2BnrsV4HZP3wDKLdbvAFZCSS9fZvAuDgxnM21wEau:fFBCJ99piYz",
+      "timestamp": 1766382959616,
       "type": "text",
-      "content": "Hey",
-      "nonce": "rlf76scnsjkmjgpftee",
+      "content": "Yo",
+      "nonce": "xvsf0gvl0grmjgqt2io",
       "status": "sent"
     }
   }
