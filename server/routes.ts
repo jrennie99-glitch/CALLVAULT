@@ -2629,7 +2629,7 @@ export async function registerRoutes(
         const updatedCreds = await storage.getAdminCredentialsByAddress(credentials.address);
         
         // Lock account if too many failed attempts
-        if (updatedCreds && updatedCreds.failedLoginAttempts >= MAX_FAILED_LOGIN_ATTEMPTS) {
+        if (updatedCreds && (updatedCreds.failedLoginAttempts ?? 0) >= MAX_FAILED_LOGIN_ATTEMPTS) {
           const lockUntil = new Date(Date.now() + LOCKOUT_DURATION_MINUTES * 60 * 1000);
           await storage.lockAdminAccount(credentials.address, lockUntil);
           
@@ -2856,7 +2856,7 @@ export async function registerRoutes(
       
       // Check if bootstrap was already used (persisted in system settings)
       const bootstrapSetting = await storage.getSystemSetting('bootstrap_used');
-      if (bootstrapSetting?.value === 'true') {
+      if (bootstrapSetting?.valueJson === 'true') {
         return res.status(403).json({ error: 'Bootstrap already used' });
       }
       
@@ -3921,7 +3921,7 @@ export async function registerRoutes(
       
       // Founders, admins, and comped users get all modes
       const hasFullAccess = identity.role === 'founder' || identity.role === 'admin' || identity.isComped === true;
-      const allModes: UserMode[] = ['personal', 'creator', 'business', 'stage'];
+      const allModes: Array<'personal' | 'creator' | 'business' | 'stage'> = ['personal', 'creator', 'business', 'stage'];
       const availableModes = hasFullAccess ? allModes : getAvailableModesForPlan(identity.plan);
       
       res.json({
@@ -3958,7 +3958,7 @@ export async function registerRoutes(
       
       // Founders, admins, and comped users get all modes
       const hasFullAccess = identity.role === 'founder' || identity.role === 'admin' || identity.isComped === true;
-      const allModes: UserMode[] = ['personal', 'creator', 'business', 'stage'];
+      const allModes: Array<'personal' | 'creator' | 'business' | 'stage'> = ['personal', 'creator', 'business', 'stage'];
       const availableModes = hasFullAccess ? allModes : getAvailableModesForPlan(identity.plan);
       
       // Validate mode is allowed for current plan (prevents race condition attacks)
