@@ -355,8 +355,14 @@ export default function CallPage() {
   };
   
   // Reconnect on visibility change (when app comes back to foreground)
+  // But DON'T reconnect if we're in a call - the CallView manages its own connection
   useEffect(() => {
     const handleVisibilityChange = () => {
+      // Skip reconnection if in a call - prevents disrupting active calls
+      if (inCall) {
+        console.log('App visible but in call, skipping WebSocket reconnect');
+        return;
+      }
       if (document.visibilityState === 'visible' && identity && (!ws || ws.readyState !== WebSocket.OPEN)) {
         console.log('App visible, reconnecting WebSocket...');
         wsReconnectAttempt.current = 0; // Reset for immediate connection
@@ -365,6 +371,11 @@ export default function CallPage() {
     };
     
     const handleOnline = () => {
+      // Skip reconnection if in a call
+      if (inCall) {
+        console.log('Network online but in call, skipping WebSocket reconnect');
+        return;
+      }
       if (identity && (!ws || ws.readyState !== WebSocket.OPEN)) {
         console.log('Network online, reconnecting WebSocket...');
         wsReconnectAttempt.current = 0;
@@ -388,7 +399,7 @@ export default function CallPage() {
         wsHeartbeatInterval.current = null;
       }
     };
-  }, [identity, ws]);
+  }, [identity, ws, inCall]);
 
   const handleWebSocketMessage = useCallback((message: WSMessage) => {
     if (message.type === 'call:incoming') {
