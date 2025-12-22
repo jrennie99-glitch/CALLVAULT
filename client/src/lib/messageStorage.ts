@@ -83,6 +83,24 @@ export function getLocalConversation(convoId: string): Conversation | undefined 
   return getLocalConversations().find(c => c.id === convoId);
 }
 
+function djb2Hash(str: string, seed: number = 5381): number {
+  let hash = seed;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash) + str.charCodeAt(i);
+    hash = hash >>> 0;
+  }
+  return hash;
+}
+
+function generateConvoId(addr1: string, addr2: string): string {
+  const sorted = [addr1, addr2].sort();
+  const combined = sorted.join('|');
+  const h1 = djb2Hash(combined, 5381);
+  const h2 = djb2Hash(combined, 33);
+  const h3 = djb2Hash(combined, 65599);
+  return `dm_${h1.toString(36)}_${h2.toString(36)}_${h3.toString(36)}`;
+}
+
 export function getOrCreateDirectConvo(myAddress: string, otherAddress: string): Conversation {
   const convos = getLocalConversations();
   const existing = convos.find(c => 
@@ -92,8 +110,10 @@ export function getOrCreateDirectConvo(myAddress: string, otherAddress: string):
   );
   if (existing) return existing;
   
+  const uniqueId = generateConvoId(myAddress, otherAddress);
+  
   const newConvo: Conversation = {
-    id: `dm_${[myAddress, otherAddress].sort().join('_').slice(0, 40)}`,
+    id: uniqueId,
     type: 'direct',
     participant_addresses: [myAddress, otherAddress],
     created_at: Date.now(),

@@ -469,12 +469,34 @@ export function CallsTab({ onStartCall, onNavigateToAdd, onNavigateToContacts, o
               </div>
             </div>
 
-            <div className="flex-shrink-0">
-              {call.mediaType === 'video' ? (
-                <Video className="w-5 h-5 text-emerald-400" />
-              ) : (
-                <Phone className="w-5 h-5 text-emerald-400" />
-              )}
+            <div className="flex-shrink-0 flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={(e) => { e.stopPropagation(); onOpenChat?.(call.address); }}
+                className="h-9 w-9 p-0 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10"
+                data-testid={`message-call-${call.id}`}
+              >
+                <MessageCircle className="w-5 h-5" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={(e) => { e.stopPropagation(); onStartCall(call.address, false); }}
+                className="h-9 w-9 p-0 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10"
+                data-testid={`voice-call-${call.id}`}
+              >
+                <Phone className="w-5 h-5" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={(e) => { e.stopPropagation(); onStartCall(call.address, true); }}
+                className="h-9 w-9 p-0 text-purple-400 hover:text-purple-300 hover:bg-purple-500/10"
+                data-testid={`video-call-${call.id}`}
+              >
+                <Video className="w-5 h-5" />
+              </Button>
             </div>
           </button>
         );
