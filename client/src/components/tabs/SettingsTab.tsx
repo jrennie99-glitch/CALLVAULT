@@ -755,16 +755,17 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
                   {identity.address}
                 </div>
                 <Button
-                  variant="outline"
+                  variant="default"
                   size="sm"
                   onClick={() => {
                     navigator.clipboard.writeText(identity.address);
                     toast.success('Call ID copied!');
                   }}
-                  className="border-slate-600 shrink-0"
+                  className="bg-blue-500 hover:bg-blue-600 text-white shrink-0"
                   data-testid="button-copy-call-id"
                 >
-                  <Copy className="w-4 h-4" />
+                  <Copy className="w-4 h-4 mr-1" />
+                  Copy
                 </Button>
               </div>
               <p className="text-slate-500 text-xs mt-1">Share this ID with others so they can call you</p>
