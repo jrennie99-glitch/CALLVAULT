@@ -330,6 +330,7 @@ export default function CallPage() {
   const wsReconnectTimeout = useRef<NodeJS.Timeout | null>(null);
   const wsHeartbeatInterval = useRef<NodeJS.Timeout | null>(null);
   const wsLastPong = useRef<number>(Date.now());
+  const wsHasBeenConnected = useRef(false);
   const [wsConnected, setWsConnected] = useState(false);
   const [callStatus, setCallStatus] = useState('');
   
@@ -355,6 +356,7 @@ export default function CallPage() {
     websocket.onopen = () => {
       console.log('WebSocket connected');
       setWsConnected(true);
+      wsHasBeenConnected.current = true;
       wsReconnectAttempt.current = 0;
       wsLastPong.current = Date.now();
       websocket.send(JSON.stringify({ type: 'register', address: storedIdentity.address }));
@@ -862,8 +864,8 @@ export default function CallPage() {
     <div className="min-h-screen bg-slate-900 text-white flex flex-col">
       <TopBar isFounder={userRole.isFounder} isAdmin={userRole.isAdmin} />
       
-      {/* Connection status indicator */}
-      {!wsConnected && (
+      {/* Connection status indicator - only show after initial connection lost */}
+      {!wsConnected && wsHasBeenConnected.current && (
         <div className="bg-red-600/90 text-white text-sm py-2 px-4 text-center flex items-center justify-center gap-2">
           <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
           <span>Reconnecting to server...</span>
