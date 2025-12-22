@@ -38,6 +38,9 @@ import {
   callIdSettings, type CallIdSettings, type InsertCallIdSettings,
   platformPricing, type PlatformPricing, type InsertPlatformPricing,
   subscriptionPurchases, type SubscriptionPurchase, type InsertSubscriptionPurchase,
+  scheduledCalls, type ScheduledCall, type InsertScheduledCall,
+  teams, type Team, type InsertTeam,
+  teamMembers, type TeamMember, type InsertTeamMember,
 } from "@shared/schema";
 import type { UserMode, FeatureFlags } from "@shared/types";
 import { randomUUID, createHash } from "crypto";
@@ -419,9 +422,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getCallQueue(creatorAddress: string): Promise<CallQueueEntry[]> {
+    // Priority routing: higher priority users (Business=100, Pro=50, Free=0) get served first
+    // Within same priority, maintain FIFO by position
     return db.select().from(callQueueEntries)
       .where(and(eq(callQueueEntries.creatorAddress, creatorAddress), eq(callQueueEntries.status, "waiting")))
-      .orderBy(asc(callQueueEntries.position));
+      .orderBy(desc(callQueueEntries.callPriority), asc(callQueueEntries.position));
   }
 
   async addToCallQueue(entry: InsertCallQueueEntry): Promise<CallQueueEntry> {
@@ -2752,6 +2757,168 @@ export class DatabaseStorage implements IStorage {
       .returning();
     return updated || undefined;
   }
+
+  // ========== SCHEDULED CALLS ==========
+  async createScheduledCall(data: InsertScheduledCall): Promise<ScheduledCall> {
+    const [created] = await db.insert(scheduledCalls).values(data).returning();
+    return created;
+  }
+
+  async getScheduledCall(id: string): Promise<ScheduledCall | undefined> {
+    const [result] = await db.select().from(scheduledCalls).where(eq(scheduledCalls.id, id));
+    return result || undefined;
+  }
+
+  async getScheduledCallsForCreator(creatorAddress: string, options?: { 
+    status?: string; 
+    fromDate?: Date; 
+    toDate?: Date;
+    limit?: number;
+  }): Promise<ScheduledCall[]> {
+    let query = db.select().from(scheduledCalls)
+      .where(eq(scheduledCalls.creatorAddress, creatorAddress))
+      .orderBy(asc(scheduledCalls.scheduledAt));
+    
+    if (options?.limit) {
+      query = query.limit(options.limit) as typeof query;
+    }
+    return query;
+  }
+
+  async getScheduledCallsForCaller(callerAddress: string): Promise<ScheduledCall[]> {
+    return db.select().from(scheduledCalls)
+      .where(eq(scheduledCalls.callerAddress, callerAddress))
+      .orderBy(asc(scheduledCalls.scheduledAt));
+  }
+
+  async getUpcomingScheduledCalls(creatorAddress: string, limit = 10): Promise<ScheduledCall[]> {
+    return db.select().from(scheduledCalls)
+      .where(and(
+        eq(scheduledCalls.creatorAddress, creatorAddress),
+        eq(scheduledCalls.status, 'confirmed'),
+        gte(scheduledCalls.scheduledAt, new Date())
+      ))
+      .orderBy(asc(scheduledCalls.scheduledAt))
+      .limit(limit);
+  }
+
+  async updateScheduledCall(id: string, updates: Partial<ScheduledCall>): Promise<ScheduledCall | undefined> {
+    const [updated] = await db.update(scheduledCalls)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(scheduledCalls.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async cancelScheduledCall(id: string, cancelledBy: string, reason?: string): Promise<ScheduledCall | undefined> {
+    const [updated] = await db.update(scheduledCalls)
+      .set({ 
+        status: 'cancelled', 
+        cancelledAt: new Date(), 
+        cancelledBy, 
+        cancelReason: reason,
+        updatedAt: new Date() 
+      })
+      .where(eq(scheduledCalls.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteScheduledCall(id: string): Promise<boolean> {
+    const result = await db.delete(scheduledCalls).where(eq(scheduledCalls.id, id)).returning();
+    return result.length > 0;
+  }
+
+  // ========== TEAMS ==========
+  async createTeam(data: InsertTeam): Promise<Team> {
+    const [created] = await db.insert(teams).values(data).returning();
+    return created;
+  }
+
+  async getTeam(id: string): Promise<Team | undefined> {
+    const [result] = await db.select().from(teams).where(eq(teams.id, id));
+    return result || undefined;
+  }
+
+  async getTeamsForOwner(ownerAddress: string): Promise<Team[]> {
+    return db.select().from(teams).where(eq(teams.ownerAddress, ownerAddress));
+  }
+
+  async updateTeam(id: string, updates: Partial<Team>): Promise<Team | undefined> {
+    const [updated] = await db.update(teams)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(teams.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteTeam(id: string): Promise<boolean> {
+    // Delete team members first
+    await db.delete(teamMembers).where(eq(teamMembers.teamId, id));
+    const result = await db.delete(teams).where(eq(teams.id, id)).returning();
+    return result.length > 0;
+  }
+
+  // ========== TEAM MEMBERS ==========
+  async addTeamMember(data: InsertTeamMember): Promise<TeamMember> {
+    const [created] = await db.insert(teamMembers).values(data).returning();
+    return created;
+  }
+
+  async getTeamMembers(teamId: string): Promise<TeamMember[]> {
+    return db.select().from(teamMembers).where(eq(teamMembers.teamId, teamId));
+  }
+
+  async getTeamMember(teamId: string, memberAddress: string): Promise<TeamMember | undefined> {
+    const [result] = await db.select().from(teamMembers)
+      .where(and(
+        eq(teamMembers.teamId, teamId),
+        eq(teamMembers.memberAddress, memberAddress)
+      ));
+    return result || undefined;
+  }
+
+  async getTeamsForMember(memberAddress: string): Promise<{ team: Team; membership: TeamMember }[]> {
+    const memberships = await db.select().from(teamMembers)
+      .where(eq(teamMembers.memberAddress, memberAddress));
+    
+    const results: { team: Team; membership: TeamMember }[] = [];
+    for (const membership of memberships) {
+      const team = await this.getTeam(membership.teamId);
+      if (team) {
+        results.push({ team, membership });
+      }
+    }
+    return results;
+  }
+
+  async updateTeamMember(id: string, updates: Partial<TeamMember>): Promise<TeamMember | undefined> {
+    const [updated] = await db.update(teamMembers)
+      .set(updates)
+      .where(eq(teamMembers.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async removeTeamMember(teamId: string, memberAddress: string): Promise<boolean> {
+    const result = await db.delete(teamMembers)
+      .where(and(
+        eq(teamMembers.teamId, teamId),
+        eq(teamMembers.memberAddress, memberAddress)
+      ))
+      .returning();
+    return result.length > 0;
+  }
+
+  // ========== CALL PRIORITY ==========
+  async updateUserCallPriority(address: string, priority: number): Promise<void> {
+    await this.updateIdentity(address, { callPriority: priority } as any);
+  }
+
+  async setUserPrioritySupport(address: string, enabled: boolean): Promise<void> {
+    await this.updateIdentity(address, { prioritySupport: enabled } as any);
+  }
 }
 
 export const storage = new DatabaseStorage();
+export { db };

@@ -15,6 +15,11 @@ export const VALID_ENTITLEMENT_KEYS = new Set([
   'allowStageRooms',
   'allowRecording',
   'allowGroupCalls',
+  'allowCallScheduling',
+  'allowTeamManagement',
+  'allowCustomBranding',
+  'allowPrioritySupport',
+  'allowPriorityRouting',
 ]);
 
 export function isValidEntitlementKey(key: string): boolean {
@@ -32,6 +37,11 @@ const DEFAULT_FEATURE_FLAGS: FeatureFlags = {
   FEATURE_STAGE_ROOMS: false,
   FEATURE_PAID_CALLS: false,
   FEATURE_RECORDING: false,
+  FEATURE_CALL_SCHEDULING: false,
+  FEATURE_TEAM_MANAGEMENT: false,
+  FEATURE_CUSTOM_BRANDING: false,
+  FEATURE_PRIORITY_SUPPORT: false,
+  FEATURE_PRIORITY_ROUTING: false,
 };
 
 const MODE_FEATURE_VISIBILITY: Record<UserMode, Partial<FeatureFlags>> = {
@@ -71,6 +81,9 @@ export async function getEffectiveEntitlements(userAddress: string): Promise<Eff
   const planEntitlements = await storage.getPlanEntitlements(plan);
   const userOverrides = await storage.getUserEntitlementOverrides(userAddress);
   
+  const isPro = plan === 'pro' || plan === 'business' || plan === 'enterprise';
+  const isBusiness = plan === 'business' || plan === 'enterprise';
+  
   const baseEntitlements = {
     maxCallIds: planEntitlements?.maxCallIds ?? 1,
     maxGroupParticipants: planEntitlements?.maxGroupParticipants ?? 0,
@@ -85,6 +98,11 @@ export async function getEffectiveEntitlements(userAddress: string): Promise<Eff
     allowStageRooms: planEntitlements?.allowStageRooms ?? false,
     allowRecording: planEntitlements?.allowRecording ?? false,
     allowGroupCalls: planEntitlements?.allowGroupCalls ?? false,
+    allowCallScheduling: isPro,
+    allowTeamManagement: isBusiness,
+    allowCustomBranding: isBusiness,
+    allowPrioritySupport: isBusiness,
+    allowPriorityRouting: isPro,
   };
   
   const overrides = (userOverrides?.overrides as Record<string, any>) || {};
@@ -107,6 +125,11 @@ export async function getEffectiveEntitlements(userAddress: string): Promise<Eff
     FEATURE_STAGE_ROOMS: effectiveEntitlements.allowStageRooms && (modeFlags.FEATURE_STAGE_ROOMS ?? false),
     FEATURE_RECORDING: effectiveEntitlements.allowRecording,
     FEATURE_MULTIPLE_CALL_IDS: effectiveEntitlements.maxCallIds > 1,
+    FEATURE_CALL_SCHEDULING: effectiveEntitlements.allowCallScheduling,
+    FEATURE_TEAM_MANAGEMENT: effectiveEntitlements.allowTeamManagement,
+    FEATURE_CUSTOM_BRANDING: effectiveEntitlements.allowCustomBranding,
+    FEATURE_PRIORITY_SUPPORT: effectiveEntitlements.allowPrioritySupport,
+    FEATURE_PRIORITY_ROUTING: effectiveEntitlements.allowPriorityRouting,
     ...userFlags,
   };
   
@@ -127,6 +150,11 @@ export async function getEffectiveEntitlements(userAddress: string): Promise<Eff
     allowStageRooms: effectiveEntitlements.allowStageRooms,
     allowRecording: effectiveEntitlements.allowRecording,
     allowGroupCalls: effectiveEntitlements.allowGroupCalls,
+    allowCallScheduling: effectiveEntitlements.allowCallScheduling,
+    allowTeamManagement: effectiveEntitlements.allowTeamManagement,
+    allowCustomBranding: effectiveEntitlements.allowCustomBranding,
+    allowPrioritySupport: effectiveEntitlements.allowPrioritySupport,
+    allowPriorityRouting: effectiveEntitlements.allowPriorityRouting,
     flags,
     hasOverrides: !!userOverrides,
     overrideExpiresAt: userOverrides?.expiresAt ? new Date(userOverrides.expiresAt).getTime() : undefined,

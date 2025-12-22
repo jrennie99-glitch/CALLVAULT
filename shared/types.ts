@@ -426,7 +426,12 @@ export type FeatureFlag =
   | 'FEATURE_DELEGATION'
   | 'FEATURE_STAGE_ROOMS'
   | 'FEATURE_PAID_CALLS'
-  | 'FEATURE_RECORDING';
+  | 'FEATURE_RECORDING'
+  | 'FEATURE_CALL_SCHEDULING'
+  | 'FEATURE_TEAM_MANAGEMENT'
+  | 'FEATURE_CUSTOM_BRANDING'
+  | 'FEATURE_PRIORITY_SUPPORT'
+  | 'FEATURE_PRIORITY_ROUTING';
 
 export interface FeatureFlags {
   FEATURE_MODE_SWITCHER: boolean;
@@ -439,6 +444,11 @@ export interface FeatureFlags {
   FEATURE_STAGE_ROOMS: boolean;
   FEATURE_PAID_CALLS: boolean;
   FEATURE_RECORDING: boolean;
+  FEATURE_CALL_SCHEDULING: boolean;
+  FEATURE_TEAM_MANAGEMENT: boolean;
+  FEATURE_CUSTOM_BRANDING: boolean;
+  FEATURE_PRIORITY_SUPPORT: boolean;
+  FEATURE_PRIORITY_ROUTING: boolean;
 }
 
 export interface EffectiveEntitlements {
@@ -463,6 +473,11 @@ export interface EffectiveEntitlements {
   allowStageRooms: boolean;
   allowRecording: boolean;
   allowGroupCalls: boolean;
+  allowCallScheduling: boolean;
+  allowTeamManagement: boolean;
+  allowCustomBranding: boolean;
+  allowPrioritySupport: boolean;
+  allowPriorityRouting: boolean;
   
   // Computed feature flags for UI visibility
   flags: FeatureFlags;

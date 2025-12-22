@@ -11,10 +11,13 @@ import webpush from "web-push";
 import type { WSMessage, SignedCallIntent, CallIntent, SignedMessage, Message, Conversation, CallPolicy, ContactOverride, CallPass, BlockedUser, RoutingRule, WalletVerification, CallRequest, GroupCallRoom, GroupCallParticipant } from "@shared/types";
 import * as messageStore from "./messageStore";
 import * as policyStore from "./policyStore";
-import { storage } from "./storage";
+import { storage, db } from "./storage";
+import { teamMembers } from "@shared/schema";
+import { eq } from "drizzle-orm";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
 import { FreeTierShield, FREE_TIER_LIMITS, type ShieldErrorCode } from "./freeTierShield";
 import { sendEmail, generateWelcomeEmail, generateTrialInviteEmail } from "./email";
+import { getEffectiveEntitlements } from "./entitlements";
 
 // VAPID keys for push notifications - generate once and store in env vars
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || '';
@@ -986,7 +989,23 @@ export async function registerRoutes(
 
   app.post('/api/creator', async (req, res) => {
     try {
-      const profile = await storage.createCreatorProfile(req.body);
+      const profileData = req.body;
+      
+      // Check if trying to set branding fields - requires Business plan
+      const brandingFields = ['brandingColor', 'brandingAccentColor', 'logoUrl', 'bannerUrl', 'customTheme', 'customCss'];
+      const hasBrandingData = brandingFields.some(field => field in profileData && profileData[field]);
+      
+      if (hasBrandingData && profileData.ownerAddress) {
+        const entitlements = await getEffectiveEntitlements(profileData.ownerAddress);
+        if (!entitlements.allowCustomBranding) {
+          return res.status(403).json({ 
+            error: 'Custom branding requires a Business plan',
+            upgradeRequired: true
+          });
+        }
+      }
+      
+      const profile = await storage.createCreatorProfile(profileData);
       res.json(profile);
     } catch (error) {
       console.error('Error creating creator profile:', error);
@@ -997,11 +1016,453 @@ export async function registerRoutes(
   app.put('/api/creator/:address', async (req, res) => {
     try {
       const { address } = req.params;
-      const profile = await storage.updateCreatorProfile(address, req.body);
+      const updates = req.body;
+      
+      // Check if trying to update branding fields - requires Business plan
+      const brandingFields = ['brandingColor', 'brandingAccentColor', 'logoUrl', 'bannerUrl', 'customTheme', 'customCss'];
+      const hasBrandingUpdates = brandingFields.some(field => field in updates);
+      
+      if (hasBrandingUpdates) {
+        const entitlements = await getEffectiveEntitlements(address);
+        if (!entitlements.allowCustomBranding) {
+          return res.status(403).json({ 
+            error: 'Custom branding requires a Business plan',
+            upgradeRequired: true
+          });
+        }
+      }
+      
+      const profile = await storage.updateCreatorProfile(address, updates);
       res.json(profile);
     } catch (error) {
       console.error('Error updating creator profile:', error);
       res.status(500).json({ error: 'Failed to update creator profile' });
+    }
+  });
+
+  // ========== SCHEDULED CALLS API (Pro/Business feature) ==========
+  app.get('/api/scheduled-calls/:creatorAddress', async (req, res) => {
+    try {
+      const { creatorAddress } = req.params;
+      const calls = await storage.getScheduledCallsForCreator(creatorAddress);
+      res.json(calls);
+    } catch (error) {
+      console.error('Error getting scheduled calls:', error);
+      res.status(500).json({ error: 'Failed to get scheduled calls' });
+    }
+  });
+
+  app.get('/api/scheduled-calls/:creatorAddress/upcoming', async (req, res) => {
+    try {
+      const { creatorAddress } = req.params;
+      const limit = parseInt(req.query.limit as string) || 10;
+      const calls = await storage.getUpcomingScheduledCalls(creatorAddress, limit);
+      res.json(calls);
+    } catch (error) {
+      console.error('Error getting upcoming scheduled calls:', error);
+      res.status(500).json({ error: 'Failed to get upcoming calls' });
+    }
+  });
+
+  app.get('/api/my-scheduled-calls/:callerAddress', async (req, res) => {
+    try {
+      const { callerAddress } = req.params;
+      const calls = await storage.getScheduledCallsForCaller(callerAddress);
+      res.json(calls);
+    } catch (error) {
+      console.error('Error getting caller scheduled calls:', error);
+      res.status(500).json({ error: 'Failed to get scheduled calls' });
+    }
+  });
+
+  app.post('/api/scheduled-calls', async (req, res) => {
+    try {
+      const { creatorAddress, callerAddress, scheduledAt, durationMinutes, callType, notes, callerName, callerEmail } = req.body;
+      
+      if (!creatorAddress || !callerAddress || !scheduledAt) {
+        return res.status(400).json({ error: 'Creator address, caller address, and scheduled time are required' });
+      }
+
+      // Check if creator has scheduling entitlement
+      const entitlements = await getEffectiveEntitlements(creatorAddress);
+      if (!entitlements.allowCallScheduling) {
+        return res.status(403).json({ 
+          error: 'Call scheduling requires a Pro or Business plan',
+          upgradeRequired: true
+        });
+      }
+
+      // Validate scheduled time is in the future
+      const scheduledDate = new Date(scheduledAt);
+      if (scheduledDate <= new Date()) {
+        return res.status(400).json({ error: 'Scheduled time must be in the future' });
+      }
+
+      const call = await storage.createScheduledCall({
+        creatorAddress,
+        callerAddress,
+        callerName: callerName || null,
+        callerEmail: callerEmail || null,
+        scheduledAt: scheduledDate,
+        durationMinutes: durationMinutes || 30,
+        callType: callType || 'video',
+        status: 'pending',
+        notes: notes || null,
+        isPaid: false,
+        paidTokenId: null,
+        reminderSent: false,
+        cancelledBy: null,
+        cancelReason: null,
+      });
+      
+      res.json(call);
+    } catch (error) {
+      console.error('Error creating scheduled call:', error);
+      res.status(500).json({ error: 'Failed to create scheduled call' });
+    }
+  });
+
+  app.put('/api/scheduled-calls/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      // Get the existing call to check entitlements using authoritative record
+      const existingCall = await storage.getScheduledCall(id);
+      if (!existingCall) {
+        return res.status(404).json({ error: 'Scheduled call not found' });
+      }
+      
+      // Check if creator has scheduling entitlement (authoritative check)
+      const entitlements = await getEffectiveEntitlements(existingCall.creatorAddress);
+      if (!entitlements.allowCallScheduling) {
+        return res.status(403).json({ 
+          error: 'Call scheduling requires a Pro or Business plan',
+          upgradeRequired: true
+        });
+      }
+      
+      const call = await storage.updateScheduledCall(id, req.body);
+      res.json(call);
+    } catch (error) {
+      console.error('Error updating scheduled call:', error);
+      res.status(500).json({ error: 'Failed to update scheduled call' });
+    }
+  });
+
+  app.post('/api/scheduled-calls/:id/confirm', async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      // Get the existing call (authoritative record)
+      const existingCall = await storage.getScheduledCall(id);
+      if (!existingCall) {
+        return res.status(404).json({ error: 'Scheduled call not found' });
+      }
+      
+      // Check if creator has scheduling entitlement (authoritative check)
+      const entitlements = await getEffectiveEntitlements(existingCall.creatorAddress);
+      if (!entitlements.allowCallScheduling) {
+        return res.status(403).json({ 
+          error: 'Call scheduling requires a Pro or Business plan',
+          upgradeRequired: true
+        });
+      }
+      
+      const call = await storage.updateScheduledCall(id, { status: 'confirmed' });
+      res.json(call);
+    } catch (error) {
+      console.error('Error confirming scheduled call:', error);
+      res.status(500).json({ error: 'Failed to confirm scheduled call' });
+    }
+  });
+
+  app.post('/api/scheduled-calls/:id/cancel', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { cancelledBy, reason } = req.body;
+      
+      if (!cancelledBy) {
+        return res.status(400).json({ error: 'Cancelled by address is required' });
+      }
+      
+      // Get the existing call (authoritative record)
+      const existingCall = await storage.getScheduledCall(id);
+      if (!existingCall) {
+        return res.status(404).json({ error: 'Scheduled call not found' });
+      }
+      
+      // Check if creator has scheduling entitlement (authoritative check)
+      // Callers can always cancel their own scheduled calls regardless of creator plan
+      const creatorEntitlements = await getEffectiveEntitlements(existingCall.creatorAddress);
+      if (!creatorEntitlements.allowCallScheduling && cancelledBy !== existingCall.callerAddress) {
+        return res.status(403).json({ 
+          error: 'Call scheduling requires a Pro or Business plan',
+          upgradeRequired: true
+        });
+      }
+      
+      const call = await storage.cancelScheduledCall(id, cancelledBy, reason);
+      res.json(call);
+    } catch (error) {
+      console.error('Error cancelling scheduled call:', error);
+      res.status(500).json({ error: 'Failed to cancel scheduled call' });
+    }
+  });
+
+  app.delete('/api/scheduled-calls/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const deleted = await storage.deleteScheduledCall(id);
+      res.json({ success: deleted });
+    } catch (error) {
+      console.error('Error deleting scheduled call:', error);
+      res.status(500).json({ error: 'Failed to delete scheduled call' });
+    }
+  });
+
+  // ========== TEAMS API (Business feature) ==========
+  app.get('/api/teams/:ownerAddress', async (req, res) => {
+    try {
+      const { ownerAddress } = req.params;
+      const teamsList = await storage.getTeamsForOwner(ownerAddress);
+      res.json(teamsList);
+    } catch (error) {
+      console.error('Error getting teams:', error);
+      res.status(500).json({ error: 'Failed to get teams' });
+    }
+  });
+
+  app.get('/api/team/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const team = await storage.getTeam(id);
+      if (!team) {
+        return res.status(404).json({ error: 'Team not found' });
+      }
+      res.json(team);
+    } catch (error) {
+      console.error('Error getting team:', error);
+      res.status(500).json({ error: 'Failed to get team' });
+    }
+  });
+
+  app.post('/api/teams', async (req, res) => {
+    try {
+      const { ownerAddress, name, description } = req.body;
+      
+      if (!ownerAddress || !name) {
+        return res.status(400).json({ error: 'Owner address and team name are required' });
+      }
+
+      // Check if owner has team management entitlement
+      const entitlements = await getEffectiveEntitlements(ownerAddress);
+      if (!entitlements.allowTeamManagement) {
+        return res.status(403).json({ 
+          error: 'Team management requires a Business plan',
+          upgradeRequired: true
+        });
+      }
+
+      const team = await storage.createTeam({
+        ownerAddress,
+        name,
+        description: description || null,
+      });
+      
+      // Auto-add owner as team member with all permissions
+      await storage.addTeamMember({
+        teamId: team.id,
+        memberAddress: ownerAddress,
+        role: 'owner',
+        permissions: ['answer_calls', 'view_queue', 'manage_schedule', 'view_earnings', 'manage_team'],
+        addedBy: ownerAddress,
+      });
+      
+      res.json(team);
+    } catch (error) {
+      console.error('Error creating team:', error);
+      res.status(500).json({ error: 'Failed to create team' });
+    }
+  });
+
+  app.put('/api/team/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      // Get the team to check owner entitlements
+      const existingTeam = await storage.getTeam(id);
+      if (!existingTeam) {
+        return res.status(404).json({ error: 'Team not found' });
+      }
+      
+      const entitlements = await getEffectiveEntitlements(existingTeam.ownerAddress);
+      if (!entitlements.allowTeamManagement) {
+        return res.status(403).json({ 
+          error: 'Team management requires a Business plan',
+          upgradeRequired: true
+        });
+      }
+      
+      const team = await storage.updateTeam(id, req.body);
+      res.json(team);
+    } catch (error) {
+      console.error('Error updating team:', error);
+      res.status(500).json({ error: 'Failed to update team' });
+    }
+  });
+
+  app.delete('/api/team/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      // Get the team to check owner entitlements
+      const existingTeam = await storage.getTeam(id);
+      if (!existingTeam) {
+        return res.status(404).json({ error: 'Team not found' });
+      }
+      
+      const entitlements = await getEffectiveEntitlements(existingTeam.ownerAddress);
+      if (!entitlements.allowTeamManagement) {
+        return res.status(403).json({ 
+          error: 'Team management requires a Business plan',
+          upgradeRequired: true
+        });
+      }
+      
+      const deleted = await storage.deleteTeam(id);
+      res.json({ success: deleted });
+    } catch (error) {
+      console.error('Error deleting team:', error);
+      res.status(500).json({ error: 'Failed to delete team' });
+    }
+  });
+
+  // Team Members
+  app.get('/api/team/:teamId/members', async (req, res) => {
+    try {
+      const { teamId } = req.params;
+      const members = await storage.getTeamMembers(teamId);
+      res.json(members);
+    } catch (error) {
+      console.error('Error getting team members:', error);
+      res.status(500).json({ error: 'Failed to get team members' });
+    }
+  });
+
+  app.post('/api/team/:teamId/members', async (req, res) => {
+    try {
+      const { teamId } = req.params;
+      const { memberAddress, role, permissions, addedBy } = req.body;
+      
+      if (!memberAddress) {
+        return res.status(400).json({ error: 'Member address is required' });
+      }
+
+      // Get the team to check owner entitlements
+      const team = await storage.getTeam(teamId);
+      if (!team) {
+        return res.status(404).json({ error: 'Team not found' });
+      }
+      
+      const entitlements = await getEffectiveEntitlements(team.ownerAddress);
+      if (!entitlements.allowTeamManagement) {
+        return res.status(403).json({ 
+          error: 'Team management requires a Business plan',
+          upgradeRequired: true
+        });
+      }
+
+      // Check if member already exists
+      const existing = await storage.getTeamMember(teamId, memberAddress);
+      if (existing) {
+        return res.status(409).json({ error: 'Member already in team' });
+      }
+
+      const member = await storage.addTeamMember({
+        teamId,
+        memberAddress,
+        role: role || 'member',
+        permissions: permissions || ['view_queue'],
+        addedBy: addedBy || null,
+      });
+      
+      res.json(member);
+    } catch (error) {
+      console.error('Error adding team member:', error);
+      res.status(500).json({ error: 'Failed to add team member' });
+    }
+  });
+
+  app.put('/api/team-member/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      // Get the existing member to find their team (authoritative lookup)
+      const members = await db.select().from(teamMembers).where(eq(teamMembers.id, id));
+      if (members.length === 0) {
+        return res.status(404).json({ error: 'Team member not found' });
+      }
+      const existingMember = members[0];
+      
+      // Get the team to check owner entitlements (authoritative check)
+      const team = await storage.getTeam(existingMember.teamId);
+      if (!team) {
+        return res.status(404).json({ error: 'Team not found' });
+      }
+      
+      const entitlements = await getEffectiveEntitlements(team.ownerAddress);
+      if (!entitlements.allowTeamManagement) {
+        return res.status(403).json({ 
+          error: 'Team management requires a Business plan',
+          upgradeRequired: true
+        });
+      }
+      
+      const member = await storage.updateTeamMember(id, req.body);
+      if (!member) {
+        return res.status(404).json({ error: 'Team member not found' });
+      }
+      res.json(member);
+    } catch (error) {
+      console.error('Error updating team member:', error);
+      res.status(500).json({ error: 'Failed to update team member' });
+    }
+  });
+
+  app.delete('/api/team/:teamId/members/:memberAddress', async (req, res) => {
+    try {
+      const { teamId, memberAddress } = req.params;
+      
+      // Get the team to check owner entitlements
+      const team = await storage.getTeam(teamId);
+      if (!team) {
+        return res.status(404).json({ error: 'Team not found' });
+      }
+      
+      const entitlements = await getEffectiveEntitlements(team.ownerAddress);
+      if (!entitlements.allowTeamManagement) {
+        return res.status(403).json({ 
+          error: 'Team management requires a Business plan',
+          upgradeRequired: true
+        });
+      }
+      
+      const deleted = await storage.removeTeamMember(teamId, memberAddress);
+      res.json({ success: deleted });
+    } catch (error) {
+      console.error('Error removing team member:', error);
+      res.status(500).json({ error: 'Failed to remove team member' });
+    }
+  });
+
+  app.get('/api/my-teams/:memberAddress', async (req, res) => {
+    try {
+      const { memberAddress } = req.params;
+      const teamsList = await storage.getTeamsForMember(memberAddress);
+      res.json(teamsList);
+    } catch (error) {
+      console.error('Error getting member teams:', error);
+      res.status(500).json({ error: 'Failed to get member teams' });
     }
   });
 
@@ -1157,7 +1618,23 @@ export async function registerRoutes(
 
   app.post('/api/queue', async (req, res) => {
     try {
-      const entry = await storage.addToCallQueue(req.body);
+      // Get the caller's priority based on their plan
+      const callerAddress = req.body.callerAddress;
+      let callPriority = 0; // default for free users
+      
+      if (callerAddress) {
+        const entitlements = await getEffectiveEntitlements(callerAddress);
+        if (entitlements.allowPriorityRouting) {
+          // Get identity to check callPriority field
+          const identity = await storage.getIdentity(callerAddress);
+          callPriority = identity?.callPriority ?? (entitlements.plan === 'business' ? 100 : 50);
+        }
+      }
+      
+      const entry = await storage.addToCallQueue({
+        ...req.body,
+        callPriority
+      });
       res.json(entry);
     } catch (error) {
       console.error('Error adding to queue:', error);

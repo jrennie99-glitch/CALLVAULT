@@ -53,6 +53,10 @@ export const cryptoIdentities = pgTable("crypto_identities", {
   suspendedReason: text("suspended_reason"),
   freeAccessEndAt: timestamp("free_access_end_at"), // For time-limited free access grants
   adminExpiresAt: timestamp("admin_expires_at"), // For time-limited admin roles
+  // Priority support flag for Business plan
+  prioritySupport: boolean("priority_support").default(false),
+  // Call priority score (higher = more priority in routing)
+  callPriority: integer("call_priority").default(0), // 0=free, 50=pro, 100=business
 });
 
 export const insertCryptoIdentitySchema = createInsertSchema(cryptoIdentities).omit({
@@ -241,6 +245,7 @@ export const callQueueEntries = pgTable("call_queue_entries", {
   joinedAt: timestamp("joined_at").defaultNow().notNull(),
   notifiedAt: timestamp("notified_at"),
   estimatedWaitMinutes: integer("estimated_wait_minutes"),
+  callPriority: integer("call_priority").default(0).notNull(), // 0=free, 50=pro, 100=business for priority routing
 });
 
 export const insertCallQueueEntrySchema = createInsertSchema(callQueueEntries).omit({
@@ -270,6 +275,13 @@ export const creatorProfiles = pgTable("creator_profiles", {
   freeFirstCall: boolean("free_first_call").default(false),
   friendsAndFamily: text("friends_and_family").array(),
   currency: text("currency").default("usd"),
+  // Custom Branding fields (Business plan)
+  brandingColor: text("branding_color"), // Primary brand color hex
+  brandingAccentColor: text("branding_accent_color"), // Secondary/accent color
+  logoUrl: text("logo_url"), // Custom logo URL
+  bannerUrl: text("banner_url"), // Profile banner image
+  customTheme: text("custom_theme").default("default"), // 'default' | 'dark' | 'light' | 'custom'
+  customCss: text("custom_css"), // Advanced custom CSS for Business users
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -324,6 +336,73 @@ export const insertCreatorEarningsSchema = createInsertSchema(creatorEarnings).o
 });
 export type InsertCreatorEarnings = z.infer<typeof insertCreatorEarningsSchema>;
 export type CreatorEarnings = typeof creatorEarnings.$inferSelect;
+
+// Scheduled Calls (Pro/Business feature)
+export const scheduledCalls = pgTable("scheduled_calls", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  creatorAddress: text("creator_address").notNull(),
+  callerAddress: text("caller_address").notNull(),
+  callerName: text("caller_name"),
+  callerEmail: text("caller_email"),
+  scheduledAt: timestamp("scheduled_at").notNull(),
+  durationMinutes: integer("duration_minutes").default(30),
+  callType: text("call_type").notNull().default("video"), // 'video' | 'audio'
+  status: text("status").notNull().default("pending"), // 'pending' | 'confirmed' | 'cancelled' | 'completed' | 'no_show'
+  notes: text("notes"),
+  isPaid: boolean("is_paid").default(false),
+  paidTokenId: text("paid_token_id"),
+  reminderSent: boolean("reminder_sent").default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  cancelledAt: timestamp("cancelled_at"),
+  cancelledBy: text("cancelled_by"),
+  cancelReason: text("cancel_reason"),
+});
+
+export const insertScheduledCallSchema = createInsertSchema(scheduledCalls).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  cancelledAt: true,
+});
+export type InsertScheduledCall = z.infer<typeof insertScheduledCallSchema>;
+export type ScheduledCall = typeof scheduledCalls.$inferSelect;
+
+// Teams (Business plan feature)
+export const teams = pgTable("teams", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ownerAddress: text("owner_address").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertTeamSchema = createInsertSchema(teams).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertTeam = z.infer<typeof insertTeamSchema>;
+export type Team = typeof teams.$inferSelect;
+
+// Team Members
+export const teamMembers = pgTable("team_members", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  teamId: varchar("team_id").notNull(),
+  memberAddress: text("member_address").notNull(),
+  role: text("role").notNull().default("member"), // 'owner' | 'admin' | 'member' | 'assistant'
+  permissions: text("permissions").array(), // ['answer_calls', 'view_queue', 'manage_schedule', 'view_earnings']
+  addedBy: text("added_by"),
+  addedAt: timestamp("added_at").defaultNow().notNull(),
+});
+
+export const insertTeamMemberSchema = createInsertSchema(teamMembers).omit({
+  id: true,
+  addedAt: true,
+});
+export type InsertTeamMember = z.infer<typeof insertTeamMemberSchema>;
+export type TeamMember = typeof teamMembers.$inferSelect;
 
 export const cryptoIdentitiesRelations = relations(cryptoIdentities, ({ many }) => ({
   contacts: many(contacts),

@@ -36,6 +36,11 @@ Preferred communication style: Simple, everyday language.
 - **STUN-First, TURN Fallback**: Prioritizes STUN for cost efficiency, falls back to TURN for paid users after 8 seconds if STUN fails. Free users are prompted to upgrade.
 - **User Experience**: Mobile-first design, bottom tab navigation, contacts-first onboarding, auto-generated avatars, PWA support.
 - **Monetization (Creator/Business Mode)**: Customizable creator profiles, paid calls (per-session/per-minute), call queue management, subscription tiers (Free, Pro, Business), and invite links for trial access.
+- **Call Scheduling (Pro/Business)**: Schedule calls in advance with confirmation/cancellation flow, reminder notifications, and status tracking (pending → confirmed → completed/no_show/cancelled).
+- **Team Management (Business)**: Create teams with assistants who can answer calls on your behalf. Role-based permissions: owner, admin, member, assistant. Permissions include: answer_calls, view_queue, manage_schedule, view_earnings, manage_team.
+- **Custom Branding (Business)**: Customize your creator profile with brand colors, accent colors, custom logo, banner image, and theme selection (default/dark/light/custom CSS).
+- **Priority Support (Business)**: Dedicated priority support flag for Business plan users.
+- **Priority Routing (Pro/Business)**: Call priority scoring system (0=free, 50=pro, 100=business) for routing calls to the right queue position.
 - **Admin Console**: Multi-level admin system with Role-Based Access Control (RBAC), granular permissions, time-limited admin access, comped accounts, usage dashboard, system settings, promo codes, and IP blocklist.
 - **Stripe Subscriptions**: Full integration for Pro and Business plans, including checkout flow, customer portal, webhook handling, and premium access gating.
 - **Crypto Payments**: Optional support for USDC and ETH on Base Network, and USDC and SOL on Solana Network, requiring verified EVM or Solana wallets.
