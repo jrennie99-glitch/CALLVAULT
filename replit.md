@@ -40,7 +40,8 @@ Preferred communication style: Simple, everyday language.
 - **Team Management (Business)**: Create teams with assistants who can answer calls on your behalf. Role-based permissions: owner, admin, member, assistant. Permissions include: answer_calls, view_queue, manage_schedule, view_earnings, manage_team.
 - **Custom Branding (Business)**: Customize your creator profile with brand colors, accent colors, custom logo, banner image, and theme selection (default/dark/light/custom CSS).
 - **Priority Support (Business)**: Dedicated priority support flag for Business plan users.
-- **Priority Routing (Pro/Business)**: Call priority scoring system (0=free, 50=pro, 100=business) for routing calls to the right queue position.
+- **Priority Routing (Pro/Business)**: Call priority scoring system (0=free, 50=pro, 100=business) for routing calls to the right queue position. Queue entries include callPriority field, sorted by priority desc then FIFO.
+- **Availability Controls (Pro/Business)**: Business hours configuration with timezone support, after-hours behavior (auto_message, paid_only, block), and custom after-hours messages.
 - **Admin Console**: Multi-level admin system with Role-Based Access Control (RBAC), granular permissions, time-limited admin access, comped accounts, usage dashboard, system settings, promo codes, and IP blocklist.
 - **Stripe Subscriptions**: Full integration for Pro and Business plans, including checkout flow, customer portal, webhook handling, and premium access gating.
 - **Crypto Payments**: Optional support for USDC and ETH on Base Network, and USDC and SOL on Solana Network, requiring verified EVM or Solana wallets.
