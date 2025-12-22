@@ -334,9 +334,9 @@ export default function CallPage() {
   const [wsConnected, setWsConnected] = useState(false);
   const [callStatus, setCallStatus] = useState('');
   
-  // Heartbeat interval: send ping every 30 seconds, expect response within 15s
-  const WS_HEARTBEAT_INTERVAL = 30000;
-  const WS_HEARTBEAT_TIMEOUT = 15000;
+  // Aggressive heartbeat: ping every 15 seconds, expect response within 10s
+  const WS_HEARTBEAT_INTERVAL = 15000;
+  const WS_HEARTBEAT_TIMEOUT = 10000;
   
   const initWebSocket = (storedIdentity: CryptoIdentity) => {
     // Clear any pending reconnect and heartbeat
@@ -410,15 +410,11 @@ export default function CallPage() {
         wsHeartbeatInterval.current = null;
       }
       
-      // Gentle reconnect: 500ms, 1s, 2s, 4s, max 10s
-      const delay = Math.min(500 * Math.pow(2, wsReconnectAttempt.current), 10000);
+      // Aggressive reconnect: 100ms, 200ms, 400ms, 800ms, max 3s (like WhatsApp)
+      const delay = Math.min(100 * Math.pow(2, wsReconnectAttempt.current), 3000);
       wsReconnectAttempt.current++;
       
-      // Only show toast after many failed attempts (avoid noise)
-      if (wsReconnectAttempt.current === 5) {
-        toast.info('Connection interrupted, reconnecting...', { duration: 2000 });
-      }
-      
+      // Reconnect immediately
       wsReconnectTimeout.current = setTimeout(() => {
         if (storedIdentity) {
           initWebSocket(storedIdentity);
@@ -435,27 +431,30 @@ export default function CallPage() {
   // But DON'T reconnect if we're in a call - the CallView manages its own connection
   useEffect(() => {
     const handleVisibilityChange = () => {
-      // Skip reconnection if in a call - prevents disrupting active calls
-      if (inCall) {
-        console.log('App visible but in call, skipping WebSocket reconnect');
-        return;
-      }
-      if (document.visibilityState === 'visible' && identity && (!ws || ws.readyState !== WebSocket.OPEN)) {
-        console.log('App visible, reconnecting WebSocket...');
-        wsReconnectAttempt.current = 0; // Reset for immediate connection
-        initWebSocket(identity);
+      if (document.visibilityState === 'visible' && identity) {
+        // Always check connection when app becomes visible
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          console.log('App visible, reconnecting WebSocket immediately...');
+          wsReconnectAttempt.current = 0;
+          // Clear any pending reconnect to avoid double connections
+          if (wsReconnectTimeout.current) {
+            clearTimeout(wsReconnectTimeout.current);
+            wsReconnectTimeout.current = null;
+          }
+          initWebSocket(identity);
+        }
       }
     };
     
     const handleOnline = () => {
-      // Skip reconnection if in a call
-      if (inCall) {
-        console.log('Network online but in call, skipping WebSocket reconnect');
-        return;
-      }
       if (identity && (!ws || ws.readyState !== WebSocket.OPEN)) {
-        console.log('Network online, reconnecting WebSocket...');
+        console.log('Network online, reconnecting WebSocket immediately...');
         wsReconnectAttempt.current = 0;
+        // Clear any pending reconnect
+        if (wsReconnectTimeout.current) {
+          clearTimeout(wsReconnectTimeout.current);
+          wsReconnectTimeout.current = null;
+        }
         initWebSocket(identity);
       }
     };
