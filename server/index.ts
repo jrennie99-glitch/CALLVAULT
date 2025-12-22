@@ -27,13 +27,18 @@ const AI_BOT_USER_AGENTS = [
   'GPTBot', 'ChatGPT-User', 'CCBot', 'anthropic-ai', 'Claude-Web',
   'Google-Extended', 'Bytespider', 'Applebot-Extended', 'PerplexityBot',
   'YouBot', 'Amazonbot', 'cohere-ai', 'Diffbot', 'OAI-SearchBot',
-  'Scrapy', 'python-requests', 'axios', 'curl', 'wget'
+  'Scrapy'
 ];
 
 app.use((req, res, next) => {
   const userAgent = req.headers['user-agent'] || '';
   
-  // Block known AI bots from accessing the app
+  // Allow requests without user-agent (internal/health checks)
+  if (!userAgent) {
+    return next();
+  }
+  
+  // Block known AI bots from accessing the app (but not dev tools like curl)
   const isAIBot = AI_BOT_USER_AGENTS.some(bot => 
     userAgent.toLowerCase().includes(bot.toLowerCase())
   );
