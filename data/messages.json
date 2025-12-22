@@ -60,6 +60,17 @@
       "attachment_size": 3165672,
       "nonce": "c7fwd3q6kxhmje8b0pr",
       "status": "read"
+    },
+    {
+      "id": "msg_1766380661654_5lopy9v7b",
+      "convo_id": "dm_call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehga",
+      "from_address": "call:Frp14YTeJb4TvgvWpPjfgHKggeuyuczX86sfRQnnoUyP:9RwA82PjCEv",
+      "to_address": "call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehgaZxj9ua2wq:iMbPcedKjup",
+      "timestamp": 1766380661654,
+      "type": "text",
+      "content": "Hey",
+      "nonce": "rlf76scnsjkmjgpftee",
+      "status": "sent"
     }
   ]
 }

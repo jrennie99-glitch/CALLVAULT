@@ -168,9 +168,56 @@ interface ClientConnection {
   ws: WebSocket;
   address: string;
   pubkey?: string;
+  connectionId: string; // Unique ID for each connection
 }
 
-const connections = new Map<string, ClientConnection>();
+// Multi-device support: Store array of connections per address
+const connections = new Map<string, ClientConnection[]>();
+
+// Helper function to add a connection for an address
+function addConnection(address: string, conn: ClientConnection) {
+  const existing = connections.get(address) || [];
+  existing.push(conn);
+  connections.set(address, existing);
+}
+
+// Helper function to remove a specific connection
+function removeConnection(address: string, connectionId: string) {
+  const existing = connections.get(address);
+  if (!existing) return;
+  const filtered = existing.filter(c => c.connectionId !== connectionId);
+  if (filtered.length === 0) {
+    connections.delete(address);
+  } else {
+    connections.set(address, filtered);
+  }
+}
+
+// Helper to get first active connection for an address (backwards compatibility)
+function getConnection(address: string): ClientConnection | undefined {
+  const conns = connections.get(address);
+  return conns?.[0];
+}
+
+// Helper to check if a specific WebSocket belongs to an address
+function isConnectionForAddress(address: string, ws: WebSocket): boolean {
+  const conns = connections.get(address);
+  return conns?.some(c => c.ws === ws) ?? false;
+}
+
+// Helper to broadcast to all connections for an address
+function broadcastToAddress(address: string, message: any) {
+  const conns = connections.get(address);
+  if (!conns) return;
+  const msgStr = typeof message === 'string' ? message : JSON.stringify(message);
+  for (const conn of conns) {
+    try {
+      conn.ws.send(msgStr);
+    } catch (e) {
+      console.error(`Failed to send to ${address}:`, e);
+    }
+  }
+}
 const recentNonces = new Map<string, number>();
 // Trial nonces are now persisted in database (trialNoncesTable) for replay protection across restarts
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
@@ -793,18 +840,15 @@ export async function registerRoutes(
       const contactAddress = req.body.contactAddress;
       const ownerAddress = req.body.ownerAddress;
       if (contactAddress) {
-        const contactConnection = connections.get(contactAddress);
-        if (contactConnection) {
-          contactConnection.ws.send(JSON.stringify({
+        broadcastToAddress(contactAddress, {
             type: 'contact:added_by',
             data: {
               addedBy: ownerAddress,
               name: req.body.name || 'Unknown',
               timestamp: Date.now()
             }
-          }));
+          });
           console.log(`[contact:added_by] Notified ${contactAddress} that ${ownerAddress} added them`);
-        }
       }
       
       res.json(contact);
@@ -5194,7 +5238,9 @@ export async function registerRoutes(
           case 'register': {
             const { address } = message;
             clientAddress = address;
-            connections.set(address, { ws, address });
+            const connectionId = randomUUID();
+            (ws as any).__connectionId = connectionId; // Store connectionId on ws for cleanup
+            addConnection(address, { ws, address, connectionId });
             ws.send(JSON.stringify({ type: 'success', message: 'Registered successfully' } as WSMessage));
             console.log(`Client registered: ${address}`);
             
@@ -5222,14 +5268,11 @@ export async function registerRoutes(
                   console.log(`Delivered pending message ${pendingMsg.id} to ${address}`);
                   
                   // Notify sender if online
-                  const senderConn = connections.get(pendingMsg.fromAddress);
-                  if (senderConn) {
-                    senderConn.ws.send(JSON.stringify({
+                  broadcastToAddress(pendingMsg.fromAddress, {
                       type: 'msg:delivered',
                       message_id: pendingMsg.id,
                       convo_id: pendingMsg.convoId
-                    } as WSMessage));
-                  }
+                    });
                 } catch (e) {
                   console.error('Error delivering pending message:', e);
                 }
@@ -5267,13 +5310,12 @@ export async function registerRoutes(
               return;
             }
             
-            const senderConnection = connections.get(signedIntent.intent.from_address);
-            if (!senderConnection || senderConnection.ws !== ws) {
+            if (!isConnectionForAddress(signedIntent.intent.from_address, ws)) {
               ws.send(JSON.stringify({ type: 'error', message: 'Address spoofing detected' } as WSMessage));
               return;
             }
             
-            const targetConnection = connections.get(signedIntent.intent.to_address);
+            const targetConnection = getConnection(signedIntent.intent.to_address);
             if (!targetConnection) {
               // Recipient is offline - try push notification first
               const callerAddr = signedIntent.intent.from_address;
@@ -5312,7 +5354,7 @@ export async function registerRoutes(
                   await new Promise(resolve => setTimeout(resolve, checkInterval));
                   waitTime += checkInterval;
                   
-                  const newConnection = connections.get(recipientAddr);
+                  const newConnection = getConnection(recipientAddr);
                   if (newConnection) {
                     // Recipient came online! Forward the call
                     console.log(`Recipient ${recipientAddr} came online after push, forwarding call`);
@@ -5603,7 +5645,7 @@ export async function registerRoutes(
             
             policyStore.updateCallRequest(request_id, accepted ? 'accepted' : 'declined');
             
-            const callerConnection = connections.get(request.from_address);
+            const callerConnection = getConnection(request.from_address);
             if (callerConnection) {
               if (accepted) {
                 callerConnection.ws.send(JSON.stringify({
@@ -5622,7 +5664,7 @@ export async function registerRoutes(
           }
 
           case 'call:accept': {
-            const targetConnection = connections.get(message.to_address);
+            const targetConnection = getConnection(message.to_address);
             if (targetConnection) {
               targetConnection.ws.send(JSON.stringify(message));
             }
@@ -5646,7 +5688,7 @@ export async function registerRoutes(
           }
           
           case 'call:reject': {
-            const targetConnection = connections.get(message.to_address);
+            const targetConnection = getConnection(message.to_address);
             if (targetConnection) {
               targetConnection.ws.send(JSON.stringify(message));
             }
@@ -5659,7 +5701,7 @@ export async function registerRoutes(
           }
           
           case 'call:end': {
-            const targetConnection = connections.get(message.to_address);
+            const targetConnection = getConnection(message.to_address);
             if (targetConnection) {
               targetConnection.ws.send(JSON.stringify(message));
             }
@@ -5675,7 +5717,7 @@ export async function registerRoutes(
           case 'webrtc:offer':
           case 'webrtc:answer':
           case 'webrtc:ice': {
-            const targetConnection = connections.get(message.to_address);
+            const targetConnection = getConnection(message.to_address);
             if (targetConnection) {
               targetConnection.ws.send(JSON.stringify(message));
             }
@@ -5684,7 +5726,7 @@ export async function registerRoutes(
 
           // Call Waiting (phone-like)
           case 'call:hold': {
-            const targetConnection = connections.get(message.to_address);
+            const targetConnection = getConnection(message.to_address);
             if (targetConnection && clientAddress) {
               targetConnection.ws.send(JSON.stringify({
                 type: 'call:held',
@@ -5695,7 +5737,7 @@ export async function registerRoutes(
           }
 
           case 'call:resume': {
-            const targetConnection = connections.get(message.to_address);
+            const targetConnection = getConnection(message.to_address);
             if (targetConnection && clientAddress) {
               targetConnection.ws.send(JSON.stringify({
                 type: 'call:resumed',
@@ -5706,12 +5748,12 @@ export async function registerRoutes(
           }
 
           case 'call:busy_waiting': {
-            const targetConnection = connections.get(message.to_address);
+            const targetConnection = getConnection(message.to_address);
             if (targetConnection && clientAddress) {
               targetConnection.ws.send(JSON.stringify({
                 type: 'call:waiting',
                 from_address: clientAddress,
-                from_pubkey: connections.get(clientAddress)?.pubkey || '',
+                from_pubkey: getConnection(clientAddress)?.pubkey || '',
                 media: { audio: true, video: false }
               } as WSMessage));
             }
@@ -5763,16 +5805,13 @@ export async function registerRoutes(
 
               // Send invites to participants
               for (const addr of message.participant_addresses || []) {
-                const participantConn = connections.get(addr);
-                if (participantConn) {
-                  participantConn.ws.send(JSON.stringify({
+                broadcastToAddress(addr, {
                     type: 'room:invite',
                     room_id: room.id,
                     to_address: addr,
                     from_address: clientAddress,
                     is_video: message.is_video
-                  } as WSMessage));
-                }
+                  });
               }
             } catch (error) {
               console.error('Error creating room:', error);
@@ -5865,14 +5904,11 @@ export async function registerRoutes(
 
               for (const p of participants) {
                 if (p.userAddress !== clientAddress) {
-                  const pConn = connections.get(p.userAddress);
-                  if (pConn) {
-                    pConn.ws.send(JSON.stringify({
+                  broadcastToAddress(p.userAddress, {
                       type: 'room:participant_joined',
                       room_id: message.room_id,
                       participant: newParticipant
-                    } as WSMessage));
-                  }
+                    });
                 }
               }
             } catch (error) {
@@ -5891,14 +5927,11 @@ export async function registerRoutes(
               // Notify other participants
               const participants = await storage.getRoomParticipants(message.room_id);
               for (const p of participants) {
-                const pConn = connections.get(p.userAddress);
-                if (pConn) {
-                  pConn.ws.send(JSON.stringify({
+                broadcastToAddress(p.userAddress, {
                     type: 'room:participant_left',
                     room_id: message.room_id,
                     user_address: message.from_address || clientAddress
-                  } as WSMessage));
-                }
+                  });
               }
 
               // End room if empty
@@ -5922,14 +5955,11 @@ export async function registerRoutes(
                 // Notify all participants
                 const participants = await storage.getRoomParticipants(message.room_id);
                 for (const p of participants) {
-                  const pConn = connections.get(p.userAddress);
-                  if (pConn) {
-                    pConn.ws.send(JSON.stringify({
+                  broadcastToAddress(p.userAddress, {
                       type: 'room:lock',
                       room_id: message.room_id,
                       locked: message.locked
-                    } as WSMessage));
-                  }
+                    });
                 }
               }
             } catch (error) {
@@ -5950,13 +5980,10 @@ export async function registerRoutes(
                 const participants = await storage.getRoomParticipants(message.room_id);
                 for (const p of participants) {
                   await storage.removeRoomParticipant(message.room_id, p.userAddress);
-                  const pConn = connections.get(p.userAddress);
-                  if (pConn) {
-                    pConn.ws.send(JSON.stringify({
+                  broadcastToAddress(p.userAddress, {
                       type: 'room:ended',
                       room_id: message.room_id
-                    } as WSMessage));
-                  }
+                    });
                 }
               }
             } catch (error) {
@@ -5969,7 +5996,7 @@ export async function registerRoutes(
           case 'mesh:offer':
           case 'mesh:answer':
           case 'mesh:ice': {
-            const targetConnection = connections.get(message.to_peer);
+            const targetConnection = getConnection(message.to_peer);
             if (targetConnection) {
               targetConnection.ws.send(JSON.stringify(message));
             }
@@ -6029,10 +6056,7 @@ export async function registerRoutes(
 
               for (const addr of message.call_addresses || []) {
                 if (addr !== clientAddress) {
-                  const pConn = connections.get(addr);
-                  if (pConn) {
-                    pConn.ws.send(JSON.stringify({ type: 'call:merged', room: roomData } as WSMessage));
-                  }
+                  broadcastToAddress(addr, { type: 'call:merged', room: roomData });
                 }
               }
             } catch (error) {
@@ -6050,8 +6074,7 @@ export async function registerRoutes(
               return;
             }
             
-            const senderConnection = connections.get(signedMsg.message.from_address);
-            if (!senderConnection || senderConnection.ws !== ws) {
+            if (!isConnectionForAddress(signedMsg.message.from_address, ws)) {
               ws.send(JSON.stringify({ type: 'error', message: 'Address spoofing detected' } as WSMessage));
               return;
             }
@@ -6066,13 +6089,13 @@ export async function registerRoutes(
               
               const recipients = convo.participant_addresses.filter(a => a !== msg.from_address);
               for (const recipientAddr of recipients) {
-                const recipientConnection = connections.get(recipientAddr);
+                const recipientConnection = getConnection(recipientAddr);
                 if (recipientConnection) {
-                  recipientConnection.ws.send(JSON.stringify({
+                  broadcastToAddress(recipientAddr, {
                     type: 'msg:incoming',
                     message: msg,
                     from_pubkey: signedMsg.from_pubkey
-                  } as WSMessage));
+                  });
                   
                   msg.status = 'delivered';
                   messageStore.updateMessageStatus(msg.id, 'delivered');
@@ -6106,22 +6129,22 @@ export async function registerRoutes(
               messageStore.addMessage(msg);
               messageStore.updateConversationLastMessage(dmConvo.id, msg);
               
-              const recipientConnection = connections.get(msg.to_address);
+              const recipientConnection = getConnection(msg.to_address);
               if (recipientConnection) {
-                recipientConnection.ws.send(JSON.stringify({
+                broadcastToAddress(msg.to_address, {
                   type: 'msg:incoming',
                   message: msg,
                   from_pubkey: signedMsg.from_pubkey
-                } as WSMessage));
+                });
                 
                 ws.send(JSON.stringify({
                   type: 'convo:create',
                   convo: dmConvo
                 } as WSMessage));
-                recipientConnection.ws.send(JSON.stringify({
+                broadcastToAddress(msg.to_address, {
                   type: 'convo:create',
                   convo: dmConvo
-                } as WSMessage));
+                });
                 
                 msg.status = 'delivered';
                 messageStore.updateMessageStatus(msg.id, 'delivered');
@@ -6169,15 +6192,12 @@ export async function registerRoutes(
               
               for (const participantAddr of convo.participant_addresses) {
                 if (participantAddr !== reader_address) {
-                  const conn = connections.get(participantAddr);
-                  if (conn) {
-                    conn.ws.send(JSON.stringify({
+                  broadcastToAddress(participantAddr, {
                       type: 'msg:read',
                       message_ids,
                       convo_id,
                       reader_address
-                    } as WSMessage));
-                  }
+                    });
                 }
               }
             }
@@ -6190,15 +6210,12 @@ export async function registerRoutes(
             if (convo) {
               for (const participantAddr of convo.participant_addresses) {
                 if (participantAddr !== from_address) {
-                  const conn = connections.get(participantAddr);
-                  if (conn) {
-                    conn.ws.send(JSON.stringify({
+                  broadcastToAddress(participantAddr, {
                       type: 'msg:typing',
                       convo_id,
                       from_address,
                       is_typing
-                    } as WSMessage));
-                  }
+                    });
                 }
               }
             }
@@ -6236,13 +6253,10 @@ export async function registerRoutes(
             const group = messageStore.createGroup(data.name, from_address, data.participant_addresses, data.icon);
             
             for (const addr of group.participant_addresses) {
-              const conn = connections.get(addr);
-              if (conn) {
-                conn.ws.send(JSON.stringify({
+              broadcastToAddress(addr, {
                   type: 'group:created',
                   convo: group
-                } as WSMessage));
-              }
+                });
             }
             
             console.log(`Group created: ${group.name} by ${from_address}`);
@@ -6266,14 +6280,11 @@ export async function registerRoutes(
             messageStore.removeGroupMember(group_id, leaverAddress);
             
             for (const addr of members) {
-              const conn = connections.get(addr);
-              if (conn) {
-                conn.ws.send(JSON.stringify({
+              broadcastToAddress(addr, {
                   type: 'group:member_left',
                   group_id,
                   member_address: leaverAddress
-                } as WSMessage));
-              }
+                });
             }
             
             console.log(`Member ${leaverAddress} left group ${group_id}`);
@@ -6302,14 +6313,11 @@ export async function registerRoutes(
             messageStore.removeGroupMember(group_id, member_address);
             
             for (const addr of members) {
-              const conn = connections.get(addr);
-              if (conn) {
-                conn.ws.send(JSON.stringify({
+              broadcastToAddress(addr, {
                   type: 'group:member_left',
                   group_id,
                   member_address
-                } as WSMessage));
-              }
+                });
             }
             
             console.log(`Member ${member_address} removed from group ${group_id} by admin ${adminAddress}`);
@@ -6509,7 +6517,10 @@ export async function registerRoutes(
 
     ws.on('close', () => {
       if (clientAddress) {
-        connections.delete(clientAddress);
+        const connectionId = (ws as any).__connectionId;
+        if (connectionId) {
+          removeConnection(clientAddress, connectionId);
+        }
         console.log(`Client disconnected: ${clientAddress}`);
       }
     });
