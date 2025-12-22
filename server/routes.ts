@@ -1849,61 +1849,40 @@ export async function registerRoutes(
         });
       }
       
-      // For Google Play: Verify purchase with Google Play Developer API (stub)
+      // For Google Play: Verify purchase with Google Play Developer API
+      // SECURITY: Do NOT activate until server-side verification is implemented
       if (provider === 'google_play') {
         if (!purchaseToken) {
           return res.status(400).json({ error: 'Missing purchaseToken for Google Play verification' });
         }
         
-        // TODO: Implement actual Google Play verification
+        // TODO: Implement actual Google Play verification using Google Play Developer API
         // const isValid = await verifyGooglePlayPurchase(purchaseToken, productId);
-        // For now, we'll trust the client but log for manual review
-        console.log(`[BILLING] Google Play activation requested: user=${userAddress}, plan=${planId}, token=${purchaseToken?.slice(0, 20)}...`);
+        // Until verification is implemented, reject all Google Play activations
+        console.log(`[BILLING] Google Play activation REJECTED (no verification): user=${userAddress}, plan=${planId}`);
+        return res.status(501).json({ 
+          error: 'Google Play verification not yet implemented',
+          message: 'Mobile billing is coming soon. Please use the web version to subscribe.' 
+        });
       }
       
-      // For Apple IAP: Verify receipt with Apple (stub)
+      // For Apple IAP: Verify receipt with Apple
+      // SECURITY: Do NOT activate until server-side verification is implemented
       if (provider === 'apple_iap') {
         if (!receipt) {
           return res.status(400).json({ error: 'Missing receipt for Apple IAP verification' });
         }
         
-        // TODO: Implement actual Apple receipt verification
-        console.log(`[BILLING] Apple IAP activation requested: user=${userAddress}, plan=${planId}`);
+        // TODO: Implement actual Apple receipt verification using App Store Server API
+        console.log(`[BILLING] Apple IAP activation REJECTED (no verification): user=${userAddress}, plan=${planId}`);
+        return res.status(501).json({ 
+          error: 'Apple IAP verification not yet implemented',
+          message: 'Mobile billing is coming soon. Please use the web version to subscribe.' 
+        });
       }
       
-      // Record the purchase
-      const purchase = await storage.createSubscriptionPurchase({
-        userAddress,
-        planId,
-        provider,
-        providerTransactionId: transactionId || undefined,
-        purchaseToken: purchaseToken || undefined,
-        status: 'active',
-        purchasedAt: new Date(),
-        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
-        metadata: { receipt: receipt ? 'provided' : undefined },
-      });
-      
-      // Update user's plan
-      await storage.updateIdentity(userAddress, {
-        plan: planId,
-        planStatus: 'active',
-      } as any);
-      
-      // Log the activation
-      await storage.createAuditLog({
-        actorAddress: userAddress,
-        targetAddress: userAddress,
-        actionType: 'SUBSCRIPTION_ACTIVATED',
-        metadata: { provider, planId, purchaseId: purchase.id },
-      });
-      
-      res.json({ 
-        success: true, 
-        plan: planId,
-        purchaseId: purchase.id,
-        message: `${planId.charAt(0).toUpperCase() + planId.slice(1)} plan activated via ${provider}`
-      });
+      // This point should not be reached (Stripe is rejected above, Google/Apple return 501)
+      return res.status(400).json({ error: 'Unknown provider' });
     } catch (error) {
       console.error('Error activating subscription:', error);
       res.status(500).json({ error: 'Failed to activate subscription' });
