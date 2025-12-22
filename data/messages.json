@@ -1,1 +1,15 @@
-{}
+{
+  "dm_1y2sb1_u19209_qq4ds7": [
+    {
+      "id": "msg_1766386544045_xxot3pnlq",
+      "convo_id": "dm_1y2sb1_u19209_qq4ds7",
+      "from_address": "call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehgaZxj9ua2wq:iMbPcedKjup",
+      "to_address": "call:Gpi2BnrsV4HZP3wDKLdbvAFZCSS9fZvAuDgxnM21wEau:fFBCJ99piYz",
+      "timestamp": 1766386544045,
+      "type": "text",
+      "content": "Yo",
+      "nonce": "nr5ywp738tmjgsxwa5",
+      "status": "sent"
+    }
+  ]
+}
