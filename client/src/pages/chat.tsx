@@ -6,6 +6,7 @@ import { EncryptionIndicator } from '@/components/EncryptionIndicator';
 import { EmojiReactionPicker, MessageReactions, ReactionTrigger } from '@/components/EmojiReactions';
 import { EmojiPicker } from '@/components/EmojiPicker';
 import { MemePicker } from '@/components/MemePicker';
+import { MessageContextMenu } from '@/components/MessageContextMenu';
 import { getContacts, type Contact } from '@/lib/storage';
 import { getLocalMessages, saveLocalMessage, updateLocalMessageStatus, getLocalConversation, clearUnreadCount, getPrivacySettings, generateMessageId } from '@/lib/messageStorage';
 import { signMessage } from '@/lib/crypto';
@@ -37,6 +38,12 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
   const [showMemePicker, setShowMemePicker] = useState(false);
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
   const [activeReactionMsgId, setActiveReactionMsgId] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    isOpen: boolean;
+    position: { x: number; y: number };
+    message: Message | null;
+  }>({ isOpen: false, position: { x: 0, y: 0 }, message: null });
+  const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -335,6 +342,57 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
 
   const handleEmojiSelect = (emoji: string) => {
     setInputText(prev => prev + emoji);
+  };
+
+  const handleLongPressStart = (e: React.TouchEvent | React.MouseEvent, msg: Message) => {
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    
+    longPressTimerRef.current = setTimeout(() => {
+      setContextMenu({
+        isOpen: true,
+        position: { x: clientX, y: clientY },
+        message: msg
+      });
+      if ('vibrate' in navigator) {
+        navigator.vibrate(50);
+      }
+    }, 500);
+  };
+
+  const handleLongPressEnd = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const handleContextMenuReact = (emoji: string) => {
+    if (contextMenu.message) {
+      handleReaction(contextMenu.message.id, emoji);
+    }
+  };
+
+  const handleContextMenuCopy = () => {
+    // Already handled in context menu
+  };
+
+  const handleContextMenuReply = () => {
+    if (contextMenu.message) {
+      setInputText(`> ${contextMenu.message.content}\n`);
+      toast.info('Reply feature coming soon');
+    }
+  };
+
+  const handleContextMenuForward = () => {
+    toast.info('Forward feature coming soon');
+  };
+
+  const handleContextMenuDelete = () => {
+    if (contextMenu.message) {
+      setMessages(prev => prev.filter(m => m.id !== contextMenu.message!.id));
+      toast.success('Message deleted');
+    }
   };
 
   const startRecording = async () => {
@@ -777,11 +835,26 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
                 <div className="group flex items-center">
                   <ReactionTrigger onOpenPicker={() => setActiveReactionMsgId(msg.id)} isMe={isMe} />
                   <div
-                    className={`rounded-2xl px-4 py-2 ${
+                    className={`rounded-2xl px-4 py-2 select-none cursor-pointer active:scale-[0.98] transition-transform ${
                       isMe
                         ? 'bg-emerald-600 text-white rounded-br-md'
                         : 'bg-slate-800 text-white rounded-bl-md'
                     }`}
+                    onTouchStart={(e) => handleLongPressStart(e, msg)}
+                    onTouchEnd={handleLongPressEnd}
+                    onTouchCancel={handleLongPressEnd}
+                    onMouseDown={(e) => handleLongPressStart(e, msg)}
+                    onMouseUp={handleLongPressEnd}
+                    onMouseLeave={handleLongPressEnd}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setContextMenu({
+                        isOpen: true,
+                        position: { x: e.clientX, y: e.clientY },
+                        message: msg
+                      });
+                    }}
+                    data-testid={`message-bubble-${msg.id}`}
                   >
                     {convo.type === 'group' && !isMe && showAvatar && (
                       <div className="text-xs text-emerald-400 mb-1">{getContactName(msg.from_address)}</div>
@@ -1026,6 +1099,20 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
           )}
         </div>
       )}
+      
+      <MessageContextMenu
+        isOpen={contextMenu.isOpen}
+        position={contextMenu.position}
+        isOwnMessage={contextMenu.message?.from_address === identity.address}
+        messageContent={contextMenu.message?.content || ''}
+        messageType={contextMenu.message?.type || 'text'}
+        onClose={() => setContextMenu({ isOpen: false, position: { x: 0, y: 0 }, message: null })}
+        onReact={handleContextMenuReact}
+        onCopy={handleContextMenuCopy}
+        onReply={handleContextMenuReply}
+        onForward={handleContextMenuForward}
+        onDelete={handleContextMenuDelete}
+      />
     </div>
   );
 }
