@@ -26,6 +26,12 @@ export interface SignedCallIntent {
 export type MessageType = 'text' | 'image' | 'file' | 'voice' | 'video' | 'video_message';
 export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
 
+export interface MessageReaction {
+  emoji: string;
+  from_address: string;
+  timestamp: number;
+}
+
 export interface Message {
   id: string;
   convo_id: string;
@@ -37,12 +43,13 @@ export interface Message {
   attachment_url?: string;
   attachment_name?: string;
   attachment_size?: number;
-  attachment_duration?: number; // Duration in seconds for voice/video messages
-  attachment_thumbnail?: string; // Base64 thumbnail for video
-  transcription?: string; // AI-generated transcription for voice/video messages
+  attachment_duration?: number;
+  attachment_thumbnail?: string;
+  transcription?: string;
   reply_to?: string;
   nonce: string;
   status?: MessageStatus;
+  reactions?: MessageReaction[];
 }
 
 export interface SignedMessage {

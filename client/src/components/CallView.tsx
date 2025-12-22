@@ -18,9 +18,11 @@ import {
   User,
   Wifi,
   Radio,
-  Zap
+  Zap,
+  Lock
 } from 'lucide-react';
 import * as crypto from '@/lib/crypto';
+import { isFeatureEnabled } from '@/lib/featureFlags';
 import { addCallRecord, getContactByAddress } from '@/lib/storage';
 import type { CryptoIdentity, WSMessage } from '@shared/types';
 
@@ -910,6 +912,15 @@ export function CallView({
                   ) : (
                     <><Radio className="w-3 h-3 mr-1 inline" /> Relay</>
                   )}
+                </Badge>
+              )}
+              {callState === 'connected' && isFeatureEnabled('E2E_ENCRYPTION_INDICATOR') && (
+                <Badge 
+                  variant="outline" 
+                  className="text-xs bg-emerald-500/20 text-emerald-400 border-emerald-500/50"
+                  data-testid="badge-e2e-encrypted"
+                >
+                  <Lock className="w-3 h-3 mr-1 inline" /> E2E
                 </Badge>
               )}
             </div>

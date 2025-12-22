@@ -2,10 +2,13 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useRoute } from 'wouter';
 import { ArrowLeft, Send, Paperclip, Mic, Image, File, X, Play, Pause, Check, CheckCheck, Users, MoreVertical, Phone, Video, VideoIcon, Camera, Crown } from 'lucide-react';
 import { Avatar } from '@/components/Avatar';
+import { EncryptionIndicator } from '@/components/EncryptionIndicator';
+import { EmojiReactionPicker, MessageReactions, ReactionTrigger } from '@/components/EmojiReactions';
 import { getContacts, type Contact } from '@/lib/storage';
 import { getLocalMessages, saveLocalMessage, updateLocalMessageStatus, getLocalConversation, clearUnreadCount, getPrivacySettings, generateMessageId } from '@/lib/messageStorage';
 import { signMessage } from '@/lib/crypto';
-import type { Message, Conversation, CryptoIdentity, WSMessage, MessageType, MessageStatus } from '@shared/types';
+import { isFeatureEnabled } from '@/lib/featureFlags';
+import type { Message, Conversation, CryptoIdentity, WSMessage, MessageType, MessageStatus, MessageReaction } from '@shared/types';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 
@@ -29,6 +32,7 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
   const [recordingTime, setRecordingTime] = useState(0);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
+  const [activeReactionMsgId, setActiveReactionMsgId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -105,6 +109,18 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
         if (privacySettings.typingIndicators) {
           setRemoteTyping(data.is_typing);
         }
+      }
+
+      if (data.type === 'msg:reaction' && data.convo_id === convo.id) {
+        const { message_id, emoji, from_address } = data;
+        setMessages(prev => prev.map(m => {
+          if (m.id !== message_id) return m;
+          const existing = m.reactions?.find(r => r.from_address === from_address && r.emoji === emoji);
+          if (existing) {
+            return { ...m, reactions: m.reactions?.filter(r => !(r.from_address === from_address && r.emoji === emoji)) };
+          }
+          return { ...m, reactions: [...(m.reactions || []), { emoji, from_address, timestamp: Date.now() }] };
+        }));
       }
     };
 
@@ -233,6 +249,42 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
       from_address: identity.address,
       is_typing: typing
     }));
+  };
+
+  const handleReaction = (messageId: string, emoji: string) => {
+    if (!ws || !isFeatureEnabled('EMOJI_REACTIONS')) return;
+    
+    const msg = messages.find(m => m.id === messageId);
+    if (!msg) return;
+    
+    const existingReaction = msg.reactions?.find(r => r.from_address === identity.address && r.emoji === emoji);
+    
+    if (existingReaction) {
+      const updatedReactions = msg.reactions?.filter(r => !(r.from_address === identity.address && r.emoji === emoji)) || [];
+      setMessages(prev => prev.map(m => 
+        m.id === messageId ? { ...m, reactions: updatedReactions } : m
+      ));
+    } else {
+      const newReaction: MessageReaction = {
+        emoji,
+        from_address: identity.address,
+        timestamp: Date.now()
+      };
+      const updatedReactions = [...(msg.reactions || []), newReaction];
+      setMessages(prev => prev.map(m => 
+        m.id === messageId ? { ...m, reactions: updatedReactions } : m
+      ));
+    }
+    
+    ws.send(JSON.stringify({
+      type: 'msg:reaction',
+      message_id: messageId,
+      convo_id: convo.id,
+      emoji,
+      from_address: identity.address
+    }));
+    
+    setActiveReactionMsgId(null);
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -637,8 +689,10 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
           <div className="font-medium text-white truncate">
             {convo.type === 'group' ? convo.name : getContactName(getOtherAddress())}
           </div>
-          {remoteTyping && (
+          {remoteTyping ? (
             <div className="text-xs text-emerald-400">typing...</div>
+          ) : (
+            <EncryptionIndicator type="message" showLabel={false} className="mt-0.5" />
           )}
         </div>
         
@@ -688,26 +742,47 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
               )}
               {!isMe && !showAvatar && convo.type === 'group' && <div className="w-6" />}
               
-              <div
-                className={`max-w-[75%] rounded-2xl px-4 py-2 ${
-                  isMe
-                    ? 'bg-emerald-600 text-white rounded-br-md'
-                    : 'bg-slate-800 text-white rounded-bl-md'
-                }`}
-              >
-                {convo.type === 'group' && !isMe && showAvatar && (
-                  <div className="text-xs text-emerald-400 mb-1">{getContactName(msg.from_address)}</div>
+              <div className={`relative max-w-[75%] ${isMe ? 'items-end' : 'items-start'}`}>
+                <div className="group flex items-center">
+                  <ReactionTrigger onOpenPicker={() => setActiveReactionMsgId(msg.id)} isMe={isMe} />
+                  <div
+                    className={`rounded-2xl px-4 py-2 ${
+                      isMe
+                        ? 'bg-emerald-600 text-white rounded-br-md'
+                        : 'bg-slate-800 text-white rounded-bl-md'
+                    }`}
+                  >
+                    {convo.type === 'group' && !isMe && showAvatar && (
+                      <div className="text-xs text-emerald-400 mb-1">{getContactName(msg.from_address)}</div>
+                    )}
+                    
+                    {msg.type === 'text' && <p className="break-words">{msg.content}</p>}
+                    {renderAttachment(msg)}
+                    
+                    <div className={`flex items-center gap-1 mt-1 ${isMe ? 'justify-end' : ''}`}>
+                      <span className="text-[10px] opacity-60">
+                        {formatDistanceToNow(msg.timestamp, { addSuffix: false })}
+                      </span>
+                      {renderMessageStatus(msg)}
+                    </div>
+                  </div>
+                </div>
+                
+                {activeReactionMsgId === msg.id && (
+                  <EmojiReactionPicker 
+                    onSelect={(emoji) => handleReaction(msg.id, emoji)}
+                    onClose={() => setActiveReactionMsgId(null)}
+                  />
                 )}
                 
-                {msg.type === 'text' && <p className="break-words">{msg.content}</p>}
-                {renderAttachment(msg)}
-                
-                <div className={`flex items-center gap-1 mt-1 ${isMe ? 'justify-end' : ''}`}>
-                  <span className="text-[10px] opacity-60">
-                    {formatDistanceToNow(msg.timestamp, { addSuffix: false })}
-                  </span>
-                  {renderMessageStatus(msg)}
-                </div>
+                {msg.reactions && msg.reactions.length > 0 && (
+                  <MessageReactions 
+                    reactions={msg.reactions}
+                    myAddress={identity.address}
+                    onReact={(emoji) => handleReaction(msg.id, emoji)}
+                    isMe={isMe}
+                  />
+                )}
               </div>
             </div>
           );

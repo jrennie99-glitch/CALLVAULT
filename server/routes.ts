@@ -6222,6 +6222,34 @@ export async function registerRoutes(
             break;
           }
 
+          case 'msg:reaction': {
+            const { message_id, convo_id, emoji, from_address } = message;
+            
+            if (clientAddress !== from_address) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Address mismatch' } as WSMessage));
+              return;
+            }
+            
+            const convo = messageStore.getConversation(convo_id);
+            if (!convo || !convo.participant_addresses.includes(from_address)) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Not a participant' } as WSMessage));
+              return;
+            }
+            
+            for (const participantAddr of convo.participant_addresses) {
+              if (participantAddr !== from_address) {
+                broadcastToAddress(participantAddr, {
+                    type: 'msg:reaction',
+                    message_id,
+                    convo_id,
+                    emoji,
+                    from_address
+                  });
+              }
+            }
+            break;
+          }
+
           case 'group:create': {
             const { data, signature, from_pubkey, from_address, nonce, timestamp } = message;
             
