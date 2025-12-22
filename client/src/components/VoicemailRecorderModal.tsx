@@ -165,6 +165,7 @@ export function VoicemailRecorderModal({
           recipientAddress,
           senderAddress,
           senderName: senderName || 'Anonymous',
+          messageType: mode === 'audio' ? 'audio' : 'text',
           audioData: mode === 'audio' ? audioData : undefined,
           audioFormat: mode === 'audio' ? audioFormat : undefined,
           durationSeconds: mode === 'audio' ? recordingDuration : 0,

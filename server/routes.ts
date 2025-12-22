@@ -4554,14 +4554,14 @@ export async function registerRoutes(
   // Create a voicemail (leave a message - audio or text)
   app.post('/api/voicemails', async (req, res) => {
     try {
-      const { recipientAddress, senderAddress, senderName, audioData, audioFormat, durationSeconds, textContent } = req.body;
+      const { recipientAddress, senderAddress, senderName, messageType, audioData, audioFormat, durationSeconds, textContent } = req.body;
       
       // Either audio or text content required
       if (!recipientAddress || !senderAddress || (!audioData && !textContent)) {
         return res.status(400).json({ error: 'Missing required fields' });
       }
       
-      const isTextOnly = !audioData && textContent;
+      const isTextOnly = messageType === 'text' || (!audioData && textContent);
       
       const voicemail = await storage.createVoicemail({
         recipientAddress,

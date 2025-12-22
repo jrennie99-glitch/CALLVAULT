@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Voicemail, Play, Pause, Trash2, Bookmark, BookmarkCheck, Check, Clock, FileText, Volume2, User } from 'lucide-react';
+import { Voicemail, Play, Pause, Trash2, Bookmark, BookmarkCheck, Check, Clock, FileText, Volume2, User, MessageSquare } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar } from '@/components/Avatar';
 import { formatDistanceToNow } from 'date-fns';
@@ -11,9 +11,11 @@ interface VoicemailMessage {
   recipientAddress: string;
   senderAddress: string;
   senderName?: string;
-  audioData: string;
-  audioFormat: string;
-  durationSeconds: number;
+  messageType?: string;
+  textContent?: string;
+  audioData?: string;
+  audioFormat?: string;
+  durationSeconds?: number;
   transcription?: string;
   transcriptionStatus: string;
   isRead: boolean;
@@ -246,6 +248,8 @@ function VoicemailCard({
   onExpand,
   formatDuration
 }: VoicemailCardProps) {
+  const isTextMessage = voicemail.messageType === 'text' || (!voicemail.audioData && voicemail.textContent);
+  
   return (
     <div
       className={`bg-slate-800/50 border rounded-xl overflow-hidden transition-all ${
@@ -269,32 +273,51 @@ function VoicemailCard({
               </span>
             </div>
             <div className="flex items-center gap-2 mt-1 text-sm text-slate-400">
-              <Clock className="w-3 h-3" />
-              <span>{formatDuration(voicemail.durationSeconds)}</span>
-              {voicemail.transcription && (
+              {isTextMessage ? (
                 <>
-                  <FileText className="w-3 h-3 ml-2" />
-                  <span>Transcript available</span>
+                  <MessageSquare className="w-3 h-3" />
+                  <span>Text message</span>
+                </>
+              ) : (
+                <>
+                  <Clock className="w-3 h-3" />
+                  <span>{formatDuration(voicemail.durationSeconds || 0)}</span>
+                  {voicemail.transcription && (
+                    <>
+                      <FileText className="w-3 h-3 ml-2" />
+                      <span>Transcript available</span>
+                    </>
+                  )}
                 </>
               )}
             </div>
           </div>
         </div>
 
+        {isTextMessage && voicemail.textContent && (
+          <div className="mt-3 p-3 bg-slate-900/50 rounded-lg border border-slate-700">
+            <p className="text-slate-200 text-sm leading-relaxed whitespace-pre-wrap">
+              {voicemail.textContent}
+            </p>
+          </div>
+        )}
+
         <div className="flex items-center gap-2 mt-4">
-          <Button
-            onClick={onPlay}
-            size="sm"
-            className={isPlaying 
-              ? 'bg-emerald-500 hover:bg-emerald-600 text-white' 
-              : 'bg-slate-700 hover:bg-slate-600 text-white'}
-            data-testid={`button-play-${voicemail.id}`}
-          >
-            {isPlaying ? <Pause className="w-4 h-4 mr-2" /> : <Play className="w-4 h-4 mr-2" />}
-            {isPlaying ? 'Pause' : 'Play'}
-          </Button>
+          {!isTextMessage && (
+            <Button
+              onClick={onPlay}
+              size="sm"
+              className={isPlaying 
+                ? 'bg-emerald-500 hover:bg-emerald-600 text-white' 
+                : 'bg-slate-700 hover:bg-slate-600 text-white'}
+              data-testid={`button-play-${voicemail.id}`}
+            >
+              {isPlaying ? <Pause className="w-4 h-4 mr-2" /> : <Play className="w-4 h-4 mr-2" />}
+              {isPlaying ? 'Pause' : 'Play'}
+            </Button>
+          )}
           
-          {voicemail.transcription && (
+          {!isTextMessage && voicemail.transcription && (
             <Button
               onClick={onExpand}
               size="sm"
@@ -331,7 +354,7 @@ function VoicemailCard({
         </div>
       </div>
 
-      {isExpanded && voicemail.transcription && (
+      {isExpanded && voicemail.transcription && !isTextMessage && (
         <div className="px-4 pb-4">
           <div className="bg-slate-900/50 rounded-lg p-3 border border-slate-700">
             <div className="flex items-center gap-2 mb-2 text-xs text-slate-400 uppercase tracking-wider">
