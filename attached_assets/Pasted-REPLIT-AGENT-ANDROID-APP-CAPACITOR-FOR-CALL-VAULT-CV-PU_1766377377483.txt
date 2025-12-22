@@ -1,0 +1,133 @@
+REPLIT AGENT — ANDROID APP (CAPACITOR) FOR CALL VAULT (CV) + PUSH NOTIFICATIONS
+CRITICAL: Call Vault is already built. DO NOT remove, rename, rewrite, or break ANY existing feature or functionality (calling, messaging, crypto identity, admin, Stripe/crypto payments, PWA, etc.). This is an ADDITIVE upgrade ONLY.
+
+GOAL
+1) Keep the existing Web + PWA working exactly as-is.
+2) Add a native Android wrapper using Capacitor so Call Vault can be installed from Android as a real app.
+3) Add Android push notifications (FCM) so users get “Incoming Call” alerts even when the app is closed, and tapping the notification opens Call Vault directly to the incoming call screen.
+
+IMPORTANT REALITY
+- Replit can generate the Android project and code changes.
+- Building/signing and uploading to Google Play typically happens in Android Studio, but all project files must be produced in the repo.
+
+STEP 1 — DETECT STACK (DO NOT ASK UNLESS YOU CAN’T)
+Identify if frontend build output folder is `dist/`, `build/`, `.next/`, or similar. We will point Capacitor to the correct webDir without changing the app.
+
+STEP 2 — ADD CAPACITOR (ANDROID WRAPPER) WITHOUT BREAKING WEB/PWA
+A) Install deps (choose the right package manager used by the repo):
+- @capacitor/core
+- @capacitor/cli
+- @capacitor/android
+
+B) Initialize capacitor in repo root:
+- appId: com.callvault.cv
+- appName: Call Vault
+Create capacitor.config.(ts|json) with:
+- webDir = the existing production build output directory
+- server: only use “url” for dev if absolutely needed; production must use built web assets, not remote url.
+
+C) Add scripts to package.json (do NOT break existing scripts):
+- "build:web": run the existing web build command exactly as currently used
+- "cap:sync": "npx cap sync android"
+- "build:android": "npm run build:web && npx cap sync android"
+- "open:android": "npx cap open android"
+
+D) Generate android project:
+- `npx cap add android`
+Ensure `/android` folder exists in repo.
+
+STEP 3 — ANDROID PUSH (FCM) + TAP-TO-ANSWER FLOW
+We need real push on Android via Firebase Cloud Messaging.
+
+A) Add Capacitor push plugin:
+- @capacitor/push-notifications
+
+B) Create a small “push registration” module in the frontend:
+- On login or in Settings, user taps “Enable Notifications”
+- Request permission
+- Register for push
+- Obtain device token (FCM token)
+- Send token to backend endpoint:
+  POST /api/push/native/register
+  Body: { platform: "android", token: "<fcm_token>", deviceInfo, appVersion }
+
+C) Backend additions (ADD ONLY):
+1) DB table/collection `device_push_tokens`
+- id
+- user_id
+- platform ("android")
+- token
+- created_at
+- updated_at
+- last_success_at
+- last_error
+
+2) Endpoint:
+- POST /api/push/native/register (auth required)
+- POST /api/push/native/unregister (auth required)
+
+3) Incoming call invite triggers push:
+Wherever your server currently creates an incoming call session (or call invite), add:
+- sendPushToUser(callee_user_id, payload)
+Payload must include:
+- type: "incoming_call"
+- sessionId: "<callSessionId>"
+- callerName: "<display>"
+- callType: "voice"|"video"
+- url: "/app?incoming=1&session=<id>&type=<voice|video>"
+
+D) Android notification behavior:
+- Show heads-up notification: “Incoming Call — <callerName>”
+- When user taps notification:
+  - Open the app
+  - Deep-link to the URL above
+  - App loads incoming call screen and fetches session details, then Answer/Decline
+DO NOT auto-answer. Only open to the incoming screen.
+
+STEP 4 — FIREBASE CONFIG FILES (ANDROID)
+A) Add placeholders + instructions:
+- Create Firebase project (console.firebase.google.com)
+- Add Android app package: com.callvault.cv
+- Download `google-services.json`
+- Place it at: android/app/google-services.json
+
+B) Update android build files (ADD ONLY):
+- android/build.gradle and android/app/build.gradle:
+  - apply google-services plugin
+  - add firebase messaging dependency if required by Capacitor plugin docs
+- Ensure notifications channel created (Incoming Calls)
+
+STEP 5 — KEEP PWA WORKING
+- Do not delete/replace manifest/service-worker
+- Keep Web Push code if already added; native push is additional
+- Add platform detection:
+  - If Capacitor native: use FCM push path
+  - Else (web): use existing web push/PWA path
+
+STEP 6 — ANDROID BUILD OUTPUT INSTRUCTIONS (MUST PROVIDE)
+Add a README section “Android Build” with:
+1) Run: npm run build:android
+2) Open in Android Studio:
+   - npx cap open android
+3) Build APK (debug) + AAB (release)
+4) Where to set versionCode/versionName
+5) Signing steps (keystore)
+6) Google Play upload checklist
+
+QA CHECKLIST (MUST PASS)
+1) Web app still runs exactly like before.
+2) PWA still installs and works as before.
+3) Android app launches and logs in.
+4) User enables notifications, token registers in backend.
+5) Another user calls → callee receives push notification even if app is background/closed.
+6) Tapping notification opens incoming call screen and Answer works with existing WebRTC logic.
+7) Nothing existing was removed or broken.
+
+OUTPUT BACK TO ME
+- List all files added/changed (no deletions).
+- Updated package.json scripts.
+- Exact location for google-services.json.
+- Exact backend endpoints added and DB migration steps.
+- How to test two-phone scenario end-to-end.
+
+START NOW. DO NOT ASK QUESTIONS UNLESS YOU CANNOT DETECT THE EXISTING BUILD OUTPUT DIRECTORY OR BACKEND LANGUAGE.
