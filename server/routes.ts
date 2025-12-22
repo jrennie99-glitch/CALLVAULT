@@ -318,7 +318,34 @@ export async function registerRoutes(
   });
   
   // Legacy turn-config endpoint (kept for backwards compatibility)
-  app.get('/api/turn-config', (_req, res) => {
+  app.get('/api/turn-config', async (_req, res) => {
+    // Check for Metered.ca config first
+    let meteredAppName = process.env.METERED_APP_NAME;
+    const meteredSecretKey = process.env.METERED_SECRET_KEY;
+    
+    if (meteredAppName && meteredSecretKey) {
+      // Strip ".metered.live" suffix if user included it
+      meteredAppName = meteredAppName.replace(/\.metered\.live$/i, '');
+      
+      try {
+        // Fetch TURN credentials from Metered.ca API
+        const url = `https://${meteredAppName}.metered.live/api/v1/turn/credentials?apiKey=${meteredSecretKey}`;
+        console.log(`Fetching Metered TURN credentials from: ${meteredAppName}.metered.live`);
+        const response = await fetch(url);
+        if (response.ok) {
+          const iceServers = await response.json();
+          console.log('Metered TURN credentials fetched successfully:', iceServers.length, 'servers');
+          return res.json({ iceServers, metered: true });
+        } else {
+          const errorText = await response.text();
+          console.error('Metered API error:', response.status, errorText);
+        }
+      } catch (error) {
+        console.error('Failed to fetch Metered TURN credentials:', error);
+      }
+    }
+    
+    // Fallback to legacy TURN config
     const turnUrl = process.env.TURN_URL;
     const turnUser = process.env.TURN_USER;
     const turnPass = process.env.TURN_PASS;
@@ -388,8 +415,10 @@ export async function registerRoutes(
         }
       }
 
-      // Check if TURN is configured on server
-      const turnConfigured = !!(process.env.TURN_URL && process.env.TURN_USER && process.env.TURN_PASS);
+      // Check if TURN is configured on server (Metered.ca or legacy)
+      const meteredConfigured = !!(process.env.METERED_APP_NAME && process.env.METERED_SECRET_KEY);
+      const legacyTurnConfigured = !!(process.env.TURN_URL && process.env.TURN_USER && process.env.TURN_PASS);
+      const turnConfigured = meteredConfigured || legacyTurnConfigured;
       const finalAllowTurn = allowTurn && turnConfigured;
 
       // Create database-backed token with server timestamps
@@ -405,22 +434,40 @@ export async function registerRoutes(
       await recordTokenMetric('minted', address, userAgent, clientIp);
 
       // Build ICE servers config
-      const iceServers: any[] = [
+      let iceServers: any[] = [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' }
       ];
 
       // Add TURN servers for paid users if configured
       if (finalAllowTurn) {
-        const turnUrls = process.env.TURN_URLS 
-          ? process.env.TURN_URLS.split(',').map(u => u.trim())
-          : [process.env.TURN_URL!];
-        
-        iceServers.push({
-          urls: turnUrls,
-          username: process.env.TURN_USERNAME || process.env.TURN_USER,
-          credential: process.env.TURN_CREDENTIAL || process.env.TURN_PASS
-        });
+        if (meteredConfigured) {
+          // Fetch from Metered.ca API
+          try {
+            // Strip ".metered.live" suffix if user included it
+            const appName = (process.env.METERED_APP_NAME || '').replace(/\.metered\.live$/i, '');
+            const meteredResponse = await fetch(
+              `https://${appName}.metered.live/api/v1/turn/credentials?apiKey=${process.env.METERED_SECRET_KEY}`
+            );
+            if (meteredResponse.ok) {
+              const meteredServers = await meteredResponse.json();
+              iceServers = meteredServers; // Metered provides complete ICE server list
+            }
+          } catch (error) {
+            console.error('Failed to fetch Metered TURN credentials:', error);
+          }
+        } else if (legacyTurnConfigured) {
+          // Use legacy TURN config
+          const turnUrls = process.env.TURN_URLS 
+            ? process.env.TURN_URLS.split(',').map(u => u.trim())
+            : [process.env.TURN_URL!];
+          
+          iceServers.push({
+            urls: turnUrls,
+            username: process.env.TURN_USERNAME || process.env.TURN_USER,
+            credential: process.env.TURN_CREDENTIAL || process.env.TURN_PASS
+          });
+        }
       }
 
       // Return with server timestamps
