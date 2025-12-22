@@ -83,6 +83,8 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
   const [pushPermission, setPushPermission] = useState<NotificationPermission>('default');
   const [canInstallPwa, setCanInstallPwa] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isIOSBrowser, setIsIOSBrowser] = useState(false);
+  const [isPwaInstalled, setIsPwaInstalled] = useState(false);
 
   useEffect(() => {
     isPlatformAuthenticatorAvailable().then(setBiometricAvailable);
@@ -91,6 +93,13 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
     if ('Notification' in window) {
       setPushPermission(Notification.permission);
     }
+    
+    // Detect iOS Safari browser (not installed PWA)
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || 
+                        (window.navigator as any).standalone === true;
+    setIsIOSBrowser(isIOS && !isStandalone);
+    setIsPwaInstalled(isStandalone);
     
     // Listen for PWA install prompt
     const handleBeforeInstallPrompt = (e: Event) => {
@@ -426,9 +435,38 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
     setIsPushLoading(true);
     try {
       if (enabled) {
-        // Request permission
+        // Detect iOS Safari
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+        const isIOSSafari = isIOS && isSafari;
+        
+        // Check if running as installed PWA (standalone mode)
+        const isStandalone = window.matchMedia('(display-mode: standalone)').matches || 
+                            (window.navigator as any).standalone === true;
+        
+        // On iOS Safari, push only works when installed as PWA
+        if (isIOSSafari && !isStandalone) {
+          toast.error('On iOS, please install this app first: tap Share, then "Add to Home Screen"', { duration: 6000 });
+          return;
+        }
+        
+        // Check basic notification support
         if (!('Notification' in window)) {
-          toast.error('Notifications not supported in this browser');
+          if (isIOS) {
+            toast.error('Install this app to your home screen to enable notifications', { duration: 5000 });
+          } else {
+            toast.error('Notifications not supported in this browser');
+          }
+          return;
+        }
+        
+        // Check PushManager support
+        if (!('PushManager' in window)) {
+          if (isIOS) {
+            toast.error('Install this app to your home screen first, then enable notifications', { duration: 5000 });
+          } else {
+            toast.error('Push notifications not supported. Try Chrome or Firefox.');
+          }
           return;
         }
         
@@ -933,30 +971,35 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
             </div>
           </div>
 
-          <div className={`p-3 rounded-lg ${pushEnabled ? 'bg-green-500/10 border border-green-500/30' : 'bg-slate-900/30'}`}>
+          <div className={`p-3 rounded-lg ${pushEnabled ? 'bg-green-500/10 border border-green-500/30' : isIOSBrowser ? 'bg-amber-500/10 border border-amber-500/30' : 'bg-slate-900/30'}`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <Bell className={`w-5 h-5 ${pushEnabled ? 'text-green-400' : 'text-slate-400'}`} />
+                <Bell className={`w-5 h-5 ${pushEnabled ? 'text-green-400' : isIOSBrowser ? 'text-amber-400' : 'text-slate-400'}`} />
                 <div>
                   <p className="text-white font-medium flex items-center gap-2">
                     Call Notifications
                     {pushEnabled && (
                       <Badge className="bg-green-500/20 text-green-400 text-xs">Enabled</Badge>
                     )}
+                    {isIOSBrowser && !pushEnabled && (
+                      <Badge className="bg-amber-500/20 text-amber-400 text-xs">Setup Required</Badge>
+                    )}
                   </p>
                   <p className="text-slate-500 text-sm">
                     {pushEnabled 
                       ? 'Receive alerts for incoming calls' 
-                      : pushPermission === 'denied' 
-                        ? 'Enable in browser settings'
-                        : 'Get notified when someone calls'}
+                      : isIOSBrowser
+                        ? 'Install app first (see below)'
+                        : pushPermission === 'denied' 
+                          ? 'Enable in browser settings'
+                          : 'Get notified when someone calls'}
                   </p>
                 </div>
               </div>
               <Switch
                 checked={pushEnabled}
                 onCheckedChange={handlePushToggle}
-                disabled={isPushLoading || pushPermission === 'denied'}
+                disabled={isPushLoading || pushPermission === 'denied' || isIOSBrowser}
                 data-testid="switch-push-notifications"
               />
             </div>
@@ -972,6 +1015,26 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
               </Button>
             )}
           </div>
+
+          {isIOSBrowser && (
+            <div className="p-3 bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/30 rounded-lg">
+              <div className="flex items-start gap-3">
+                <Smartphone className="w-5 h-5 text-amber-400 mt-0.5" />
+                <div>
+                  <p className="text-white font-medium">Install Call Vault on iOS</p>
+                  <p className="text-amber-200/80 text-sm mt-1">
+                    To receive call notifications when the app is closed:
+                  </p>
+                  <ol className="text-amber-200/80 text-sm mt-2 space-y-1 list-decimal list-inside">
+                    <li>Tap the <span className="font-semibold">Share</span> button (square with arrow)</li>
+                    <li>Scroll and tap <span className="font-semibold">"Add to Home Screen"</span></li>
+                    <li>Open Call Vault from your home screen</li>
+                    <li>Enable notifications in Settings</li>
+                  </ol>
+                </div>
+              </div>
+            </div>
+          )}
 
           {canInstallPwa && (
             <button
