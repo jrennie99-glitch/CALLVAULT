@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useRoute } from 'wouter';
-import { ArrowLeft, Send, Paperclip, Mic, Image, File, X, Play, Pause, Check, CheckCheck, Users, MoreVertical, Phone, Video, VideoIcon, Camera, Crown } from 'lucide-react';
+import { ArrowLeft, Send, Paperclip, Mic, Image, File, X, Play, Pause, Check, CheckCheck, Users, MoreVertical, Phone, Video, VideoIcon, Camera, Crown, Smile, ImageIcon } from 'lucide-react';
 import { Avatar } from '@/components/Avatar';
 import { EncryptionIndicator } from '@/components/EncryptionIndicator';
 import { EmojiReactionPicker, MessageReactions, ReactionTrigger } from '@/components/EmojiReactions';
+import { EmojiPicker } from '@/components/EmojiPicker';
+import { MemePicker } from '@/components/MemePicker';
 import { getContacts, type Contact } from '@/lib/storage';
 import { getLocalMessages, saveLocalMessage, updateLocalMessageStatus, getLocalConversation, clearUnreadCount, getPrivacySettings, generateMessageId } from '@/lib/messageStorage';
 import { signMessage } from '@/lib/crypto';
@@ -31,6 +33,8 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
   const [isVideoRecording, setIsVideoRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showMemePicker, setShowMemePicker] = useState(false);
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
   const [activeReactionMsgId, setActiveReactionMsgId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -322,6 +326,15 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
       toast.error('Failed to upload file');
       console.error(error);
     }
+  };
+
+  const handleSendMeme = (memeUrl: string, memeName: string) => {
+    sendMessage('meme', memeName, memeUrl, memeName);
+    setShowMemePicker(false);
+  };
+
+  const handleEmojiSelect = (emoji: string) => {
+    setInputText(prev => prev + emoji);
   };
 
   const startRecording = async () => {
@@ -660,6 +673,24 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
       );
     }
     
+    if (msg.type === 'meme' && msg.attachment_url) {
+      return (
+        <div className="relative">
+          <img 
+            src={msg.attachment_url} 
+            alt={msg.content || 'Meme'}
+            className="max-w-[250px] rounded-lg cursor-pointer"
+            onClick={() => window.open(msg.attachment_url, '_blank')}
+          />
+          {msg.content && (
+            <div className="absolute bottom-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded-full">
+              {msg.content}
+            </div>
+          )}
+        </div>
+      );
+    }
+    
     return null;
   };
 
@@ -891,7 +922,45 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
                   <File className="w-5 h-5 text-blue-400" />
                   <span>File</span>
                 </button>
+                <button
+                  onClick={() => {
+                    setShowAttachMenu(false);
+                    setShowMemePicker(true);
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-2 text-white hover:bg-slate-700 text-left"
+                  data-testid="button-attach-meme"
+                >
+                  <ImageIcon className="w-5 h-5 text-orange-400" />
+                  <span>Meme</span>
+                </button>
               </div>
+            )}
+            
+            {showMemePicker && (
+              <MemePicker 
+                onSelect={handleSendMeme}
+                onClose={() => setShowMemePicker(false)}
+              />
+            )}
+          </div>
+          
+          <div className="relative">
+            <button
+              onClick={() => {
+                setShowEmojiPicker(!showEmojiPicker);
+                setShowMemePicker(false);
+              }}
+              className="w-10 h-10 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800"
+              data-testid="button-emoji"
+            >
+              <Smile className="w-5 h-5" />
+            </button>
+            
+            {showEmojiPicker && (
+              <EmojiPicker 
+                onSelect={handleEmojiSelect}
+                onClose={() => setShowEmojiPicker(false)}
+              />
             )}
           </div>
           

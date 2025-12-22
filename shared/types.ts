@@ -23,7 +23,7 @@ export interface SignedCallIntent {
 }
 
 // Message types
-export type MessageType = 'text' | 'image' | 'file' | 'voice' | 'video' | 'video_message';
+export type MessageType = 'text' | 'image' | 'file' | 'voice' | 'video' | 'video_message' | 'meme';
 export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
 
 export interface MessageReaction {
