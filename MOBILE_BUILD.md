@@ -146,14 +146,61 @@ The app is configured in `capacitor.config.ts`:
 - Running on physical devices
 - Building release APKs/IPAs
 
-## Push Notifications on Native
+## Push Notifications on Native (Android FCM)
 
-The current web push implementation uses the Web Push API. For native push notifications:
+Call Vault includes native push notification support for incoming calls using Firebase Cloud Messaging (FCM).
 
-1. **Android**: Will need Firebase Cloud Messaging (FCM) setup
-2. **iOS**: Will need Apple Push Notification service (APNs) setup
+### FCM Setup Steps
 
-The `IS_NATIVE` flag can be used to conditionally use native push plugins instead of web push.
+1. **Create Firebase Project**
+   - Go to [Firebase Console](https://console.firebase.google.com)
+   - Create a new project or select existing one
+   - Enable Google Analytics (optional)
+
+2. **Add Android App**
+   - Click "Add app" and select Android
+   - Package name: `com.callvault.cv`
+   - Download `google-services.json`
+   - Place it at: `android/app/google-services.json`
+   - (See `android/app/google-services.json.placeholder` for structure reference)
+
+3. **Get FCM Server Key**
+   - In Firebase Console, go to Project Settings > Cloud Messaging
+   - Copy the "Server key" (Legacy API key)
+   - Add to your backend as environment variable: `FCM_SERVER_KEY=your_server_key`
+
+4. **Build and Test**
+   ```bash
+   npm run build && npx cap sync android
+   npx cap open android
+   ```
+
+### How Native Push Works
+
+1. User enables notifications in Settings on the native app
+2. App registers with FCM and gets a device token
+3. Token is sent to backend via `/api/push/native/register`
+4. When someone calls the user, backend sends FCM push to device
+5. Device shows "Incoming Call" notification
+6. Tapping notification opens app to the call screen
+
+### Testing Two-Phone Scenario
+
+1. Install app on two Android devices (or emulator + device)
+2. User A and User B both enable notifications in Settings
+3. User A adds User B as a contact
+4. User A calls User B
+5. User B should receive push notification even if app is in background
+6. User B taps notification → app opens to incoming call screen
+
+### iOS Push (APNs) - Future
+
+iOS native push requires Apple Push Notification service setup. The `IS_NATIVE` flag can be used to conditionally use native push plugins.
+
+For iOS setup:
+1. Create APNs key in Apple Developer Portal
+2. Upload to Firebase (if using FCM for iOS) or configure directly
+3. Implement APNs-specific push handling
 
 ## Known Limitations
 

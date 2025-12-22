@@ -136,6 +136,30 @@ export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions
 export type InsertPushSubscription = z.infer<typeof insertPushSubscriptionSchema>;
 export type PushSubscription = typeof pushSubscriptions.$inferSelect;
 
+// Native device push tokens (FCM for Android, APNs for iOS)
+export const devicePushTokens = pgTable("device_push_tokens", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userAddress: text("user_address").notNull(),
+  platform: text("platform").notNull(), // 'android' | 'ios'
+  token: text("token").notNull(),
+  deviceInfo: text("device_info"), // JSON string with device details
+  appVersion: text("app_version"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  lastSuccessAt: timestamp("last_success_at"),
+  lastError: text("last_error"),
+});
+
+export const insertDevicePushTokenSchema = createInsertSchema(devicePushTokens).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  lastSuccessAt: true,
+  lastError: true,
+});
+export type InsertDevicePushToken = z.infer<typeof insertDevicePushTokenSchema>;
+export type DevicePushToken = typeof devicePushTokens.$inferSelect;
+
 export const contacts = pgTable("contacts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   ownerAddress: text("owner_address").notNull(),

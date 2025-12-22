@@ -29,53 +29,135 @@ if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
   console.log('Web Push not configured - set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY to enable push notifications');
 }
 
-// Helper to send push notification
-async function sendPushNotification(
-  userAddress: string, 
-  payload: { type: string; title: string; body: string; from_address?: string; convo_id?: string; tag?: string }
+// FCM Server Key for native push (set via environment variable)
+const FCM_SERVER_KEY = process.env.FCM_SERVER_KEY || '';
+
+// Helper to send FCM push notification to native devices
+async function sendFcmPushNotification(
+  userAddress: string,
+  payload: { 
+    type: string; 
+    title: string; 
+    body: string; 
+    from_address?: string; 
+    sessionId?: string;
+    callType?: string;
+    url?: string;
+  }
 ): Promise<boolean> {
-  if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
-    console.log('Push notifications not configured');
+  if (!FCM_SERVER_KEY) {
     return false;
   }
   
   try {
-    const subscriptions = await storage.getPushSubscriptions(userAddress);
-    if (subscriptions.length === 0) {
-      console.log(`No push subscriptions for ${userAddress}`);
+    const deviceTokens = await storage.getDevicePushTokens(userAddress);
+    if (deviceTokens.length === 0) {
       return false;
     }
     
     let sent = false;
-    for (const sub of subscriptions) {
+    for (const device of deviceTokens) {
+      if (device.platform !== 'android') continue; // FCM is for Android
+      
       try {
-        await webpush.sendNotification(
-          {
-            endpoint: sub.endpoint,
-            keys: {
-              p256dh: sub.p256dhKey,
-              auth: sub.authKey
-            }
+        const response = await fetch('https://fcm.googleapis.com/fcm/send', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `key=${FCM_SERVER_KEY}`,
           },
-          JSON.stringify(payload)
-        );
-        sent = true;
-        console.log(`Push notification sent to ${userAddress}`);
-      } catch (err: any) {
-        // If subscription is no longer valid, remove it
-        if (err.statusCode === 404 || err.statusCode === 410) {
-          await storage.deletePushSubscription(userAddress, sub.endpoint);
-          console.log(`Removed invalid push subscription for ${userAddress}`);
+          body: JSON.stringify({
+            to: device.token,
+            priority: 'high',
+            notification: {
+              title: payload.title,
+              body: payload.body,
+              channel_id: 'incoming_calls',
+              sound: 'default',
+            },
+            data: {
+              type: payload.type,
+              from_address: payload.from_address || '',
+              sessionId: payload.sessionId || '',
+              callType: payload.callType || 'audio',
+              url: payload.url || `/app?incoming=1`,
+            },
+          }),
+        });
+        
+        if (response.ok) {
+          await storage.updateDevicePushTokenStatus(device.token, true);
+          sent = true;
+          console.log(`FCM push sent to ${userAddress} (Android)`);
         } else {
-          console.error('Push notification error:', err.message);
+          const errorText = await response.text();
+          await storage.updateDevicePushTokenStatus(device.token, false, errorText);
+          console.error(`FCM push failed: ${errorText}`);
         }
+      } catch (err: any) {
+        await storage.updateDevicePushTokenStatus(device.token, false, err.message);
+        console.error('FCM push error:', err.message);
       }
     }
     return sent;
   } catch (error) {
-    console.error('Error sending push notification:', error);
+    console.error('Error sending FCM push:', error);
     return false;
   }
+}
+
+// Helper to send push notification (web + native)
+async function sendPushNotification(
+  userAddress: string, 
+  payload: { type: string; title: string; body: string; from_address?: string; convo_id?: string; tag?: string; sessionId?: string; callType?: string; url?: string }
+): Promise<boolean> {
+  let webPushSent = false;
+  let nativePushSent = false;
+  
+  // Try web push
+  if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
+    try {
+      const subscriptions = await storage.getPushSubscriptions(userAddress);
+      for (const sub of subscriptions) {
+        try {
+          await webpush.sendNotification(
+            {
+              endpoint: sub.endpoint,
+              keys: {
+                p256dh: sub.p256dhKey,
+                auth: sub.authKey
+              }
+            },
+            JSON.stringify(payload)
+          );
+          webPushSent = true;
+          console.log(`Web push notification sent to ${userAddress}`);
+        } catch (err: any) {
+          if (err.statusCode === 404 || err.statusCode === 410) {
+            await storage.deletePushSubscription(userAddress, sub.endpoint);
+            console.log(`Removed invalid push subscription for ${userAddress}`);
+          } else {
+            console.error('Web push notification error:', err.message);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error sending web push notification:', error);
+    }
+  }
+  
+  // Try native FCM push
+  nativePushSent = await sendFcmPushNotification(userAddress, {
+    type: payload.type,
+    title: payload.title,
+    body: payload.body,
+    from_address: payload.from_address,
+    sessionId: payload.sessionId,
+    callType: payload.callType,
+    url: payload.url,
+  });
+  
+  return webPushSent || nativePushSent;
 }
 
 const BCRYPT_SALT_ROUNDS = 12;
@@ -4012,6 +4094,96 @@ export async function registerRoutes(
     }
   });
 
+  // Native device push token registration (FCM/APNs)
+  app.post('/api/push/native/register', async (req, res) => {
+    try {
+      const { userAddress, platform, token, deviceInfo, appVersion, signature, timestamp, nonce } = req.body;
+      
+      if (!userAddress || !platform || !token || !signature || !timestamp || !nonce) {
+        return res.status(400).json({ error: 'Missing required fields' });
+      }
+      
+      // Verify timestamp is recent (within 2 minutes)
+      const now = Date.now();
+      const requestTime = parseInt(timestamp, 10);
+      if (isNaN(requestTime) || Math.abs(now - requestTime) > 2 * 60 * 1000) {
+        return res.status(400).json({ error: 'Request expired. Please try again.' });
+      }
+      
+      // Verify signature using Ed25519
+      const message = `push-register:${userAddress}:${platform}:${token}:${timestamp}:${nonce}`;
+      const messageBytes = new TextEncoder().encode(message);
+      
+      try {
+        const parts = userAddress.split(':');
+        if (parts.length !== 3 || parts[0] !== 'call') {
+          return res.status(400).json({ error: 'Invalid address format' });
+        }
+        const publicKey = bs58.decode(parts[1]);
+        const signatureBytes = bs58.decode(signature);
+        
+        const isValid = nacl.sign.detached.verify(messageBytes, signatureBytes, publicKey);
+        if (!isValid) {
+          return res.status(403).json({ error: 'Invalid signature' });
+        }
+      } catch (sigError) {
+        console.error('Signature verification error:', sigError);
+        return res.status(403).json({ error: 'Signature verification failed' });
+      }
+      
+      await storage.saveDevicePushToken(userAddress, platform, token, deviceInfo, appVersion);
+      console.log(`Native push token registered for ${userAddress} (${platform})`);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error registering native push token:', error);
+      res.status(500).json({ error: 'Failed to register push token' });
+    }
+  });
+
+  app.post('/api/push/native/unregister', async (req, res) => {
+    try {
+      const { userAddress, token, signature, timestamp, nonce } = req.body;
+      
+      if (!userAddress || !token || !signature || !timestamp || !nonce) {
+        return res.status(400).json({ error: 'Missing required fields' });
+      }
+      
+      // Verify timestamp is recent
+      const now = Date.now();
+      const requestTime = parseInt(timestamp, 10);
+      if (isNaN(requestTime) || Math.abs(now - requestTime) > 2 * 60 * 1000) {
+        return res.status(400).json({ error: 'Request expired' });
+      }
+      
+      // Verify signature
+      const message = `push-unregister:${userAddress}:${token}:${timestamp}:${nonce}`;
+      const messageBytes = new TextEncoder().encode(message);
+      
+      try {
+        const parts = userAddress.split(':');
+        if (parts.length !== 3 || parts[0] !== 'call') {
+          return res.status(400).json({ error: 'Invalid address format' });
+        }
+        const publicKey = bs58.decode(parts[1]);
+        const signatureBytes = bs58.decode(signature);
+        
+        const isValid = nacl.sign.detached.verify(messageBytes, signatureBytes, publicKey);
+        if (!isValid) {
+          return res.status(403).json({ error: 'Invalid signature' });
+        }
+      } catch (sigError) {
+        return res.status(403).json({ error: 'Signature verification failed' });
+      }
+      
+      await storage.deleteDevicePushToken(userAddress, token);
+      console.log(`Native push token unregistered for ${userAddress}`);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error unregistering native push token:', error);
+      res.status(500).json({ error: 'Failed to unregister push token' });
+    }
+  });
+
   // Send test push notification to the authenticated user (signature verified)
   app.post('/api/push/test', async (req, res) => {
     try {
@@ -4892,7 +5064,8 @@ export async function registerRoutes(
               // Recipient is offline - try push notification first
               const callerAddr = signedIntent.intent.from_address;
               const recipientAddr = signedIntent.intent.to_address;
-              const mediaType = signedIntent.intent.media || 'audio';
+              const mediaObj = signedIntent.intent.media || { audio: true, video: false };
+              const mediaType = mediaObj.video ? 'video' : 'audio';
               
               // Get caller's display name for notification
               const callerIdentity = await storage.getIdentity(callerAddr);
@@ -4900,12 +5073,16 @@ export async function registerRoutes(
               const callerName = callerContact?.name || callerIdentity?.displayName || callerAddr.slice(0, 12) + '...';
               
               // Try to send push notification to wake up the recipient
+              const callSessionId = randomUUID();
               const pushSent = await sendPushNotification(recipientAddr, {
-                type: 'call',
+                type: 'incoming_call',
                 title: 'Incoming Call',
                 body: `${callerName} is calling you`,
                 from_address: callerAddr,
-                tag: 'incoming-call'
+                tag: 'incoming-call',
+                sessionId: callSessionId,
+                callType: mediaType,
+                url: `/app?incoming=1&session=${callSessionId}&type=${mediaType}`
               });
               
               if (pushSent) {
@@ -4929,7 +5106,7 @@ export async function registerRoutes(
                       type: 'call:incoming',
                       from_address: callerAddr,
                       from_pubkey: signedIntent.intent.from_pubkey,
-                      media: mediaType
+                      media: mediaObj
                     } as WSMessage));
                     return;
                   }

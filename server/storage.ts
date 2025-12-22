@@ -32,6 +32,7 @@ import {
   userEntitlementOverrides, type UserEntitlementOverrides, type InsertUserEntitlementOverrides,
   linkedAddresses, type LinkedAddress,
   pushSubscriptions, type PushSubscription,
+  devicePushTokens, type DevicePushToken,
   identityVaults, type IdentityVault, type InsertIdentityVault,
   vaultAccessLogs, type VaultAccessLog, type InsertVaultAccessLog,
   callIdSettings, type CallIdSettings, type InsertCallIdSettings,
@@ -289,6 +290,14 @@ export interface IStorage {
   getRoomParticipantCount(roomId: string): Promise<number>;
   isUserInRoom(roomId: string, userAddress: string): Promise<boolean>;
   updateParticipantMedia(roomId: string, userAddress: string, updates: { isMuted?: boolean; isVideoOff?: boolean }): Promise<void>;
+  
+  // Native device push tokens (FCM/APNs)
+  saveDevicePushToken(userAddress: string, platform: string, token: string, deviceInfo?: string, appVersion?: string): Promise<void>;
+  getDevicePushTokens(userAddress: string): Promise<{ platform: string; token: string; deviceInfo: string | null; appVersion: string | null }[]>;
+  deleteDevicePushToken(userAddress: string, token: string): Promise<void>;
+  deleteAllDevicePushTokens(userAddress: string): Promise<number>;
+  updateDevicePushTokenStatus(token: string, success: boolean, error?: string): Promise<void>;
+  getAllDevicePushTokensForUsers(userAddresses: string[]): Promise<{ userAddress: string; platform: string; token: string }[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1900,6 +1909,83 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(pushSubscriptions.createdAt))
       .limit(limit);
     return results;
+  }
+
+  // Native device push tokens (FCM/APNs) implementation
+  async saveDevicePushToken(userAddress: string, platform: string, token: string, deviceInfo?: string, appVersion?: string): Promise<void> {
+    const existing = await db.select().from(devicePushTokens)
+      .where(and(
+        eq(devicePushTokens.userAddress, userAddress),
+        eq(devicePushTokens.token, token)
+      ));
+    
+    if (existing.length > 0) {
+      await db.update(devicePushTokens)
+        .set({ platform, deviceInfo: deviceInfo || null, appVersion: appVersion || null, updatedAt: new Date() })
+        .where(and(
+          eq(devicePushTokens.userAddress, userAddress),
+          eq(devicePushTokens.token, token)
+        ));
+    } else {
+      await db.insert(devicePushTokens).values({
+        userAddress,
+        platform,
+        token,
+        deviceInfo: deviceInfo || null,
+        appVersion: appVersion || null,
+      });
+    }
+  }
+
+  async getDevicePushTokens(userAddress: string): Promise<{ platform: string; token: string; deviceInfo: string | null; appVersion: string | null }[]> {
+    const tokens = await db.select({
+      platform: devicePushTokens.platform,
+      token: devicePushTokens.token,
+      deviceInfo: devicePushTokens.deviceInfo,
+      appVersion: devicePushTokens.appVersion,
+    }).from(devicePushTokens)
+      .where(eq(devicePushTokens.userAddress, userAddress));
+    return tokens;
+  }
+
+  async deleteDevicePushToken(userAddress: string, token: string): Promise<void> {
+    await db.delete(devicePushTokens)
+      .where(and(
+        eq(devicePushTokens.userAddress, userAddress),
+        eq(devicePushTokens.token, token)
+      ));
+  }
+
+  async deleteAllDevicePushTokens(userAddress: string): Promise<number> {
+    const result = await db.delete(devicePushTokens)
+      .where(eq(devicePushTokens.userAddress, userAddress))
+      .returning();
+    return result.length;
+  }
+
+  async updateDevicePushTokenStatus(token: string, success: boolean, error?: string): Promise<void> {
+    const updates: any = { updatedAt: new Date() };
+    if (success) {
+      updates.lastSuccessAt = new Date();
+      updates.lastError = null;
+    } else if (error) {
+      updates.lastError = error;
+    }
+    await db.update(devicePushTokens)
+      .set(updates)
+      .where(eq(devicePushTokens.token, token));
+  }
+
+  async getAllDevicePushTokensForUsers(userAddresses: string[]): Promise<{ userAddress: string; platform: string; token: string }[]> {
+    if (userAddresses.length === 0) return [];
+    
+    const tokens = await db.select({
+      userAddress: devicePushTokens.userAddress,
+      platform: devicePushTokens.platform,
+      token: devicePushTokens.token,
+    }).from(devicePushTokens)
+      .where(sql`${devicePushTokens.userAddress} = ANY(${userAddresses})`);
+    return tokens;
   }
 
   // Token metrics implementation
