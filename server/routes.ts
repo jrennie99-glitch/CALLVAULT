@@ -3925,42 +3925,7 @@ export async function registerRoutes(
     }
   });
 
-  // Toggle DND for an address (same trust model as freeze-mode - works for caller's own address)
-  app.put('/api/dnd/:address', async (req, res) => {
-    try {
-      const { address } = req.params;
-      const { enabled } = req.body;
-      
-      if (typeof enabled !== 'boolean') {
-        return res.status(400).json({ error: 'enabled must be a boolean' });
-      }
-      
-      // Find owner address - either it's a primary identity or a linked address
-      let ownerAddress = address;
-      const directIdentity = await storage.getIdentity(address);
-      
-      if (!directIdentity) {
-        // Check if it's a linked address
-        const primaryAddress = await storage.getPrimaryAddress(address);
-        if (!primaryAddress) {
-          return res.status(404).json({ error: 'Address not found' });
-        }
-        ownerAddress = primaryAddress;
-      }
-      
-      // Ensure settings exist for this call ID
-      await storage.ensureCallIdSettings(address, ownerAddress);
-      const updated = await storage.updateCallIdSettings(address, { doNotDisturb: enabled });
-      
-      res.json({ 
-        doNotDisturb: updated?.doNotDisturb || false
-      });
-    } catch (error) {
-      console.error('Error updating DND:', error);
-      res.status(500).json({ error: 'Failed to update DND' });
-    }
-  });
-
+  
   // PUSH NOTIFICATION ENDPOINTS
   
   // Get VAPID public key for push subscription

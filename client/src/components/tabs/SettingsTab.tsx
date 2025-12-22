@@ -316,17 +316,32 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
     
     setIsTogglingDnd(true);
     try {
-      const res = await fetch(`/api/dnd/${identity.address}`, {
-        method: 'PUT',
+      const timestamp = Date.now();
+      const nonce = generateNonce();
+      const callIdAddress = identity.address;
+      const ownerAddress = identity.address;
+      
+      const payload = { callIdAddress, ownerAddress, enabled, timestamp, nonce };
+      const signature = signPayload(identity.secretKey, payload);
+      
+      const res = await fetch(`/api/call-id-settings/${identity.address}/dnd`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled })
+        body: JSON.stringify({
+          ownerAddress,
+          enabled,
+          signature,
+          timestamp,
+          nonce
+        })
       });
       
       if (!res.ok) {
         throw new Error('Failed to update DND');
       }
       
-      setDndEnabled(enabled);
+      const data = await res.json();
+      setDndEnabled(data.doNotDisturb || enabled);
       toast.success(enabled ? 'Do Not Disturb enabled' : 'Do Not Disturb disabled');
     } catch (error) {
       toast.error('Failed to update Do Not Disturb');

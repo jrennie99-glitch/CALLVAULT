@@ -22,7 +22,7 @@ Preferred communication style: Simple, everyday language.
     - **Admin Logs**: `/api/admin/token-logs` endpoint for viewing detailed token failure logs.
 
 ### Key Features
-- **Call Features**: Video/voice calls, in-call controls, call timer, connection status, incoming call modal, ICE restart, network change detection.
+- **Call Features**: Video/voice calls, in-call controls, call timer, connection status, incoming call modal, ICE restart, network change detection, pre-call device test (camera/microphone check).
 - **STUN-First, TURN Fallback**: Prioritizes STUN for cost efficiency, falls back to TURN for paid users after 8 seconds if STUN fails. Free users are prompted to upgrade.
 - **User Experience**: Mobile-first design, bottom tab navigation, contacts-first onboarding, auto-generated avatars, PWA support.
 - **Monetization (Creator/Business Mode)**: Customizable creator profiles, paid calls (per-session/per-minute), call queue management, subscription tiers (Free, Pro, Business), and invite links for trial access.
