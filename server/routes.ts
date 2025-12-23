@@ -1548,6 +1548,28 @@ export async function registerRoutes(
     }
   });
 
+  // Online Status API - check if contacts are online
+  app.post('/api/online-status', async (req, res) => {
+    try {
+      const { addresses } = req.body;
+      if (!Array.isArray(addresses)) {
+        return res.status(400).json({ error: 'Addresses must be an array' });
+      }
+      
+      const onlineStatus: Record<string, boolean> = {};
+      for (const address of addresses) {
+        // Check if there's an active WebSocket connection for this address
+        const conn = getConnection(address);
+        onlineStatus[address] = !!conn;
+      }
+      
+      res.json(onlineStatus);
+    } catch (error) {
+      console.error('Error checking online status:', error);
+      res.status(500).json({ error: 'Failed to check online status' });
+    }
+  });
+
   // Phase 5: Call History API
   app.get('/api/calls/:address', async (req, res) => {
     try {

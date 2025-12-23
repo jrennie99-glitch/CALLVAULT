@@ -57,8 +57,37 @@ export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR, onOpenCha
   const [inviteContactName, setInviteContactName] = useState('');
   const [inviteUrl, setInviteUrl] = useState('');
   const [isCreatingInvite, setIsCreatingInvite] = useState(false);
+  const [onlineStatus, setOnlineStatus] = useState<Record<string, boolean>>({});
   
   const userProfile = getUserProfile();
+  const contacts = getContacts();
+
+  // Fetch online status for all contacts
+  useEffect(() => {
+    const fetchOnlineStatus = async () => {
+      const addresses = contacts.map(c => c.address);
+      if (addresses.length === 0) return;
+
+      try {
+        const response = await fetch('/api/online-status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ addresses })
+        });
+        if (response.ok) {
+          const status = await response.json();
+          setOnlineStatus(status);
+        }
+      } catch (error) {
+        console.error('Failed to fetch online status:', error);
+      }
+    };
+
+    fetchOnlineStatus();
+    // Refresh online status every 30 seconds
+    const interval = setInterval(fetchOnlineStatus, 30000);
+    return () => clearInterval(interval);
+  }, [contacts.length]);
 
   useEffect(() => {
     if (ownerAddress) {
@@ -115,7 +144,6 @@ export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR, onOpenCha
     }
   };
 
-  const contacts = getContacts();
   const filteredContacts = contacts.filter(c =>
     c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     c.address.toLowerCase().includes(searchQuery.toLowerCase())
@@ -497,7 +525,9 @@ export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR, onOpenCha
         </div>
       ) : (
         <div className="divide-y divide-slate-800 pb-20">
-          {filteredContacts.map((contact) => (
+          {filteredContacts.map((contact) => {
+            const isOnline = onlineStatus[contact.address];
+            return (
             <div
               key={contact.id}
               className="flex items-center gap-3 p-4 hover:bg-slate-800/50 transition-colors"
@@ -507,13 +537,26 @@ export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR, onOpenCha
                 onClick={() => setSelectedContact(contact)}
                 className="flex items-center gap-3 flex-1 min-w-0 text-left"
               >
-                {contact.avatar ? (
-                  <img src={contact.avatar} alt="" className="w-12 h-12 rounded-full object-cover flex-shrink-0" />
-                ) : (
-                  <Avatar name={contact.name} address={contact.address} size="md" />
-                )}
+                <div className="relative">
+                  {contact.avatar ? (
+                    <img src={contact.avatar} alt="" className="w-12 h-12 rounded-full object-cover flex-shrink-0" />
+                  ) : (
+                    <Avatar name={contact.name} address={contact.address} size="md" />
+                  )}
+                  {isOnline && (
+                    <div 
+                      className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-slate-900"
+                      data-testid={`online-indicator-${contact.address}`}
+                    />
+                  )}
+                </div>
                 <div className="flex-1 min-w-0">
-                  <div className="font-medium text-white truncate">{contact.name}</div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-white truncate">{contact.name}</span>
+                    {isOnline && (
+                      <span className="text-xs text-emerald-400 flex-shrink-0">Online</span>
+                    )}
+                  </div>
                   <div className="text-sm text-slate-500 truncate font-mono">
                     {contact.address.slice(0, 20)}...
                   </div>
@@ -559,7 +602,8 @@ export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR, onOpenCha
                 </button>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
