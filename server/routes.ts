@@ -1541,16 +1541,35 @@ export async function registerRoutes(
       // Notify the contact person that they've been added (if online)
       const contactAddress = req.body.contactAddress;
       const ownerAddress = req.body.ownerAddress;
+      const savedAsName = req.body.name || 'a contact';
+      
       if (contactAddress) {
+        // Get the adder's identity to show their name
+        const adderIdentity = await storage.getIdentity(ownerAddress);
+        // Also check if the recipient has the adder saved as a contact
+        const existingContact = await storage.getContact(contactAddress, ownerAddress);
+        const adderName = existingContact?.name || adderIdentity?.displayName || ownerAddress.slice(5, 17) + '...';
+        
         broadcastToAddress(contactAddress, {
             type: 'contact:added_by',
             data: {
               addedBy: ownerAddress,
-              name: req.body.name || 'Unknown',
+              adderName: adderName,
+              savedAsName: savedAsName,
               timestamp: Date.now()
             }
           });
-          console.log(`[contact:added_by] Notified ${contactAddress} that ${ownerAddress} added them`);
+          
+        // Also send push notification if they're offline
+        await sendPushNotification(contactAddress, {
+          type: 'contact_added',
+          title: 'New Contact',
+          body: `${adderName} saved you as "${savedAsName}"`,
+          tag: 'contact-added',
+          from_address: ownerAddress
+        });
+        
+        console.log(`[contact:added_by] Notified ${contactAddress} that ${adderName} saved them as "${savedAsName}"`);
       }
       
       res.json(contact);

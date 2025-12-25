@@ -603,7 +603,9 @@ export default function CallPage() {
     // Handle contact:added_by notification - someone added your call ID
     if ((message as any).type === 'contact:added_by') {
       const data = (message as any).data;
-      toast.success(`${data.name || 'Someone'} added you as a contact`, {
+      const adderName = data.adderName || 'Someone';
+      const savedAsName = data.savedAsName || 'a contact';
+      toast.success(`${adderName} saved you as "${savedAsName}"`, {
         description: 'You can now call each other',
         duration: 5000
       });
