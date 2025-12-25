@@ -106,6 +106,10 @@ export function CallView({
   const maxReconnectAttempts = 3;
   const STUN_FAILURE_TIMEOUT = 8000; // 8 seconds before TURN fallback
   
+  // Message buffer for early WebRTC messages (to handle race conditions)
+  const messageBufferRef = useRef<WSMessage[]>([]);
+  const peerConnectionReadyRef = useRef<boolean>(false);
+  
   // Ringback tone for caller (plays while waiting for answer)
   useEffect(() => {
     if (callState === 'calling' || callState === 'ringing') {
@@ -125,6 +129,33 @@ export function CallView({
     };
   }, [callState]);
 
+  // CRITICAL: Attach WebSocket listener FIRST (before peer connection setup)
+  // This prevents race conditions where early webrtc:offer messages are missed
+  useEffect(() => {
+    if (!ws) return;
+
+    const handleMessage = async (event: MessageEvent) => {
+      const message: WSMessage = JSON.parse(event.data);
+      
+      // Buffer WebRTC signaling messages if peer connection isn't ready yet
+      const isWebRTCMessage = message.type === 'webrtc:offer' || 
+                              message.type === 'webrtc:answer' || 
+                              message.type === 'webrtc:ice';
+      
+      if (isWebRTCMessage && !peerConnectionReadyRef.current) {
+        console.log('[CallView] Buffering early message:', message.type);
+        messageBufferRef.current.push(message);
+        return;
+      }
+      
+      await handleWebSocketMessage(message);
+    };
+
+    ws.addEventListener('message', handleMessage);
+    return () => ws.removeEventListener('message', handleMessage);
+  }, [ws]);
+
+  // Initialize call AFTER WebSocket listener is attached
   useEffect(() => {
     remoteAddressRef.current = destinationAddress;
     if (destinationAddress && ws && isInitiator) {
@@ -139,18 +170,6 @@ export function CallView({
       cleanupCall();
     };
   }, []);
-
-  useEffect(() => {
-    if (!ws) return;
-
-    const handleMessage = (event: MessageEvent) => {
-      const message: WSMessage = JSON.parse(event.data);
-      handleWebSocketMessage(message);
-    };
-
-    ws.addEventListener('message', handleMessage);
-    return () => ws.removeEventListener('message', handleMessage);
-  }, [ws]);
 
   const startCallTimer = () => {
     setCallDuration(0);
@@ -665,6 +684,19 @@ export function CallView({
       });
 
       setupPeerConnectionHandlers(pc, isInitiator);
+      
+      // Mark peer connection as ready and process any buffered messages
+      peerConnectionReadyRef.current = true;
+      console.log('[CallView] Peer connection ready, processing buffered messages...');
+      
+      // Process any messages that arrived before peer connection was ready
+      while (messageBufferRef.current.length > 0) {
+        const bufferedMsg = messageBufferRef.current.shift();
+        if (bufferedMsg) {
+          console.log('[CallView] Processing buffered message:', bufferedMsg.type);
+          await handleWebSocketMessage(bufferedMsg);
+        }
+      }
 
       if (isInitiator) {
         const offer = await pc.createOffer();
@@ -798,6 +830,10 @@ export function CallView({
     stopCallTimer();
     clearStunFailureTimer();
     hasAttemptedTurnFallbackRef.current = false;
+    
+    // Reset message buffer and peer connection ready state
+    peerConnectionReadyRef.current = false;
+    messageBufferRef.current = [];
     
     // Stop all audio (ringback, ringtone) immediately
     import('@/lib/audio').then(({ stopAllAudio }) => {

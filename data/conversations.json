@@ -32,15 +32,17 @@
     "created_at": 1766397498492,
     "created_by": "call:BjfBj55s9zBkM7mdRZhrAuWsVZDaQaSXKpEtq2d7nL5W:DVPDhvQ3NtG",
     "last_message": {
-      "id": "msg_1766431725934_ok9znwwzr",
+      "id": "msg_1766673135857_2iq9qa18x",
       "convo_id": "dm_xz0hgn_1q26r5v_1mr22xt",
       "from_address": "call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehgaZxj9ua2wq:iMbPcedKjup",
       "to_address": "call:BjfBj55s9zBkM7mdRZhrAuWsVZDaQaSXKpEtq2d7nL5W:DVPDhvQ3NtG",
-      "timestamp": 1766431725935,
+      "timestamp": 1766673135857,
       "type": "text",
-      "content": "Hey cuz",
-      "nonce": "k9mirh9ew4lmjhjuaun",
-      "status": "sent"
+      "content": "I got to work on it some more it was ringing and when I click answer it still ringing",
+      "nonce": "an41w29hd4mjljkjxt",
+      "status": "sent",
+      "seq": 9,
+      "server_timestamp": 1766673136120
     }
   },
   {
