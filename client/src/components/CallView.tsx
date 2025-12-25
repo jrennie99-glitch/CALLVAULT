@@ -130,7 +130,8 @@ export function CallView({
     if (destinationAddress && ws && isInitiator) {
       initiateCall();
     } else if (!isInitiator) {
-      setCallState('connected');
+      // Callee: Set to 'connecting' - actual 'connected' state will be set by RTCPeerConnection handlers
+      setCallState('connecting');
       setConnectionStatus('Connecting...');
       initiatePeerConnection(false);
     }
@@ -324,7 +325,8 @@ export function CallView({
   const handleWebSocketMessage = useCallback(async (message: WSMessage) => {
     switch (message.type) {
       case 'call:accept':
-        setCallState('connected');
+        // Set to 'connecting' - actual 'connected' state will be set by RTCPeerConnection handlers
+        setCallState('connecting');
         setConnectionStatus('Connecting...');
         await initiatePeerConnection(true);
         break;
@@ -420,6 +422,25 @@ export function CallView({
     }
   };
 
+  // Capture local media stream (for showing self-view during ringing)
+  const captureLocalMedia = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: isVideoCall ? { facingMode } : false,
+        audio: true
+      });
+      localStreamRef.current = stream;
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
+      }
+      return stream;
+    } catch (error) {
+      console.error('Failed to get media devices:', error);
+      toast.error('Failed to access camera/microphone');
+      return null;
+    }
+  };
+
   // Main call initiation - fetches fresh token then starts call
   const initiateCall = async () => {
     if (!identity || !ws) return;
@@ -427,6 +448,15 @@ export function CallView({
     // Reset handshake error state on new attempt
     setShowHandshakeError(false);
     setConnectionStatus('Preparing secure session...');
+
+    // Capture camera immediately for video calls so user sees themselves while ringing
+    if (isVideoCall && !localStreamRef.current) {
+      const stream = await captureLocalMedia();
+      if (!stream) {
+        handleEndCall();
+        return;
+      }
+    }
 
     // Fetch fresh token from server (token generated at call time, not page load)
     // Every call attempt uses a fresh token/nonce
@@ -544,6 +574,7 @@ export function CallView({
     };
 
     pc.onconnectionstatechange = () => {
+      console.log(`[WebRTC] Connection state: ${pc.connectionState}`);
       switch (pc.connectionState) {
         case 'connecting':
           setCallState('connecting');
@@ -602,13 +633,6 @@ export function CallView({
     pc.onicegatheringstatechange = () => {
       console.log(`[WebRTC] ICE gathering state: ${pc.iceGatheringState}`);
     };
-    
-    // Add connection state logging
-    if ('onconnectionstatechange' in pc) {
-      pc.onconnectionstatechange = () => {
-        console.log(`[WebRTC] Connection state: ${pc.connectionState}`);
-      };
-    }
   };
 
   const initiatePeerConnection = async (isInitiator: boolean) => {
@@ -620,14 +644,17 @@ export function CallView({
     const initialServers = STUN_ONLY_SERVERS;
     
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: isVideoCall ? { facingMode } : false,
-        audio: true
-      });
-
-      localStreamRef.current = stream;
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
+      // Reuse existing stream if already captured (e.g., for video calls during ringing)
+      let stream = localStreamRef.current;
+      if (!stream) {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: isVideoCall ? { facingMode } : false,
+          audio: true
+        });
+        localStreamRef.current = stream;
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
+        }
       }
 
       const pc = new RTCPeerConnection({ iceServers: initialServers });
@@ -972,13 +999,13 @@ export function CallView({
         </div>
 
         {callState === 'calling' && (
-          <div className="absolute inset-0 flex items-center justify-center bg-slate-900/80 backdrop-blur-sm">
-            <div className="text-center">
-              <div className="w-24 h-24 mx-auto rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center mb-6 animate-pulse">
-                <PhoneCall className="w-12 h-12 text-white" />
+          <div className="absolute bottom-28 left-0 right-0 flex items-center justify-center pointer-events-none">
+            <div className="text-center bg-slate-900/90 backdrop-blur-sm rounded-2xl px-8 py-6 shadow-2xl">
+              <div className="w-16 h-16 mx-auto rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center mb-4 animate-pulse">
+                <PhoneCall className="w-8 h-8 text-white" />
               </div>
-              <p className="text-2xl font-semibold text-white mb-2">Calling...</p>
-              <p className="text-slate-400">{displayName}</p>
+              <p className="text-xl font-semibold text-white mb-1">Calling...</p>
+              <p className="text-slate-400 text-sm">{displayName}</p>
             </div>
           </div>
         )}
