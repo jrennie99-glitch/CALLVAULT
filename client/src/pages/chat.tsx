@@ -1046,22 +1046,36 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
         <div ref={messagesEndRef} />
         
         {activeUploads.size > 0 && (
-          <div className="space-y-2 mx-4 mb-2">
-            {Array.from(activeUploads.entries()).map(([id, { name, progress }]) => (
-              <div key={id} className="flex items-center gap-3 px-4 py-2 bg-slate-800 rounded-xl border border-slate-700">
-                <div className="w-5 h-5 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" />
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm text-slate-300 mb-1 truncate">{name}</div>
-                  <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-emerald-500 transition-all duration-200"
-                      style={{ width: `${progress}%` }}
-                    />
-                  </div>
-                </div>
-                <span className="text-sm text-slate-400 font-mono">{progress}%</span>
+          <div className="flex justify-end mx-4 mb-2">
+            <div className="inline-flex items-center gap-2 px-3 py-2 bg-slate-800/90 backdrop-blur-sm rounded-full border border-slate-700 shadow-lg">
+              <div className="relative w-5 h-5">
+                <svg className="w-5 h-5 -rotate-90" viewBox="0 0 20 20">
+                  <circle
+                    cx="10"
+                    cy="10"
+                    r="8"
+                    fill="none"
+                    stroke="#334155"
+                    strokeWidth="2"
+                  />
+                  <circle
+                    cx="10"
+                    cy="10"
+                    r="8"
+                    fill="none"
+                    stroke="#10b981"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeDasharray={`${(Array.from(activeUploads.values()).reduce((sum, u) => sum + u.progress, 0) / activeUploads.size / 100) * 50.26} 50.26`}
+                  />
+                </svg>
               </div>
-            ))}
+              <span className="text-sm text-white font-medium">
+                {activeUploads.size === 1 
+                  ? 'Sending...' 
+                  : `Sending ${activeUploads.size} items...`}
+              </span>
+            </div>
           </div>
         )}
       </div>
