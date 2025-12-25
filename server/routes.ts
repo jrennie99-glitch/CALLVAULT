@@ -7190,6 +7190,53 @@ export async function registerRoutes(
             break;
           }
 
+          case 'msg:edit': {
+            const { message_id, convo_id, from_address, new_content } = message;
+            
+            if (clientAddress !== from_address) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Address mismatch' } as WSMessage));
+              return;
+            }
+            
+            const msgToEdit = messageStore.getMessage(message_id);
+            if (!msgToEdit) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Message not found' } as WSMessage));
+              return;
+            }
+            
+            if (msgToEdit.from_address !== from_address) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Cannot edit messages you did not send' } as WSMessage));
+              return;
+            }
+            
+            if (msgToEdit.type !== 'text') {
+              ws.send(JSON.stringify({ type: 'error', message: 'Can only edit text messages' } as WSMessage));
+              return;
+            }
+            
+            const convo = messageStore.getConversation(convo_id);
+            if (!convo || !convo.participant_addresses.includes(from_address)) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Not a participant' } as WSMessage));
+              return;
+            }
+            
+            const { success, edited_at } = messageStore.updateMessageContent(message_id, new_content);
+            if (success) {
+              storage.updateMessageContent(message_id, new_content).catch(console.error);
+              
+              for (const participantAddr of convo.participant_addresses) {
+                broadcastToAddress(participantAddr, {
+                  type: 'msg:edited',
+                  message_id,
+                  convo_id,
+                  new_content,
+                  edited_at
+                });
+              }
+            }
+            break;
+          }
+
           case 'group:create': {
             const { data, signature, from_pubkey, from_address, nonce, timestamp } = message;
             

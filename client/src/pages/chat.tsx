@@ -48,6 +48,7 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
   const [isOnline, setIsOnline] = useState(false);
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -183,6 +184,15 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
       // Handle message unsend (someone unsent their message)
       if (data.type === 'msg:unsent' && data.convo_id === convo.id) {
         setMessages(prev => prev.filter(m => m.id !== data.message_id));
+      }
+      
+      // Handle message edit (someone edited their message)
+      if (data.type === 'msg:edited' && data.convo_id === convo.id) {
+        setMessages(prev => prev.map(m => 
+          m.id === data.message_id 
+            ? { ...m, content: data.new_content, edited_at: data.edited_at }
+            : m
+        ));
       }
     };
 
@@ -516,6 +526,62 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
       setMessages(prev => prev.filter(m => m.id !== msg.id));
       toast.success('Message unsent');
     }
+  };
+
+  const handleContextMenuEdit = () => {
+    if (contextMenu.message) {
+      const msg = contextMenu.message;
+      if (msg.from_address !== identity.address) {
+        toast.error('You can only edit your own messages');
+        return;
+      }
+      if (msg.type !== 'text') {
+        toast.error('Can only edit text messages');
+        return;
+      }
+      setEditingMessage(msg);
+      setInputText(msg.content);
+    }
+  };
+
+  const handleSaveEdit = () => {
+    if (!editingMessage || !ws || ws.readyState !== WebSocket.OPEN) return;
+    
+    const newContent = inputText.trim();
+    if (!newContent) {
+      toast.error('Message cannot be empty');
+      return;
+    }
+    
+    if (newContent === editingMessage.content) {
+      setEditingMessage(null);
+      setInputText('');
+      return;
+    }
+    
+    ws.send(JSON.stringify({
+      type: 'msg:edit',
+      message_id: editingMessage.id,
+      convo_id: convo.id,
+      from_address: identity.address,
+      new_content: newContent
+    }));
+    
+    // Optimistically update locally
+    setMessages(prev => prev.map(m => 
+      m.id === editingMessage.id 
+        ? { ...m, content: newContent, edited_at: Date.now() }
+        : m
+    ));
+    
+    setEditingMessage(null);
+    setInputText('');
+    toast.success('Message edited');
+  };
+
+  const cancelEdit = () => {
+    setEditingMessage(null);
+    setInputText('');
   };
 
   const startRecording = async () => {
@@ -1132,6 +1198,9 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
                     {renderAttachment(msg)}
                     
                     <div className={`flex items-center gap-1 mt-1 ${isMe ? 'justify-end' : ''}`}>
+                      {msg.edited_at && (
+                        <span className="text-[10px] opacity-50 italic">Edited</span>
+                      )}
                       <span className="text-[10px] opacity-60">
                         {formatDistanceToNow(msg.timestamp, { addSuffix: false })}
                       </span>
@@ -1399,17 +1468,45 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
             }}
           />
           
+          {editingMessage && (
+            <button
+              onClick={cancelEdit}
+              className="w-10 h-10 rounded-full flex items-center justify-center text-red-400 hover:text-red-300 hover:bg-slate-800"
+              data-testid="button-cancel-edit"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
+          
           <input
             type="text"
             value={inputText}
             onChange={handleInputChange}
-            onKeyDown={(e) => e.key === 'Enter' && handleSendText()}
-            placeholder="Type a message..."
-            className="flex-1 bg-slate-800 border border-slate-700 rounded-full px-4 py-2.5 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                editingMessage ? handleSaveEdit() : handleSendText();
+              } else if (e.key === 'Escape' && editingMessage) {
+                cancelEdit();
+              }
+            }}
+            placeholder={editingMessage ? "Edit message..." : "Type a message..."}
+            className={`flex-1 bg-slate-800 border rounded-full px-4 py-2.5 text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 ${
+              editingMessage 
+                ? 'border-blue-500 focus:ring-blue-500/50' 
+                : 'border-slate-700 focus:ring-emerald-500/50'
+            }`}
             data-testid="input-message"
           />
           
-          {inputText.trim() ? (
+          {editingMessage ? (
+            <button
+              onClick={handleSaveEdit}
+              className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white"
+              data-testid="button-save-edit"
+            >
+              <Check className="w-5 h-5" />
+            </button>
+          ) : inputText.trim() ? (
             <button
               onClick={handleSendText}
               className="w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center text-white"
@@ -1441,6 +1538,7 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
         onReply={handleContextMenuReply}
         onForward={handleContextMenuForward}
         onDelete={handleContextMenuDelete}
+        onEdit={handleContextMenuEdit}
       />
       
       {lightbox && (

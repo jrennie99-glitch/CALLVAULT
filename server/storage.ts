@@ -2276,6 +2276,15 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
+  // Update message content (for editing)
+  async updateMessageContent(messageId: string, newContent: string): Promise<boolean> {
+    const result = await db.update(persistentMessages)
+      .set({ content: newContent })
+      .where(eq(persistentMessages.id, messageId))
+      .returning();
+    return result.length > 0;
+  }
+
   // Get all conversations for a user with latest seq
   async getConversationsWithSeq(userAddress: string): Promise<{ convoId: string; latestSeq: number; lastMessage: string | null; lastMessageAt: Date | null }[]> {
     // Get all unique conversations for this user

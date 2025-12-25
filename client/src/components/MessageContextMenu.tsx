@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Copy, Reply, Forward, Trash2, Smile, Share2, Pin, Flag } from 'lucide-react';
+import { Copy, Reply, Forward, Trash2, Smile, Share2, Pin, Flag, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 
 const QUICK_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🔥', '👏', '🙏'];
@@ -16,6 +16,7 @@ interface MessageContextMenuProps {
   onReply: () => void;
   onForward: () => void;
   onDelete: () => void;
+  onEdit?: () => void;
 }
 
 export function MessageContextMenu({
@@ -29,7 +30,8 @@ export function MessageContextMenu({
   onCopy,
   onReply,
   onForward,
-  onDelete
+  onDelete,
+  onEdit
 }: MessageContextMenuProps) {
   const [showAllEmojis, setShowAllEmojis] = useState(false);
   
@@ -99,6 +101,20 @@ export function MessageContextMenu({
             >
               <Copy className="w-5 h-5 text-slate-400" />
               <span>Copy</span>
+            </button>
+          )}
+          
+          {isOwnMessage && messageType === 'text' && onEdit && (
+            <button
+              onClick={() => {
+                onEdit();
+                onClose();
+              }}
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-white hover:bg-slate-700 text-left transition-colors"
+              data-testid="context-edit"
+            >
+              <Pencil className="w-5 h-5 text-slate-400" />
+              <span>Edit</span>
             </button>
           )}
           

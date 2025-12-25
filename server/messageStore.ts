@@ -141,6 +141,20 @@ export function deleteMessage(messageId: string, convoId: string): boolean {
   return true;
 }
 
+export function updateMessageContent(messageId: string, newContent: string): { success: boolean; edited_at: number } {
+  const edited_at = Date.now();
+  for (const convoMessages of Object.values(store.messages)) {
+    const message = convoMessages.find(m => m.id === messageId);
+    if (message) {
+      message.content = newContent;
+      message.edited_at = edited_at;
+      saveMessages();
+      return { success: true, edited_at };
+    }
+  }
+  return { success: false, edited_at: 0 };
+}
+
 export function createConversation(convo: Conversation): Conversation {
   const existing = store.conversations.find(c => c.id === convo.id);
   if (existing) return existing;

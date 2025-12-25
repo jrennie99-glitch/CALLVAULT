@@ -54,6 +54,7 @@ export interface Message {
   server_timestamp?: number; // Server timestamp for ordering
   delivered_at?: number; // Timestamp when message was delivered
   read_at?: number; // Timestamp when message was read
+  edited_at?: number; // Timestamp when message was edited
 }
 
 export interface SignedMessage {
@@ -223,6 +224,8 @@ export type WSMessage =
   | { type: 'msg:ack'; message_id: string; status: 'duplicate' | 'received' | 'error'; seq?: number; server_timestamp?: number; error?: string }
   | { type: 'msg:unsend'; message_id: string; convo_id: string; from_address: string }
   | { type: 'msg:unsent'; message_id: string; convo_id: string }
+  | { type: 'msg:edit'; message_id: string; convo_id: string; from_address: string; new_content: string }
+  | { type: 'msg:edited'; message_id: string; convo_id: string; new_content: string; edited_at: number }
   // Conversations
   | { type: 'convo:create'; convo: Conversation }
   | { type: 'convo:update'; convo: Conversation }
