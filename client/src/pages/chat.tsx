@@ -417,8 +417,8 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
   };
 
   const handleLongPressStart = (e: React.TouchEvent | React.MouseEvent, msg: Message) => {
-    e.preventDefault();
-    e.stopPropagation();
+    // Don't call preventDefault on touch - it blocks click events on child elements (iPad Safari)
+    // Only stopPropagation to contain the long-press timer
     
     const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
     const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
@@ -1038,8 +1038,8 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
                     onTouchStart={(e) => {
                       handleLongPressStart(e, msg);
                     }}
-                    onTouchEnd={(e) => {
-                      e.preventDefault();
+                    onTouchEnd={() => {
+                      // Don't call preventDefault - it blocks click events on child elements (iPad Safari)
                       handleLongPressEnd();
                     }}
                     onTouchCancel={handleLongPressEnd}
