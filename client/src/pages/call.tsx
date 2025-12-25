@@ -347,6 +347,8 @@ export default function CallPage() {
   const wsHasBeenConnected = useRef(false);
   const wsLastSeenSeq = useRef<Record<string, number>>({}); // Track last seen seq per conversation
   const [wsConnected, setWsConnected] = useState(false);
+  const [showReconnecting, setShowReconnecting] = useState(false);
+  const reconnectBannerTimeout = useRef<NodeJS.Timeout | null>(null);
   const [callStatus, setCallStatus] = useState('');
   
   // Aggressive heartbeat: ping every 15 seconds, expect response within 10s
@@ -371,6 +373,12 @@ export default function CallPage() {
     websocket.onopen = () => {
       console.log('WebSocket connected');
       setWsConnected(true);
+      setShowReconnecting(false);
+      // Clear any pending reconnect banner
+      if (reconnectBannerTimeout.current) {
+        clearTimeout(reconnectBannerTimeout.current);
+        reconnectBannerTimeout.current = null;
+      }
       wsHasBeenConnected.current = true;
       wsReconnectAttempt.current = 0;
       wsLastPong.current = Date.now();
@@ -418,6 +426,14 @@ export default function CallPage() {
     websocket.onclose = () => {
       console.log('WebSocket closed');
       setWsConnected(false);
+      
+      // Only show reconnecting banner after 2 seconds of being disconnected
+      // This prevents flashing the banner for quick reconnects
+      if (wsHasBeenConnected.current && !reconnectBannerTimeout.current) {
+        reconnectBannerTimeout.current = setTimeout(() => {
+          setShowReconnecting(true);
+        }, 2000);
+      }
       
       // Clear heartbeat
       if (wsHeartbeatInterval.current) {
@@ -884,8 +900,8 @@ export default function CallPage() {
     <div className="min-h-screen bg-slate-900 text-white flex flex-col">
       <TopBar isFounder={userRole.isFounder} isAdmin={userRole.isAdmin} wsConnected={wsConnected} />
       
-      {/* Connection status indicator - only show after initial connection lost */}
-      {!wsConnected && wsHasBeenConnected.current && (
+      {/* Connection status indicator - only show after 2 seconds of being disconnected */}
+      {showReconnecting && (
         <div className="bg-red-600/90 text-white text-sm py-2 px-4 text-center flex items-center justify-center gap-2">
           <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
           <span>Reconnecting to server...</span>

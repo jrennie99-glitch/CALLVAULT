@@ -40,5 +40,31 @@
       "nonce": "k9mirh9ew4lmjhjuaun",
       "status": "sent"
     }
+  },
+  {
+    "id": "dm_10b6fw6_1secple_1p381dc",
+    "type": "direct",
+    "participant_addresses": [
+      "call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehgaZxj9ua2wq:iMbPcedKjup",
+      "call:6hr1f3a5VkJtSvyVfA2kVDPfq2JGKgM4vmUjX56bD61C:MkMAtWTdHhx"
+    ],
+    "created_at": 1766633240593,
+    "created_by": "call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehgaZxj9ua2wq:iMbPcedKjup",
+    "last_message": {
+      "id": "msg_1766633240176_l49hewhvp",
+      "convo_id": "dm_10b6fw6_1secple_1p381dc",
+      "from_address": "call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehgaZxj9ua2wq:iMbPcedKjup",
+      "to_address": "call:6hr1f3a5VkJtSvyVfA2kVDPfq2JGKgM4vmUjX56bD61C:MkMAtWTdHhx",
+      "timestamp": 1766633240176,
+      "type": "image",
+      "content": "",
+      "attachment_url": "/api/files/1766633240207_fxi2ejc9.jpeg",
+      "attachment_name": "IMG_6821.jpeg",
+      "attachment_size": 6558104,
+      "nonce": "8jrv94y06etmjkvtg8g",
+      "status": "sent",
+      "seq": 3,
+      "server_timestamp": 1766633240556
+    }
   }
 ]
