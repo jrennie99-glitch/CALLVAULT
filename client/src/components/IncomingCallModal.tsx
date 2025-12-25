@@ -1,9 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { PhoneOff, Phone, PhoneIncoming, Video, User, Ticket, Shield, AlertTriangle } from 'lucide-react';
 import { getContactByAddress } from '@/lib/storage';
-import { playRingtone, stopRingtone, unlockAudio } from '@/lib/audio';
+import { playRingtone, stopRingtone, stopAllAudio, unlockAudio } from '@/lib/audio';
 
 type CallSource = 'contact' | 'invite' | 'unknown';
 
@@ -20,24 +20,43 @@ export function IncomingCallModal({ fromAddress, isVideo, onAccept, onReject, ca
   const contact = getContactByAddress(fromAddress);
   const displayName = contact?.name || fromAddress.slice(0, 20) + '...';
   const source = callSource || (contact ? 'contact' : 'unknown');
+  const isHandledRef = useRef(false);
   
   useEffect(() => {
     // Try to play ringtone (may require user gesture on mobile)
     playRingtone();
     
     return () => {
-      stopRingtone();
+      stopAllAudio();
     };
   }, []);
 
-  // Unlock audio on any touch/click on the modal
+  // Unlock audio on any touch/click on the modal (but not if already handled)
   const handleModalInteraction = async () => {
+    if (isHandledRef.current) return;
     await unlockAudio();
     playRingtone();
   };
+  
+  // Handle accept - stop ringtone immediately before calling parent handler
+  const handleAccept = async () => {
+    if (isHandledRef.current) return;
+    isHandledRef.current = true;
+    stopAllAudio();
+    await unlockAudio();
+    onAccept();
+  };
+  
+  // Handle reject - stop ringtone immediately before calling parent handler
+  const handleReject = () => {
+    if (isHandledRef.current) return;
+    isHandledRef.current = true;
+    stopAllAudio();
+    onReject();
+  };
 
   return (
-    <Dialog open={true} onOpenChange={(open) => !open && onReject()}>
+    <Dialog open={true} onOpenChange={(open) => !open && handleReject()}>
       <DialogContent 
         className="bg-slate-800 border-slate-700 text-white max-w-sm"
         onClick={handleModalInteraction}
@@ -106,7 +125,7 @@ export function IncomingCallModal({ fromAddress, isVideo, onAccept, onReject, ca
 
         <DialogFooter className="grid grid-cols-2 gap-4 mt-4">
           <Button
-            onClick={onReject}
+            onClick={handleReject}
             className="h-16 bg-red-500 hover:bg-red-600 rounded-2xl flex flex-col items-center justify-center gap-1"
             data-testid="button-reject"
           >
@@ -114,10 +133,7 @@ export function IncomingCallModal({ fromAddress, isVideo, onAccept, onReject, ca
             <span className="text-sm">Decline</span>
           </Button>
           <Button
-            onClick={async () => {
-              await unlockAudio();
-              onAccept();
-            }}
+            onClick={handleAccept}
             className="h-16 bg-emerald-500 hover:bg-emerald-600 rounded-2xl flex flex-col items-center justify-center gap-1"
             data-testid="button-accept"
           >
