@@ -631,10 +631,7 @@ export default function CallPage() {
     }
   }, [activeChat]);
 
-  const handleStartCall = async (address: string, video: boolean) => {
-    // Unlock audio context on user gesture (required for browser autoplay policy)
-    await unlockAudio();
-    
+  const handleStartCall = (address: string, video: boolean) => {
     // Guard: Prevent duplicate calls
     if (inCall) {
       toast.error('Already in a call');
@@ -648,10 +645,20 @@ export default function CallPage() {
     // Check if pre-call check should be shown
     const skipPreCallCheck = localStorage.getItem('cv_skip_precall_check') === 'true';
     if (!skipPreCallCheck) {
+      // Just unlock audio here (preserve gesture context) but don't start ringback yet
+      unlockAudio();
       setPendingPreCallCheck({ address, video });
       setShowPreCallCheck(true);
       return;
     }
+    
+    // CRITICAL: Unlock audio and start ringback IMMEDIATELY on user gesture
+    // This must happen synchronously to satisfy iOS autoplay policy
+    unlockAudio().then(() => {
+      import('@/lib/audio').then(({ playRingback }) => {
+        playRingback();
+      });
+    });
     
     // Proceed directly with call initiation
     proceedWithCall(address, video);
@@ -669,6 +676,13 @@ export default function CallPage() {
   };
   
   const handlePreCallCheckProceed = (config: { audioDeviceId?: string; videoDeviceId?: string }) => {
+    // Unlock audio and start ringback on proceed button click
+    unlockAudio().then(() => {
+      import('@/lib/audio').then(({ playRingback }) => {
+        playRingback();
+      });
+    });
+    
     setShowPreCallCheck(false);
     if (pendingPreCallCheck) {
       proceedWithCall(pendingPreCallCheck.address, pendingPreCallCheck.video);

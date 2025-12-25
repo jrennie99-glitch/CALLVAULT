@@ -94,5 +94,28 @@
       "seq": 1,
       "server_timestamp": 1766635398888
     }
+  },
+  {
+    "id": "dm_s6975k_1k9fgus_1gyasmq",
+    "type": "direct",
+    "participant_addresses": [
+      "call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehgaZxj9ua2wq:iMbPcedKjup",
+      "call:3Nka26GC36Cv2NtsruTC5YEZjqZAsAXN42pX8ZcyHjJA:fTjVxam4gfm"
+    ],
+    "created_at": 1766645469982,
+    "created_by": "call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehgaZxj9ua2wq:iMbPcedKjup",
+    "last_message": {
+      "id": "msg_1766645469538_282jqrv2w",
+      "convo_id": "dm_s6975k_1k9fgus_1gyasmq",
+      "from_address": "call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehgaZxj9ua2wq:iMbPcedKjup",
+      "to_address": "call:3Nka26GC36Cv2NtsruTC5YEZjqZAsAXN42pX8ZcyHjJA:fTjVxam4gfm",
+      "timestamp": 1766645469539,
+      "type": "text",
+      "content": "Yo I got to work",
+      "nonce": "svx1bb3p7dmjl33kgz",
+      "status": "sent",
+      "seq": 1,
+      "server_timestamp": 1766645469936
+    }
   }
 ]
