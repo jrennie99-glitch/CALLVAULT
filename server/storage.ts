@@ -2268,6 +2268,14 @@ export class DatabaseStorage implements IStorage {
     return result?.maxSeq || 0;
   }
 
+  // Delete a message by ID
+  async deleteMessage(messageId: string): Promise<boolean> {
+    const result = await db.delete(persistentMessages)
+      .where(eq(persistentMessages.id, messageId))
+      .returning();
+    return result.length > 0;
+  }
+
   // Get all conversations for a user with latest seq
   async getConversationsWithSeq(userAddress: string): Promise<{ convoId: string; latestSeq: number; lastMessage: string | null; lastMessageAt: Date | null }[]> {
     // Get all unique conversations for this user

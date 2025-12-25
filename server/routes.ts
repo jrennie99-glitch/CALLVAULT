@@ -7150,6 +7150,46 @@ export async function registerRoutes(
             break;
           }
 
+          case 'msg:unsend': {
+            const { message_id, convo_id, from_address } = message;
+            
+            if (clientAddress !== from_address) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Address mismatch' } as WSMessage));
+              return;
+            }
+            
+            const msgToDelete = messageStore.getMessage(message_id);
+            if (!msgToDelete) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Message not found' } as WSMessage));
+              return;
+            }
+            
+            if (msgToDelete.from_address !== from_address) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Cannot unsend messages you did not send' } as WSMessage));
+              return;
+            }
+            
+            const convo = messageStore.getConversation(convo_id);
+            if (!convo || !convo.participant_addresses.includes(from_address)) {
+              ws.send(JSON.stringify({ type: 'error', message: 'Not a participant' } as WSMessage));
+              return;
+            }
+            
+            const deleted = messageStore.deleteMessage(message_id, convo_id);
+            if (deleted) {
+              storage.deleteMessage(message_id).catch(console.error);
+              
+              for (const participantAddr of convo.participant_addresses) {
+                broadcastToAddress(participantAddr, {
+                  type: 'msg:unsent',
+                  message_id,
+                  convo_id
+                });
+              }
+            }
+            break;
+          }
+
           case 'group:create': {
             const { data, signature, from_pubkey, from_address, nonce, timestamp } = message;
             

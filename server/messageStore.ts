@@ -129,6 +129,18 @@ export function updateMessageStatus(messageId: string, status: Message['status']
   }
 }
 
+export function deleteMessage(messageId: string, convoId: string): boolean {
+  const convoMessages = store.messages[convoId];
+  if (!convoMessages) return false;
+  
+  const index = convoMessages.findIndex(m => m.id === messageId);
+  if (index === -1) return false;
+  
+  convoMessages.splice(index, 1);
+  saveMessages();
+  return true;
+}
+
 export function createConversation(convo: Conversation): Conversation {
   const existing = store.conversations.find(c => c.id === convo.id);
   if (existing) return existing;

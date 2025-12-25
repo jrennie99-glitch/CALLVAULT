@@ -221,6 +221,8 @@ export type WSMessage =
   | { type: 'msg:typing'; convo_id: string; from_address: string; is_typing: boolean }
   | { type: 'msg:reaction'; convo_id: string; message_id: string; emoji: string; from_address: string }
   | { type: 'msg:ack'; message_id: string; status: 'duplicate' | 'received' | 'error'; seq?: number; server_timestamp?: number; error?: string }
+  | { type: 'msg:unsend'; message_id: string; convo_id: string; from_address: string }
+  | { type: 'msg:unsent'; message_id: string; convo_id: string }
   // Conversations
   | { type: 'convo:create'; convo: Conversation }
   | { type: 'convo:update'; convo: Conversation }

@@ -179,6 +179,11 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
           ));
         }
       }
+      
+      // Handle message unsend (someone unsent their message)
+      if (data.type === 'msg:unsent' && data.convo_id === convo.id) {
+        setMessages(prev => prev.filter(m => m.id !== data.message_id));
+      }
     };
 
     ws.addEventListener('message', handleMessage);
@@ -493,9 +498,23 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
   };
 
   const handleContextMenuDelete = () => {
-    if (contextMenu.message) {
-      setMessages(prev => prev.filter(m => m.id !== contextMenu.message!.id));
-      toast.success('Message deleted');
+    if (contextMenu.message && ws && ws.readyState === WebSocket.OPEN) {
+      const msg = contextMenu.message;
+      
+      if (msg.from_address !== identity.address) {
+        toast.error('You can only unsend your own messages');
+        return;
+      }
+      
+      ws.send(JSON.stringify({
+        type: 'msg:unsend',
+        message_id: msg.id,
+        convo_id: convo.id,
+        from_address: identity.address
+      }));
+      
+      setMessages(prev => prev.filter(m => m.id !== msg.id));
+      toast.success('Message unsent');
     }
   };
 
