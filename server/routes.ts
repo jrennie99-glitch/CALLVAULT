@@ -935,7 +935,10 @@ export async function registerRoutes(
           server_timestamp: m.serverTimestamp ? new Date(m.serverTimestamp).getTime() : Date.now(),
           seq: m.seq,
           status: m.status || 'sent',
-          nonce: m.nonce
+          nonce: m.nonce,
+          attachment_url: m.mediaUrl,
+          attachment_name: m.attachmentName,
+          attachment_size: m.attachmentSize
         }));
       } catch (error) {
         console.error('Error fetching messages from DB:', error);
@@ -6876,10 +6879,11 @@ export async function registerRoutes(
                 msg.content,
                 {
                   mediaType: msg.type,
+                  mediaUrl: (msg as any).attachment_url,
                   nonce: msg.nonce,
                   messageType: msg.type,
-                  attachmentName: (msg as any).attachment?.name,
-                  attachmentSize: (msg as any).attachment?.size,
+                  attachmentName: (msg as any).attachment_name,
+                  attachmentSize: (msg as any).attachment_size,
                 }
               );
               serverSeq = dbResult.seq;

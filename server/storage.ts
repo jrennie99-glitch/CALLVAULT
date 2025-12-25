@@ -2233,8 +2233,8 @@ export class DatabaseStorage implements IStorage {
         return { 
           id: row.id, 
           seq: row.seq, 
-          serverTimestamp: row.server_timestamp || serverTimestamp, 
-          createdAt: row.created_at || serverTimestamp 
+          serverTimestamp: row.server_timestamp ? new Date(row.server_timestamp) : serverTimestamp, 
+          createdAt: row.created_at ? new Date(row.created_at) : serverTimestamp 
         };
       } catch (error: any) {
         // Retry on unique constraint violation (race condition)
