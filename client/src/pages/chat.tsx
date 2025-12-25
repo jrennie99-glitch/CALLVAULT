@@ -1065,8 +1065,8 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
                   <div
                     className={`rounded-2xl px-4 py-2 select-none cursor-pointer active:scale-[0.98] transition-transform ${
                       isMe
-                        ? 'bg-emerald-600 text-white rounded-br-md'
-                        : 'bg-slate-800 text-white rounded-bl-md'
+                        ? 'bg-[#007AFF] text-white rounded-br-md'
+                        : 'bg-[#3A3A3C] text-white rounded-bl-md'
                     }`}
                     style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', touchAction: 'pan-y' }}
                     onTouchStart={(e) => {
