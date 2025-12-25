@@ -85,13 +85,28 @@ export function InstallPrompt() {
   if (showIOSPrompt && !dismissed) {
     return (
       <div 
-        className="fixed inset-0 z-50 bg-black/80 flex items-end justify-center p-4 animate-in fade-in"
+        className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 animate-in fade-in"
         data-testid="ios-install-prompt"
+        onClick={(e) => {
+          // Close when clicking outside the modal
+          if (e.target === e.currentTarget) {
+            handleDismiss();
+          }
+        }}
       >
-        <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-in slide-in-from-bottom-8">
+        <div className="relative bg-slate-800 border border-slate-700 rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-in slide-in-from-bottom-8">
           <button 
-            onClick={handleDismiss}
-            className="absolute top-4 right-4 text-slate-400 hover:text-white p-2"
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleDismiss();
+            }}
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              handleDismiss();
+            }}
+            className="absolute top-3 right-3 text-slate-400 hover:text-white active:text-white p-2 rounded-full hover:bg-slate-700 active:bg-slate-700 z-10 touch-manipulation"
             data-testid="button-dismiss-ios-install"
           >
             <X className="h-5 w-5" />
@@ -109,7 +124,7 @@ export function InstallPrompt() {
           
           <div className="space-y-4 mb-6">
             <div className="flex items-center gap-3 bg-slate-700/50 rounded-lg p-3">
-              <div className="bg-blue-500 rounded-lg p-2">
+              <div className="bg-blue-500 rounded-lg p-2 shrink-0">
                 <Share className="h-5 w-5 text-white" />
               </div>
               <div>
@@ -119,7 +134,7 @@ export function InstallPrompt() {
             </div>
             
             <div className="flex items-center gap-3 bg-slate-700/50 rounded-lg p-3">
-              <div className="bg-slate-600 rounded-lg p-2">
+              <div className="bg-slate-600 rounded-lg p-2 shrink-0">
                 <Plus className="h-5 w-5 text-white" />
               </div>
               <div>
@@ -129,7 +144,7 @@ export function InstallPrompt() {
             </div>
             
             <div className="flex items-center gap-3 bg-slate-700/50 rounded-lg p-3">
-              <div className="bg-emerald-500 rounded-lg p-2">
+              <div className="bg-emerald-500 rounded-lg p-2 shrink-0">
                 <Download className="h-5 w-5 text-white" />
               </div>
               <div>
@@ -140,9 +155,17 @@ export function InstallPrompt() {
           </div>
           
           <Button 
+            type="button"
             variant="outline" 
-            onClick={handleDismiss}
-            className="w-full"
+            onClick={(e) => {
+              e.preventDefault();
+              handleDismiss();
+            }}
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              handleDismiss();
+            }}
+            className="w-full touch-manipulation active:bg-slate-700"
             data-testid="button-got-it-ios"
           >
             Got it, I'll do this later
