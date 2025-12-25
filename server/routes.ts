@@ -6030,7 +6030,8 @@ export async function registerRoutes(
                   broadcastToAddress(pendingMsg.fromAddress, {
                       type: 'msg:delivered',
                       message_id: pendingMsg.id,
-                      convo_id: pendingMsg.convoId
+                      convo_id: pendingMsg.convoId,
+                      delivered_at: Date.now()
                     });
                 } catch (e) {
                   console.error('Error delivering pending message:', e);
@@ -6951,7 +6952,8 @@ export async function registerRoutes(
                   ws.send(JSON.stringify({
                     type: 'msg:delivered',
                     message_id: msg.id,
-                    convo_id: msg.convo_id
+                    convo_id: msg.convo_id,
+                    delivered_at: Date.now()
                   } as WSMessage));
                 } else {
                   // Recipient offline - store message for later delivery and send push notification
@@ -7023,7 +7025,8 @@ export async function registerRoutes(
                 ws.send(JSON.stringify({
                   type: 'msg:delivered',
                   message_id: msg.id,
-                  convo_id: msg.convo_id
+                  convo_id: msg.convo_id,
+                  delivered_at: Date.now()
                 } as WSMessage));
               } else {
                 // Recipient offline - store message for later delivery and send push notification
@@ -7085,13 +7088,15 @@ export async function registerRoutes(
                 messageStore.updateMessageStatus(msgId, 'read');
               }
               
+              const read_at = Date.now();
               for (const participantAddr of convo.participant_addresses) {
                 if (participantAddr !== reader_address) {
                   broadcastToAddress(participantAddr, {
                       type: 'msg:read',
                       message_ids,
                       convo_id,
-                      reader_address
+                      reader_address,
+                      read_at
                     });
                 }
               }

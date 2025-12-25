@@ -137,7 +137,7 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
       if (data.type === 'msg:delivered' && data.convo_id === convo.id) {
         updateLocalMessageStatus(data.message_id, 'delivered');
         setMessages(prev => prev.map(m => 
-          m.id === data.message_id ? { ...m, status: 'delivered' } : m
+          m.id === data.message_id ? { ...m, status: 'delivered', delivered_at: data.delivered_at || Date.now() } : m
         ));
       }
 
@@ -146,7 +146,7 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
           updateLocalMessageStatus(msgId, 'read');
         }
         setMessages(prev => prev.map(m => 
-          data.message_ids.includes(m.id) ? { ...m, status: 'read' } : m
+          data.message_ids.includes(m.id) ? { ...m, status: 'read', read_at: data.read_at || Date.now() } : m
         ));
       }
 
@@ -800,13 +800,29 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
     }
   };
 
+  const formatStatusTime = (timestamp?: number) => {
+    if (!timestamp) return '';
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  };
+
   const renderMessageStatus = (msg: Message) => {
     if (msg.from_address !== identity.address) return null;
     switch (msg.status) {
       case 'sending': return <span className="text-purple-300/60 text-xs animate-pulse">○</span>;
       case 'sent': return <Check className="w-3 h-3 text-purple-300" />;
-      case 'delivered': return <CheckCheck className="w-3 h-3 text-purple-300" />;
-      case 'read': return <CheckCheck className="w-3 h-3 text-purple-400" />;
+      case 'delivered': return (
+        <span className="flex items-center gap-1 text-purple-300">
+          <CheckCheck className="w-3 h-3" />
+          <span className="text-[10px]">Delivered {msg.delivered_at ? formatStatusTime(msg.delivered_at) : ''}</span>
+        </span>
+      );
+      case 'read': return (
+        <span className="flex items-center gap-1 text-purple-400">
+          <CheckCheck className="w-3 h-3" />
+          <span className="text-[10px]">Read {msg.read_at ? formatStatusTime(msg.read_at) : ''}</span>
+        </span>
+      );
       case 'failed': return (
         <button 
           onClick={() => retryMessage(msg)} 

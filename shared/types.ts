@@ -52,6 +52,8 @@ export interface Message {
   reactions?: MessageReaction[];
   seq?: number; // Server-assigned sequence number for ordering
   server_timestamp?: number; // Server timestamp for ordering
+  delivered_at?: number; // Timestamp when message was delivered
+  read_at?: number; // Timestamp when message was read
 }
 
 export interface SignedMessage {
@@ -213,9 +215,9 @@ export type WSMessage =
   // Messaging
   | { type: 'msg:send'; data: SignedMessage; idempotency_key?: string }
   | { type: 'msg:incoming'; message: Message; from_pubkey: string }
-  | { type: 'msg:delivered'; message_id: string; convo_id: string }
+  | { type: 'msg:delivered'; message_id: string; convo_id: string; delivered_at?: number }
   | { type: 'msg:queued'; message_id: string; convo_id: string }
-  | { type: 'msg:read'; message_ids: string[]; convo_id: string; reader_address: string }
+  | { type: 'msg:read'; message_ids: string[]; convo_id: string; reader_address: string; read_at?: number }
   | { type: 'msg:typing'; convo_id: string; from_address: string; is_typing: boolean }
   | { type: 'msg:reaction'; convo_id: string; message_id: string; emoji: string; from_address: string }
   | { type: 'msg:ack'; message_id: string; status: 'duplicate' | 'received' | 'error'; seq?: number; server_timestamp?: number; error?: string }
