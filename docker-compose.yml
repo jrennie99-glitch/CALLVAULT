@@ -1,0 +1,109 @@
+# Call Vault - Docker Compose Configuration
+# Usage: docker-compose up -d
+
+version: '3.8'
+
+services:
+  # Main application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: callvault
+    restart: unless-stopped
+    ports:
+      - "${PORT:-5000}:5000"
+    environment:
+      - NODE_ENV=production
+      - PORT=5000
+      - DATABASE_URL=${DATABASE_URL}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
+      - TRUST_PROXY=${TRUST_PROXY:-true}
+      - TURN_MODE=${TURN_MODE:-public}
+      - TURN_URLS=${TURN_URLS:-}
+      - TURN_USERNAME=${TURN_USERNAME:-}
+      - TURN_CREDENTIAL=${TURN_CREDENTIAL:-}
+      - STUN_URLS=${STUN_URLS:-}
+      - METERED_APP_NAME=${METERED_APP_NAME:-}
+      - METERED_SECRET_KEY=${METERED_SECRET_KEY:-}
+      - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY:-}
+      - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY:-}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}
+    volumes:
+      - app_data:/app/data
+      - app_uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - callvault_network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # PostgreSQL database
+  postgres:
+    image: postgres:15-alpine
+    container_name: callvault_db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-callvault}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changeme}
+      - POSTGRES_DB=${POSTGRES_DB:-callvault}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - callvault_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-callvault}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Coturn TURN server (optional - enable if needed)
+  coturn:
+    image: coturn/coturn:latest
+    container_name: callvault_turn
+    restart: unless-stopped
+    profiles:
+      - turn  # Only starts when: docker-compose --profile turn up
+    ports:
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+      - "5349:5349/tcp"
+      - "5349:5349/udp"
+      - "49152-65535:49152-65535/udp"
+    environment:
+      - TURN_USERNAME=${TURN_USERNAME:-callvault}
+      - TURN_PASSWORD=${TURN_CREDENTIAL:-changeme}
+    command:
+      - -n
+      - --log-file=stdout
+      - --listening-port=3478
+      - --tls-listening-port=5349
+      - --min-port=49152
+      - --max-port=65535
+      - --realm=${TURN_REALM:-callvault.local}
+      - --user=${TURN_USERNAME:-callvault}:${TURN_CREDENTIAL:-changeme}
+      - --lt-cred-mech
+      - --fingerprint
+      - --no-tlsv1
+      - --no-tlsv1_1
+    networks:
+      - callvault_network
+
+volumes:
+  postgres_data:
+    driver: local
+  app_data:
+    driver: local
+  app_uploads:
+    driver: local
+
+networks:
+  callvault_network:
+    driver: bridge

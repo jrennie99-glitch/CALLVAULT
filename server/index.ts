@@ -6,6 +6,12 @@ import { createServer } from "http";
 const app = express();
 const httpServer = createServer(app);
 
+// Trust proxy headers when running behind nginx/load balancer
+// Set TRUST_PROXY=true in .env when deployed behind a reverse proxy
+if (process.env.TRUST_PROXY === 'true') {
+  app.set('trust proxy', 1);
+}
+
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
