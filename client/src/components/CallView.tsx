@@ -919,10 +919,9 @@ export function CallView({
           
           if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({
-              type: 'rtc:offer',
+              type: 'webrtc:offer',
               to_address: remoteAddressRef.current,
-              from_address: identity.address,
-              sdp: offer.sdp
+              offer: offer
             }));
           }
         }
@@ -970,10 +969,9 @@ export function CallView({
         
         if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({
-            type: 'rtc:offer',
+            type: 'webrtc:offer',
             to_address: remoteAddressRef.current,
-            from_address: identity.address,
-            sdp: offer.sdp
+            offer: offer
           }));
         }
       }
