@@ -9,17 +9,17 @@
     "created_at": 1766386544413,
     "created_by": "call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehgaZxj9ua2wq:iMbPcedKjup",
     "last_message": {
-      "id": "msg_1766644265071_wrteof2n8",
+      "id": "msg_1766699495129_eftjjnut5",
       "convo_id": "dm_1y2sb1_u19209_qq4ds7",
       "from_address": "call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehgaZxj9ua2wq:iMbPcedKjup",
       "to_address": "call:Gpi2BnrsV4HZP3wDKLdbvAFZCSS9fZvAuDgxnM21wEau:fFBCJ99piYz",
-      "timestamp": 1766644265071,
+      "timestamp": 1766699495129,
       "type": "text",
-      "content": "Yo",
-      "nonce": "dzfk2s1fhepmjl2dr3j",
+      "content": "It’s a work in progress I got to it on the server",
+      "nonce": "3rnuzy8g9wmjlz9ivt",
       "status": "sent",
-      "seq": 8,
-      "server_timestamp": 1766644265425
+      "seq": 13,
+      "server_timestamp": 1766699495481
     }
   },
   {
