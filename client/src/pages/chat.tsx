@@ -803,10 +803,10 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
   const renderMessageStatus = (msg: Message) => {
     if (msg.from_address !== identity.address) return null;
     switch (msg.status) {
-      case 'sending': return <span className="text-white/60 text-xs animate-pulse">○</span>;
-      case 'sent': return <Check className="w-3 h-3 text-white" />;
-      case 'delivered': return <CheckCheck className="w-3 h-3 text-white" />;
-      case 'read': return <CheckCheck className="w-3 h-3 text-cyan-300" />;
+      case 'sending': return <span className="text-purple-300/60 text-xs animate-pulse">○</span>;
+      case 'sent': return <Check className="w-3 h-3 text-purple-300" />;
+      case 'delivered': return <CheckCheck className="w-3 h-3 text-purple-300" />;
+      case 'read': return <CheckCheck className="w-3 h-3 text-purple-400" />;
       case 'failed': return (
         <button 
           onClick={() => retryMessage(msg)} 
