@@ -814,13 +814,13 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
       case 'delivered': return (
         <span className="flex items-center gap-1 text-purple-300">
           <CheckCheck className="w-3 h-3" />
-          <span className="text-[10px]">Delivered {msg.delivered_at ? formatStatusTime(msg.delivered_at) : ''}</span>
+          <span className="text-[10px]">Delivered{msg.delivered_at ? ` ${formatStatusTime(msg.delivered_at)}` : ''}</span>
         </span>
       );
       case 'read': return (
         <span className="flex items-center gap-1 text-purple-400">
           <CheckCheck className="w-3 h-3" />
-          <span className="text-[10px]">Read {msg.read_at ? formatStatusTime(msg.read_at) : ''}</span>
+          <span className="text-[10px]">Read{msg.read_at ? ` ${formatStatusTime(msg.read_at)}` : ''}</span>
         </span>
       );
       case 'failed': return (
