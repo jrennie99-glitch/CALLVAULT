@@ -155,17 +155,75 @@ export function CallView({
     return () => ws.removeEventListener('message', handleMessage);
   }, [ws]);
 
-  // Initialize call AFTER WebSocket listener is attached
+  // Helper to wait for WebSocket to be ready (OPEN state)
+  const waitForWebSocketReady = (socket: WebSocket, timeoutMs: number = 5000): Promise<boolean> => {
+    return new Promise((resolve) => {
+      if (socket.readyState === WebSocket.OPEN) {
+        resolve(true);
+        return;
+      }
+      
+      if (socket.readyState === WebSocket.CLOSED || socket.readyState === WebSocket.CLOSING) {
+        resolve(false);
+        return;
+      }
+      
+      // WebSocket is still CONNECTING - wait for it to open
+      const timeout = setTimeout(() => {
+        console.warn('[CallView] WebSocket ready timeout');
+        resolve(false);
+      }, timeoutMs);
+      
+      const onOpen = () => {
+        clearTimeout(timeout);
+        socket.removeEventListener('open', onOpen);
+        socket.removeEventListener('error', onError);
+        console.log('[CallView] WebSocket now ready');
+        resolve(true);
+      };
+      
+      const onError = () => {
+        clearTimeout(timeout);
+        socket.removeEventListener('open', onOpen);
+        socket.removeEventListener('error', onError);
+        resolve(false);
+      };
+      
+      socket.addEventListener('open', onOpen);
+      socket.addEventListener('error', onError);
+    });
+  };
+
+  // Initialize call AFTER WebSocket listener is attached AND socket is ready
   useEffect(() => {
     remoteAddressRef.current = destinationAddress;
-    if (destinationAddress && ws && isInitiator) {
-      initiateCall();
-    } else if (!isInitiator) {
-      // Callee: Set to 'connecting' - actual 'connected' state will be set by RTCPeerConnection handlers
-      setCallState('connecting');
-      setConnectionStatus('Connecting...');
-      initiatePeerConnection(false);
-    }
+    
+    const startCall = async () => {
+      if (!ws) return;
+      
+      // Wait for WebSocket to be in OPEN state before initiating
+      const isReady = await waitForWebSocketReady(ws);
+      if (!isReady) {
+        console.error('[CallView] WebSocket not ready, cannot initiate call');
+        toast.error('Connection not ready. Please try again.');
+        handleEndCall();
+        return;
+      }
+      
+      console.log('[CallView] WebSocket ready, initiating call...');
+      
+      if (destinationAddress && isInitiator) {
+        initiateCall();
+      } else if (!isInitiator) {
+        // Callee: Set to 'connecting' - actual 'connected' state will be set by RTCPeerConnection handlers
+        setCallState('connecting');
+        setConnectionStatus('Connecting...');
+        initiatePeerConnection(false);
+      }
+    };
+    
+    startCall();
+    
     return () => {
       cleanupCall();
     };
