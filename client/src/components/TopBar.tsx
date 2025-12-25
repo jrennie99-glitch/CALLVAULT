@@ -5,15 +5,24 @@ interface TopBarProps {
   title?: string;
   isFounder?: boolean;
   isAdmin?: boolean;
+  wsConnected?: boolean;
 }
 
-export function TopBar({ title = 'Call Vault', isFounder = false, isAdmin = false }: TopBarProps) {
+export function TopBar({ title = 'Call Vault', isFounder = false, isAdmin = false, wsConnected }: TopBarProps) {
   const profile = getUserProfile();
 
   return (
     <header className="sticky top-0 bg-slate-900/95 backdrop-blur-lg border-b border-slate-800 z-30 safe-area-inset-top">
       <div className="flex items-center justify-between px-4 h-14 max-w-lg mx-auto">
         <div className="flex items-center gap-2">
+          {/* Connection status indicator - subtle dot */}
+          {wsConnected !== undefined && (
+            <div 
+              className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-emerald-500' : 'bg-red-500 animate-pulse'}`}
+              title={wsConnected ? 'Connected' : 'Disconnected'}
+              data-testid="connection-indicator"
+            />
+          )}
           <h1 className="text-lg font-bold text-white">{title}</h1>
           {isFounder && (
             <div className="flex items-center gap-1 px-2 py-0.5 bg-gradient-to-r from-amber-500/20 to-yellow-500/20 border border-amber-500/30 rounded-full">

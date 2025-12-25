@@ -411,11 +411,15 @@ export default function CallPage() {
         wsHeartbeatInterval.current = null;
       }
       
-      // Aggressive reconnect: 100ms, 200ms, 400ms, 800ms, max 3s (like WhatsApp)
-      const delay = Math.min(100 * Math.pow(2, wsReconnectAttempt.current), 3000);
+      // Aggressive reconnect with jitter: base delay (100ms) with exponential backoff + random jitter
+      const baseDelay = Math.min(100 * Math.pow(2, wsReconnectAttempt.current), 3000);
+      const jitter = Math.random() * Math.min(baseDelay * 0.5, 500); // Up to 50% jitter, max 500ms
+      const delay = baseDelay + jitter;
       wsReconnectAttempt.current++;
       
-      // Reconnect immediately
+      console.log(`WebSocket reconnect attempt ${wsReconnectAttempt.current}, delay: ${Math.round(delay)}ms`);
+      
+      // Reconnect with jittered delay
       wsReconnectTimeout.current = setTimeout(() => {
         if (storedIdentity) {
           initWebSocket(storedIdentity);
@@ -862,7 +866,7 @@ export default function CallPage() {
 
   return (
     <div className="min-h-screen bg-slate-900 text-white flex flex-col">
-      <TopBar isFounder={userRole.isFounder} isAdmin={userRole.isAdmin} />
+      <TopBar isFounder={userRole.isFounder} isAdmin={userRole.isAdmin} wsConnected={wsConnected} />
       
       {/* Connection status indicator - only show after initial connection lost */}
       {!wsConnected && wsHasBeenConnected.current && (

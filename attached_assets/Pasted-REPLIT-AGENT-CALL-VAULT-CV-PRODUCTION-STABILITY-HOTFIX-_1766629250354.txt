@@ -1,0 +1,97 @@
+REPLIT AGENT — CALL VAULT (CV) “PRODUCTION STABILITY HOTFIX” (NO REARCHITECTURE)
+
+IMPORTANT RULES (MUST FOLLOW)
+- The app is already built. DO NOT remove or break any existing feature or functionality.
+- Do NOT redesign the system, do NOT do “deep theory” work (no advisory locks debates, no new architecture).
+- Make ONLY targeted bug fixes + reliability improvements.
+- Any change must include tests or a reproducible verification checklist.
+- If something is ambiguous, infer from existing codebase and logs—do not ask me questions unless truly blocked.
+
+GOALS (FIX THESE NOW)
+A) Always-connected / always-available behavior
+- Ensure the client maintains a stable realtime connection to the server:
+  - WebSocket/SSE reconnect with exponential backoff + jitter
+  - heartbeat/ping every 15–25s and server pong/ack
+  - detect stale connection and auto-resubscribe to channels
+- Add “connection state” indicator but do not change existing UI layout.
+- Ensure server keeps presence/online state accurate.
+
+B) Messaging is broken (all chats collapsing into one thread)
+- BUG: All messages appear in one “box” / one conversation like a group.
+- FIX: Make 1-on-1 messages route to the correct conversation/thread.
+- Requirements:
+  1) Conversation ID must be unique per peer pair (A<->B) AND stable across devices:
+     - conversationId = stableHash(min(userAId,userBId) + ":" + max(userAId,userBId))
+  2) DB schema must enforce message->conversation relationship:
+     - messages table includes convo_id, sender_id, recipient_id (or participant ids), created_at
+  3) API queries must filter by convo_id and participants, never “global inbox”.
+  4) UI must show separate threads per contact, correct title/avatar, and correct message list.
+  5) Group chats (text-only) must remain separate and not mix with DMs.
+
+C) Ringtone + Call audio + Call routing are failing
+- FIX incoming call ring:
+  - Ensure ringtone is triggered by an incoming call event reliably (even after reconnect).
+  - Handle iOS/Android browser autoplay restrictions:
+    - Use a user gesture “Enable Sound” bootstrap if needed (minimal UI).
+    - Preload audio, resume AudioContext on user interaction.
+- FIX call audio:
+  - Ensure remote audio track is attached to an <audio> element with autoplay + playsInline.
+  - Ensure correct getUserMedia constraints and that tracks are added to RTCPeerConnection.
+  - Verify speaker/earpiece toggle does not mute output incorrectly.
+- FIX calls not going through:
+  - Add detailed WebRTC debug logging (ICE state, signaling state, candidates).
+  - Ensure signaling messages (offer/answer/candidates) are routed ONLY to the correct peer and correct sessionId.
+  - Ensure TURN/STUN config loads correctly from env and is used when needed.
+  - If TURN missing, still work on Wi-Fi via STUN, but show “May fail on cellular” only as a tooltip (no big UI change).
+
+D) Texts not received / unreliable delivery
+- Guarantee delivery semantics:
+  - Store message server-side before acking to sender.
+  - Send ack to sender; client retries send on timeout.
+  - Recipient receives via realtime channel; on reconnect, client fetches missed messages since lastSeenTimestamp.
+- DO NOT change pricing/billing logic.
+
+E) Make hosting portable (“works on all hosting”)
+- Remove Replit-only assumptions:
+  - Use PORT env var
+  - Don’t hardcode localhost origins
+  - CORS should allow configured origins via env (ALLOWED_ORIGINS)
+  - WebSocket URL should derive from current origin (wss://) automatically
+- Provide a deployment checklist:
+  - Works on Render, Fly.io, Railway, Vercel (if applicable), Hetzner VPS, Docker
+
+EXECUTION PLAN (DO THIS IN ORDER)
+1) STOP any running agent loop. Create a git checkpoint/commit named: "cv-stability-hotfix-start".
+2) Reproduce issues with automated + manual steps:
+   - DM two different contacts; confirm messages separate
+   - Place a call; verify ring + remote audio
+   - Simulate reconnect (toggle network); verify messages/calls still route correctly
+3) Identify current realtime layer:
+   - ws/sse/socket.io? find actual files and routes
+4) Fix conversation routing bug:
+   - Implement stable convoId function shared by client+server
+   - Update DB queries and UI thread selection
+   - Add DB constraint/index to prevent cross-thread mix-ups
+5) Fix call signaling routing + audio:
+   - Verify sessionId mapping and peer routing
+   - Fix incoming call ringtone trigger
+   - Fix remote audio attachment
+6) Fix message delivery:
+   - add server persistence + ack + retry
+   - add “fetch missed messages since lastSeen” endpoint
+7) Hosting portability:
+   - env-based config, dynamic origin, secure cookies/session config compatible with HTTPS
+8) TESTS + VERIFICATION
+   - Add minimal test coverage:
+     - convoId deterministic tests
+     - message send/receive route tests
+     - signaling route test (unit-level)
+   - Provide a step-by-step checklist I can run in preview.
+
+DELIVERABLES (MUST OUTPUT)
+- List of files changed/added (paths)
+- Summary of each fix and why it solves the issue
+- Env vars required (with defaults)
+- Exact manual test checklist (copy/paste)
+
+START NOW. NO QUESTIONS UNLESS BLOCKED BY MISSING FILES/ERROR LOGS.

@@ -505,6 +505,11 @@ export async function registerRoutes(
 ): Promise<Server> {
   ensureUploadsDir();
   
+  // Health check endpoint - for deployment verification
+  app.get('/api/health', (_req, res) => {
+    res.json({ status: 'ok', timestamp: Date.now() });
+  });
+  
   // Server time endpoint - provides authoritative server timestamp for client clock sync
   app.get('/api/server-time', (_req, res) => {
     const now = Date.now();

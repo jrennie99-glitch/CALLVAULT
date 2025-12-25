@@ -82,3 +82,40 @@ Preferred communication style: Simple, everyday language.
 - **Database**: PostgreSQL, Drizzle ORM.
 - **Payment Processing**: Stripe (via `stripe-replit-sync`).
 - **Email Service**: Resend or SendGrid.
+
+## Production Stability Features
+- **WebSocket Reconnection**: Aggressive reconnect with exponential backoff + jitter (100ms base, max 3s). Reconnects on visibility change.
+- **Client Heartbeat**: 15-second ping interval with 10-second timeout. Dead connections trigger automatic reconnect.
+- **Connection Indicator**: TopBar shows green/red dot for connection status. Red banner appears on disconnect after initial connection.
+- **Message Retry**: Failed messages marked with retry button. Automatic re-signing on retry.
+- **Fetch Missed Messages**: `/api/messages/:convoId/since/:timestamp` and `/api/messages/:convoId/sync` endpoints for reconnect sync.
+- **WebRTC Debugging**: Comprehensive logging for ICE connection state, signaling state, gathering state, and connection state changes.
+- **Ringtone Handling**: AudioContext unlocking for iOS/Android autoplay restrictions. Web Audio API for reliable ringtones.
+- **Conversation Routing**: Stable deterministic conversation IDs using DJB2 hash of sorted addresses: `dm_{h1}_{h2}_{h3}`.
+
+## Hosting Portability
+Call Vault is designed to work on any hosting platform:
+
+### Required Environment Variables
+- `PORT` - Server port (default: 5000)
+- `DATABASE_URL` - PostgreSQL connection string
+- `NODE_ENV` - 'development' or 'production'
+
+### Optional Environment Variables
+- `ALLOWED_ORIGINS` - Comma-separated list of allowed CORS origins (e.g., `https://example.com,https://app.example.com`). Leave empty for same-origin only.
+- `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` - Web Push notification keys
+- `METERED_APP_NAME` / `METERED_SECRET_KEY` - Metered.ca TURN server credentials
+- `TURN_URLS` / `TURN_USERNAME` / `TURN_CREDENTIAL` - Custom TURN server (if not using Metered)
+- `TURN_MODE` - 'public', 'custom', or 'off'
+
+### Deployment Checklist
+Works on: Render, Fly.io, Railway, Hetzner VPS, Docker, any Node.js host
+
+1. Set `DATABASE_URL` to your PostgreSQL connection string
+2. Set `NODE_ENV=production`
+3. Set `PORT` if required by platform (many auto-set this)
+4. Run `npm run db:push` to initialize database schema
+5. Set `ALLOWED_ORIGINS` if using a custom domain or cross-origin access
+6. Configure VAPID keys for push notifications (optional)
+7. Configure TURN servers for reliable NAT traversal (optional but recommended)
+8. Deploy and verify `/api/health` endpoint responds

@@ -12,6 +12,36 @@ declare module "http" {
   }
 }
 
+// CORS middleware - configurable via ALLOWED_ORIGINS env var
+// Defaults to allowing same-origin only if not set
+const allowedOrigins = process.env.ALLOWED_ORIGINS 
+  ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+  : [];
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  
+  // If ALLOWED_ORIGINS is set, validate against it
+  if (allowedOrigins.length > 0) {
+    if (origin && (allowedOrigins.includes(origin) || allowedOrigins.includes('*'))) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+    }
+  }
+  // If no ALLOWED_ORIGINS set, allow same-origin requests (no header set = browser blocks cross-origin)
+  
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Max-Age', '86400'); // 24 hours
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+  
+  next();
+});
+
 app.use(
   express.json({
     verify: (req, _res, buf) => {

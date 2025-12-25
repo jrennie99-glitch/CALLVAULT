@@ -582,6 +582,7 @@ export function CallView({
     };
 
     pc.oniceconnectionstatechange = () => {
+      console.log(`[WebRTC] ICE connection state: ${pc.iceConnectionState}`);
       if (pc.iceConnectionState === 'disconnected') {
         setCallState('reconnecting');
         setConnectionStatus('Network interrupted...');
@@ -591,6 +592,23 @@ export function CallView({
         clearStunFailureTimer();
       }
     };
+    
+    // Add signaling state change logging for debugging
+    pc.onsignalingstatechange = () => {
+      console.log(`[WebRTC] Signaling state: ${pc.signalingState}`);
+    };
+    
+    // Add ICE gathering state logging
+    pc.onicegatheringstatechange = () => {
+      console.log(`[WebRTC] ICE gathering state: ${pc.iceGatheringState}`);
+    };
+    
+    // Add connection state logging
+    if ('onconnectionstatechange' in pc) {
+      pc.onconnectionstatechange = () => {
+        console.log(`[WebRTC] Connection state: ${pc.connectionState}`);
+      };
+    }
   };
 
   const initiatePeerConnection = async (isInitiator: boolean) => {
