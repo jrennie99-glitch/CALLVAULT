@@ -9,17 +9,17 @@
     "created_at": 1766386544413,
     "created_by": "call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehgaZxj9ua2wq:iMbPcedKjup",
     "last_message": {
-      "id": "msg_1766643105131_sj510c340",
+      "id": "msg_1766644265071_wrteof2n8",
       "convo_id": "dm_1y2sb1_u19209_qq4ds7",
       "from_address": "call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehgaZxj9ua2wq:iMbPcedKjup",
       "to_address": "call:Gpi2BnrsV4HZP3wDKLdbvAFZCSS9fZvAuDgxnM21wEau:fFBCJ99piYz",
-      "timestamp": 1766643105131,
+      "timestamp": 1766644265071,
       "type": "text",
-      "content": "Ok I’m gonna try ringing you again cut it off",
-      "nonce": "xks1jt1l25fmjl1ow2z",
+      "content": "Yo",
+      "nonce": "dzfk2s1fhepmjl2dr3j",
       "status": "sent",
-      "seq": 7,
-      "server_timestamp": 1766643105502
+      "seq": 8,
+      "server_timestamp": 1766644265425
     }
   },
   {
