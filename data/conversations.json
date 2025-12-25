@@ -66,5 +66,31 @@
       "seq": 10,
       "server_timestamp": 1766634073904
     }
+  },
+  {
+    "id": "dm_iz3myf_1e189hv_1388uup",
+    "type": "direct",
+    "participant_addresses": [
+      "call:42AhzQiqqf9qXEyKSJ9m3UeQnu1vmY8SiMzQqKngNnf1:YA7xAaguXVy",
+      "call:3fVhYt7K9xPqLm2zAbc12345:7GkLmNop"
+    ],
+    "created_at": 1766635398911,
+    "created_by": "call:42AhzQiqqf9qXEyKSJ9m3UeQnu1vmY8SiMzQqKngNnf1:YA7xAaguXVy",
+    "last_message": {
+      "id": "msg_1766635398843_9s0n666uk",
+      "convo_id": "dm_iz3myf_1e189hv_1388uup",
+      "from_address": "call:42AhzQiqqf9qXEyKSJ9m3UeQnu1vmY8SiMzQqKngNnf1:YA7xAaguXVy",
+      "to_address": "call:3fVhYt7K9xPqLm2zAbc12345:7GkLmNop",
+      "timestamp": 1766635398843,
+      "type": "image",
+      "content": "",
+      "attachment_url": "/api/files/1766635398728_q7fw0rjg.png",
+      "attachment_name": "test-image.png",
+      "attachment_size": 68,
+      "nonce": "pk9dcgjo8qpmjkx3pvf",
+      "status": "sent",
+      "seq": 1,
+      "server_timestamp": 1766635398888
+    }
   }
 ]
