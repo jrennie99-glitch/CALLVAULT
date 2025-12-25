@@ -47,6 +47,7 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
   const [showSearch, setShowSearch] = useState(false);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
+  const [isOnline, setIsOnline] = useState(false);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -67,6 +68,34 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
     loadMessages();
     clearUnreadCount(convo.id);
   }, [convo.id]);
+
+  // Fetch online status for the other participant
+  useEffect(() => {
+    if (convo.type === 'group') return;
+    
+    const otherAddress = convo.participant_addresses.find(a => a !== identity.address);
+    if (!otherAddress) return;
+
+    const fetchOnlineStatus = async () => {
+      try {
+        const response = await fetch('/api/online-status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ addresses: [otherAddress] })
+        });
+        if (response.ok) {
+          const status = await response.json();
+          setIsOnline(status[otherAddress] === true);
+        }
+      } catch (error) {
+        console.error('Failed to fetch online status:', error);
+      }
+    };
+
+    fetchOnlineStatus();
+    const interval = setInterval(fetchOnlineStatus, 15000);
+    return () => clearInterval(interval);
+  }, [convo.id, convo.type, convo.participant_addresses, identity.address]);
   
   // Reload messages when page gains focus (for multi-device sync)
   useEffect(() => {
@@ -953,6 +982,11 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
           </div>
           {remoteTyping ? (
             <div className="text-xs text-emerald-400">typing...</div>
+          ) : convo.type === 'direct' && isOnline ? (
+            <div className="flex items-center gap-1.5">
+              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-xs text-emerald-400">Online</span>
+            </div>
           ) : (
             <EncryptionIndicator type="message" showLabel={false} className="mt-0.5" />
           )}

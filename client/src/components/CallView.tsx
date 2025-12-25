@@ -838,6 +838,34 @@ export function CallView({
     }
   };
 
+  const upgradeToVideo = async () => {
+    try {
+      const videoStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode }
+      });
+      const newVideoTrack = videoStream.getVideoTracks()[0];
+      
+      if (peerConnectionRef.current && newVideoTrack) {
+        peerConnectionRef.current.addTrack(newVideoTrack, localStreamRef.current || videoStream);
+        
+        if (localStreamRef.current) {
+          localStreamRef.current.addTrack(newVideoTrack);
+        }
+        
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = localStreamRef.current || videoStream;
+        }
+        
+        setIsVideoCall(true);
+        setIsVideoEnabled(true);
+        toast.success('Upgraded to video call');
+      }
+    } catch (error) {
+      console.error('Failed to upgrade to video:', error);
+      toast.error('Could not access camera');
+    }
+  };
+
   const toggleSpeaker = async () => {
     const mediaElement = remoteVideoRef.current;
     if (!mediaElement) return;
@@ -1023,7 +1051,7 @@ export function CallView({
             {isMuted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
           </Button>
 
-          {isVideoCall && (
+          {isVideoCall ? (
             <>
               <Button
                 onClick={toggleVideo}
@@ -1045,6 +1073,16 @@ export function CallView({
                 <SwitchCamera className="h-6 w-6" />
               </Button>
             </>
+          ) : (
+            <Button
+              onClick={upgradeToVideo}
+              variant="ghost"
+              size="lg"
+              className="w-14 h-14 rounded-full bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30"
+              data-testid="button-upgrade-video"
+            >
+              <Video className="h-6 w-6" />
+            </Button>
           )}
 
           <Button

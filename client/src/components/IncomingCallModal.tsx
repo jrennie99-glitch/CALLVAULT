@@ -22,6 +22,7 @@ export function IncomingCallModal({ fromAddress, isVideo, onAccept, onReject, ca
   const source = callSource || (contact ? 'contact' : 'unknown');
   
   useEffect(() => {
+    // Try to play ringtone (may require user gesture on mobile)
     playRingtone();
     
     return () => {
@@ -29,9 +30,19 @@ export function IncomingCallModal({ fromAddress, isVideo, onAccept, onReject, ca
     };
   }, []);
 
+  // Unlock audio on any touch/click on the modal
+  const handleModalInteraction = async () => {
+    await unlockAudio();
+    playRingtone();
+  };
+
   return (
     <Dialog open={true} onOpenChange={(open) => !open && onReject()}>
-      <DialogContent className="bg-slate-800 border-slate-700 text-white max-w-sm">
+      <DialogContent 
+        className="bg-slate-800 border-slate-700 text-white max-w-sm"
+        onClick={handleModalInteraction}
+        onTouchStart={handleModalInteraction}
+      >
         <DialogHeader className="text-center">
           <div className="w-24 h-24 mx-auto rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center mb-4 animate-pulse">
             {contact?.avatar ? (

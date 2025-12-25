@@ -84,11 +84,17 @@ async function ensureAudioReady(): Promise<AudioContext | null> {
 export async function playRingtone(): Promise<void> {
   stopRingtone();
   
+  // Try to unlock audio first (may fail without user gesture, but worth trying)
+  await unlockAudio();
+  
   const ctx = await ensureAudioReady();
   if (!ctx) {
     console.warn('[Audio] Cannot play ringtone - AudioContext not available');
     return;
   }
+  
+  // Log audio state for debugging
+  console.log('[Audio] Ringtone - AudioContext state:', ctx.state);
   
   currentRingtone = { intervalId: null, oscillators: [] };
   
@@ -180,11 +186,17 @@ export function stopRingtone(): void {
 export async function playRingback(): Promise<void> {
   stopRingback();
   
+  // Try to unlock audio first
+  await unlockAudio();
+  
   const ctx = await ensureAudioReady();
   if (!ctx) {
     console.warn('[Audio] Cannot play ringback - AudioContext not available');
     return;
   }
+  
+  // Log audio state for debugging  
+  console.log('[Audio] Ringback - AudioContext state:', ctx.state);
   
   currentRingback = { intervalId: null, oscillators: [] };
   
