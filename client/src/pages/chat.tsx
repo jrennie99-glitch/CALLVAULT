@@ -46,6 +46,7 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
   }>({ isOpen: false, position: { x: 0, y: 0 }, message: null });
   const [showSearch, setShowSearch] = useState(false);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -797,8 +798,8 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
         <img 
           src={msg.attachment_url} 
           alt="Shared image" 
-          className="max-w-[250px] rounded-lg cursor-pointer"
-          onClick={() => window.open(msg.attachment_url, '_blank')}
+          className="max-w-[250px] rounded-lg cursor-pointer active:opacity-80"
+          onClick={() => setLightbox({ url: msg.attachment_url!, type: 'image' })}
         />
       );
     }
@@ -831,24 +832,40 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
     
     if (msg.type === 'video' && msg.attachment_url) {
       return (
-        <video 
-          src={msg.attachment_url} 
-          controls
-          className="max-w-[280px] rounded-lg"
-          preload="metadata"
-        />
+        <div 
+          className="relative cursor-pointer"
+          onClick={() => setLightbox({ url: msg.attachment_url!, type: 'video' })}
+        >
+          <video 
+            src={msg.attachment_url} 
+            className="max-w-[280px] rounded-lg"
+            preload="metadata"
+          />
+          <div className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-lg">
+            <div className="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center">
+              <div className="w-0 h-0 border-t-[8px] border-t-transparent border-l-[14px] border-l-slate-900 border-b-[8px] border-b-transparent ml-1" />
+            </div>
+          </div>
+        </div>
       );
     }
     
     if (msg.type === 'video_message' && msg.attachment_url) {
       return (
-        <div className="relative">
+        <div 
+          className="relative cursor-pointer"
+          onClick={() => setLightbox({ url: msg.attachment_url!, type: 'video' })}
+        >
           <video 
             src={msg.attachment_url} 
-            controls
             className="max-w-[200px] rounded-xl"
             preload="metadata"
           />
+          <div className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-xl">
+            <div className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center">
+              <div className="w-0 h-0 border-t-[6px] border-t-transparent border-l-[10px] border-l-slate-900 border-b-[6px] border-b-transparent ml-1" />
+            </div>
+          </div>
           <div className="absolute top-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1">
             <Camera className="w-3 h-3" />
             <span>Video message</span>
@@ -863,8 +880,8 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
           <img 
             src={msg.attachment_url} 
             alt={msg.content || 'Meme'}
-            className="max-w-[250px] rounded-lg cursor-pointer"
-            onClick={() => window.open(msg.attachment_url, '_blank')}
+            className="max-w-[250px] rounded-lg cursor-pointer active:opacity-80"
+            onClick={() => setLightbox({ url: msg.attachment_url!, type: 'image' })}
           />
           {msg.content && (
             <div className="absolute bottom-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded-full">
@@ -1326,6 +1343,40 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
         onForward={handleContextMenuForward}
         onDelete={handleContextMenuDelete}
       />
+      
+      {lightbox && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center"
+          onClick={() => setLightbox(null)}
+          data-testid="lightbox-overlay"
+        >
+          <button
+            onClick={() => setLightbox(null)}
+            className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 active:bg-white/30"
+            style={{ touchAction: 'manipulation' }}
+            data-testid="button-close-lightbox"
+          >
+            <X className="w-6 h-6" />
+          </button>
+          
+          {lightbox.type === 'image' ? (
+            <img 
+              src={lightbox.url} 
+              alt="Full size" 
+              className="max-w-full max-h-full object-contain p-4"
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <video 
+              src={lightbox.url} 
+              controls
+              autoPlay
+              className="max-w-full max-h-full object-contain p-4"
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }
