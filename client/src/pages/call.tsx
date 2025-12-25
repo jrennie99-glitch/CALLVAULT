@@ -575,7 +575,10 @@ export default function CallPage() {
       const msg = message.message;
       saveLocalMessage(msg);
       
-      if (!activeChat || activeChat.id !== msg.convo_id) {
+      // Only notify for messages from OTHER people, not your own messages
+      const isMyOwnMessage = msg.from_address === identity?.address;
+      
+      if (!isMyOwnMessage && (!activeChat || activeChat.id !== msg.convo_id)) {
         incrementUnreadCount(msg.convo_id);
         setUnreadCount(prev => prev + 1);
         
