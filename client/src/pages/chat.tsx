@@ -795,12 +795,22 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
   const renderAttachment = (msg: Message) => {
     if (msg.type === 'image' && msg.attachment_url) {
       return (
-        <img 
-          src={msg.attachment_url} 
-          alt="Shared image" 
-          className="max-w-[250px] rounded-lg cursor-pointer active:opacity-80"
-          onClick={() => setLightbox({ url: msg.attachment_url!, type: 'image' })}
-        />
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setLightbox({ url: msg.attachment_url!, type: 'image' });
+          }}
+          onTouchStart={(e) => e.stopPropagation()}
+          className="block p-0 border-0 bg-transparent cursor-pointer"
+          style={{ touchAction: 'manipulation' }}
+        >
+          <img 
+            src={msg.attachment_url} 
+            alt="Shared image" 
+            className="max-w-[250px] rounded-lg active:opacity-80"
+          />
+        </button>
       );
     }
     
@@ -832,63 +842,83 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
     
     if (msg.type === 'video' && msg.attachment_url) {
       return (
-        <div 
-          className="relative cursor-pointer"
-          onClick={() => setLightbox({ url: msg.attachment_url!, type: 'video' })}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setLightbox({ url: msg.attachment_url!, type: 'video' });
+          }}
+          onTouchStart={(e) => e.stopPropagation()}
+          className="relative block p-0 border-0 bg-transparent cursor-pointer"
+          style={{ touchAction: 'manipulation' }}
         >
           <video 
             src={msg.attachment_url} 
             className="max-w-[280px] rounded-lg"
             preload="metadata"
           />
-          <div className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-lg">
+          <div className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-lg pointer-events-none">
             <div className="w-12 h-12 rounded-full bg-white/90 flex items-center justify-center">
               <div className="w-0 h-0 border-t-[8px] border-t-transparent border-l-[14px] border-l-slate-900 border-b-[8px] border-b-transparent ml-1" />
             </div>
           </div>
-        </div>
+        </button>
       );
     }
     
     if (msg.type === 'video_message' && msg.attachment_url) {
       return (
-        <div 
-          className="relative cursor-pointer"
-          onClick={() => setLightbox({ url: msg.attachment_url!, type: 'video' })}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setLightbox({ url: msg.attachment_url!, type: 'video' });
+          }}
+          onTouchStart={(e) => e.stopPropagation()}
+          className="relative block p-0 border-0 bg-transparent cursor-pointer"
+          style={{ touchAction: 'manipulation' }}
         >
           <video 
             src={msg.attachment_url} 
             className="max-w-[200px] rounded-xl"
             preload="metadata"
           />
-          <div className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-xl">
+          <div className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-xl pointer-events-none">
             <div className="w-10 h-10 rounded-full bg-white/90 flex items-center justify-center">
               <div className="w-0 h-0 border-t-[6px] border-t-transparent border-l-[10px] border-l-slate-900 border-b-[6px] border-b-transparent ml-1" />
             </div>
           </div>
-          <div className="absolute top-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1">
+          <div className="absolute top-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1 pointer-events-none">
             <Camera className="w-3 h-3" />
             <span>Video message</span>
           </div>
-        </div>
+        </button>
       );
     }
     
     if (msg.type === 'meme' && msg.attachment_url) {
       return (
-        <div className="relative">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setLightbox({ url: msg.attachment_url!, type: 'image' });
+          }}
+          onTouchStart={(e) => e.stopPropagation()}
+          className="relative block p-0 border-0 bg-transparent cursor-pointer"
+          style={{ touchAction: 'manipulation' }}
+        >
           <img 
             src={msg.attachment_url} 
             alt={msg.content || 'Meme'}
-            className="max-w-[250px] rounded-lg cursor-pointer active:opacity-80"
-            onClick={() => setLightbox({ url: msg.attachment_url!, type: 'image' })}
+            className="max-w-[250px] rounded-lg active:opacity-80"
           />
           {msg.content && (
-            <div className="absolute bottom-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded-full">
+            <div className="absolute bottom-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded-full pointer-events-none">
               {msg.content}
             </div>
           )}
-        </div>
+        </button>
       );
     }
     
