@@ -32,7 +32,7 @@ import { addToLocalBlocklist, isCreatorAvailable, shouldRequirePayment, getCallP
 import { PaymentRequiredScreen } from '@/components/PaymentRequiredScreen';
 import { PreCallCheckModal } from '@/components/PreCallCheckModal';
 import { VoicemailRecorderModal } from '@/components/VoicemailRecorderModal';
-import { unlockAudio } from '@/lib/audio';
+import { unlockAudio, stopAllAudio } from '@/lib/audio';
 import type { CryptoIdentity, WSMessage, Conversation, Message, CallRequest, CallPricing } from '@shared/types';
 
 type SettingsScreen = 'main' | 'call_permissions' | 'blocklist' | 'ai_guardian' | 'wallet' | 'passes' | 'creator_mode' | 'earnings_dashboard' | 'admin_console' | 'voicemail';
@@ -721,6 +721,9 @@ export default function CallPage() {
   };
 
   const handleAcceptCall = async () => {
+    // Stop ringtone immediately when accepting
+    stopAllAudio();
+    
     // Unlock audio context on user gesture (required for browser autoplay policy)
     await unlockAudio();
     
@@ -785,6 +788,9 @@ export default function CallPage() {
   };
 
   const handleRejectCall = () => {
+    // Stop ringtone immediately when rejecting
+    stopAllAudio();
+    
     if (!incomingCall || !ws) return;
 
     ws.send(JSON.stringify({

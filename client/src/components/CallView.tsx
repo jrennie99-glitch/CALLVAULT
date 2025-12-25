@@ -196,16 +196,25 @@ export function CallView({
   // Fetch call session token with plan-based permissions
   const fetchCallSessionToken = async (): Promise<CallSessionToken | null> => {
     try {
+      const targetAddr = remoteAddressRef.current || destinationAddress;
       const res = await fetch('/api/call-session-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address: identity.address })
+        body: JSON.stringify({ 
+          address: identity.address,
+          targetAddress: targetAddr
+        })
       });
       if (!res.ok) {
         console.error('Failed to fetch call session token');
         return null;
       }
       const token = await res.json();
+      console.log('[CallView] Call session token received:', {
+        allowTurn: token.allowTurn,
+        turnConfigured: token.turnConfigured,
+        iceServersCount: token.iceServers?.length || 0
+      });
       setCallSession(token);
       return token;
     } catch (error) {
@@ -658,9 +667,18 @@ export function CallView({
     // Fetch call session token to get plan-based permissions
     const session = await fetchCallSessionToken();
     
-    // Start with STUN-only for cost efficiency
-    // TURN will be added via fallback if needed (for paid users only)
-    const initialServers = STUN_ONLY_SERVERS;
+    // Use TURN servers immediately when available for better reliability (international calls, restrictive NATs)
+    // Fall back to STUN-only if TURN is not allowed or not configured
+    let initialServers: RTCIceServer[];
+    if (session?.allowTurn && session.turnConfigured && session.iceServers?.length > 0) {
+      // Use the full ICE server list (STUN + TURN) from the session
+      initialServers = session.iceServers;
+      console.log('[CallView] Using TURN servers from session:', session.iceServers.length, 'servers');
+    } else {
+      // Free tier or TURN not configured - use STUN only
+      initialServers = STUN_ONLY_SERVERS;
+      console.log('[CallView] Using STUN-only servers (TURN not available)');
+    }
     
     try {
       // Reuse existing stream if already captured (e.g., for video calls during ringing)
