@@ -1213,10 +1213,19 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
             type="file"
             ref={imageInputRef}
             accept="image/*"
+            multiple
             className="hidden"
             onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) handleFileUpload(file, 'image');
+              const files = e.target.files;
+              if (files) {
+                const maxFiles = Math.min(files.length, 50);
+                for (let i = 0; i < maxFiles; i++) {
+                  handleFileUpload(files[i], 'image');
+                }
+                if (files.length > 50) {
+                  toast.info(`Uploading first 50 of ${files.length} images`);
+                }
+              }
               e.target.value = '';
             }}
           />
@@ -1224,20 +1233,38 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
             type="file"
             ref={videoInputRef}
             accept="video/*,video/mp4,video/quicktime,video/x-m4v,.mp4,.mov,.m4v"
+            multiple
             className="hidden"
             onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) handleFileUpload(file, 'video');
+              const files = e.target.files;
+              if (files) {
+                const maxFiles = Math.min(files.length, 50);
+                for (let i = 0; i < maxFiles; i++) {
+                  handleFileUpload(files[i], 'video');
+                }
+                if (files.length > 50) {
+                  toast.info(`Uploading first 50 of ${files.length} videos`);
+                }
+              }
               e.target.value = '';
             }}
           />
           <input
             type="file"
             ref={fileInputRef}
+            multiple
             className="hidden"
             onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) handleFileUpload(file, 'file');
+              const files = e.target.files;
+              if (files) {
+                const maxFiles = Math.min(files.length, 50);
+                for (let i = 0; i < maxFiles; i++) {
+                  handleFileUpload(files[i], 'file');
+                }
+                if (files.length > 50) {
+                  toast.info(`Uploading first 50 of ${files.length} files`);
+                }
+              }
               e.target.value = '';
             }}
           />
