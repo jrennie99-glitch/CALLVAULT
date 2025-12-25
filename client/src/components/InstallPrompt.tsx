@@ -94,19 +94,27 @@ export function InstallPrompt() {
           }
         }}
       >
-        <div className="relative bg-slate-800 border border-slate-700 rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-in slide-in-from-bottom-8">
+        <div className="relative bg-slate-800 border border-slate-700 rounded-2xl p-6 w-full max-w-sm shadow-2xl" style={{ pointerEvents: 'auto' }}>
           <button 
             type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              handleDismiss();
+            onClick={handleDismiss}
+            style={{
+              position: 'absolute',
+              top: '12px',
+              right: '12px',
+              padding: '8px',
+              backgroundColor: 'rgba(71, 85, 105, 0.5)',
+              border: 'none',
+              borderRadius: '50%',
+              color: 'white',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              WebkitTapHighlightColor: 'rgba(255,255,255,0.2)',
+              touchAction: 'manipulation',
+              zIndex: 10
             }}
-            onTouchEnd={(e) => {
-              e.preventDefault();
-              handleDismiss();
-            }}
-            className="absolute top-3 right-3 text-slate-400 hover:text-white active:text-white p-2 rounded-full hover:bg-slate-700 active:bg-slate-700 z-10 touch-manipulation"
             data-testid="button-dismiss-ios-install"
           >
             <X className="h-5 w-5" />
@@ -154,22 +162,26 @@ export function InstallPrompt() {
             </div>
           </div>
           
-          <Button 
+          <button 
             type="button"
-            variant="outline" 
-            onClick={(e) => {
-              e.preventDefault();
-              handleDismiss();
+            style={{ 
+              width: '100%', 
+              padding: '12px 16px', 
+              backgroundColor: 'transparent',
+              border: '1px solid #475569',
+              borderRadius: '8px',
+              color: 'white',
+              fontSize: '14px',
+              fontWeight: '500',
+              cursor: 'pointer',
+              WebkitTapHighlightColor: 'rgba(255,255,255,0.1)',
+              touchAction: 'manipulation'
             }}
-            onTouchEnd={(e) => {
-              e.preventDefault();
-              handleDismiss();
-            }}
-            className="w-full touch-manipulation active:bg-slate-700"
+            onClick={handleDismiss}
             data-testid="button-got-it-ios"
           >
             Got it, I'll do this later
-          </Button>
+          </button>
         </div>
       </div>
     );
