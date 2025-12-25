@@ -228,19 +228,30 @@ export default function CallPage() {
     }
   };
 
-  // Setup push notifications for offline call alerts
+  // Setup push notifications for offline call alerts - automatically enabled on identity creation
   const setupPushNotifications = async (registration: ServiceWorkerRegistration, userAddress: string) => {
     try {
       // Check if push is supported
       if (!('PushManager' in window)) {
-        console.log('Push notifications not supported');
+        console.log('Push notifications not supported on this browser');
         return;
       }
 
-      // Request notification permission if not granted
-      const permission = await Notification.requestPermission();
-      if (permission !== 'granted') {
-        console.log('Notification permission denied');
+      // Check current permission status
+      const currentPermission = Notification.permission;
+      
+      // If not yet decided, request permission with helpful context
+      if (currentPermission === 'default') {
+        // Request notification permission - browser will show its own prompt
+        const permission = await Notification.requestPermission();
+        if (permission === 'granted') {
+          toast.success('Notifications enabled! You\'ll be alerted for calls and messages.');
+        } else if (permission === 'denied') {
+          toast.error('Notifications blocked. Enable them in browser settings to receive call alerts.');
+          return;
+        }
+      } else if (currentPermission === 'denied') {
+        console.log('Notification permission was previously denied');
         return;
       }
 
@@ -273,10 +284,11 @@ export default function CallPage() {
           userVisibleOnly: true,
           applicationServerKey: urlBase64ToUint8Array(vapidPublicKey)
         });
+        console.log('Created new push subscription');
       }
 
       // Send subscription to server
-      await fetch('/api/push/subscribe', {
+      const subscribeResponse = await fetch('/api/push/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -285,7 +297,9 @@ export default function CallPage() {
         })
       });
 
-      console.log('Push notification subscription active');
+      if (subscribeResponse.ok) {
+        console.log('Push notification subscription active for', userAddress);
+      }
     } catch (error) {
       console.error('Failed to setup push notifications:', error);
     }

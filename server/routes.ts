@@ -6935,7 +6935,7 @@ export async function registerRoutes(
                     convo_id: msg.convo_id
                   } as WSMessage));
                 } else {
-                  // Recipient offline - store message for later delivery
+                  // Recipient offline - store message for later delivery and send push notification
                   storage.storeMessage(
                     msg.from_address,
                     recipientAddr,
@@ -6943,8 +6943,31 @@ export async function registerRoutes(
                     msg.content,
                     msg.type,
                     undefined // media URL for future media support
-                  ).then(() => {
+                  ).then(async () => {
                     console.log(`Stored message for offline delivery to ${recipientAddr}`);
+                    
+                    // Send push notification to alert the offline recipient
+                    const senderIdentity = await storage.getIdentity(msg.from_address);
+                    const senderContact = await storage.getContact(recipientAddr, msg.from_address);
+                    const senderName = senderContact?.name || senderIdentity?.displayName || msg.from_address.slice(5, 15) + '...';
+                    
+                    const messagePreview = msg.type === 'text' 
+                      ? (msg.content.length > 50 ? msg.content.slice(0, 50) + '...' : msg.content)
+                      : msg.type === 'voice' ? 'Voice message'
+                      : msg.type === 'video' ? 'Video message'
+                      : msg.type === 'image' ? 'Photo'
+                      : 'New message';
+                    
+                    await sendPushNotification(recipientAddr, {
+                      type: 'message',
+                      title: senderName,
+                      body: messagePreview,
+                      tag: `msg-${msg.convo_id}`,
+                      convo_id: msg.convo_id,
+                      from_address: msg.from_address,
+                      url: `/app?chat=${encodeURIComponent(msg.convo_id)}`
+                    });
+                    
                     ws.send(JSON.stringify({
                       type: 'msg:queued',
                       message_id: msg.id,
@@ -6984,7 +7007,7 @@ export async function registerRoutes(
                   convo_id: msg.convo_id
                 } as WSMessage));
               } else {
-                // Recipient offline - store message for later delivery
+                // Recipient offline - store message for later delivery and send push notification
                 storage.storeMessage(
                   msg.from_address,
                   msg.to_address,
@@ -6992,8 +7015,31 @@ export async function registerRoutes(
                   msg.content,
                   msg.type,
                   undefined
-                ).then(() => {
+                ).then(async () => {
                   console.log(`Stored message for offline delivery to ${msg.to_address}`);
+                  
+                  // Send push notification to alert the offline recipient
+                  const senderIdentity = await storage.getIdentity(msg.from_address);
+                  const senderContact = await storage.getContact(msg.to_address, msg.from_address);
+                  const senderName = senderContact?.name || senderIdentity?.displayName || msg.from_address.slice(5, 15) + '...';
+                  
+                  const messagePreview = msg.type === 'text' 
+                    ? (msg.content.length > 50 ? msg.content.slice(0, 50) + '...' : msg.content)
+                    : msg.type === 'voice' ? 'Voice message'
+                    : msg.type === 'video' ? 'Video message'
+                    : msg.type === 'image' ? 'Photo'
+                    : 'New message';
+                  
+                  await sendPushNotification(msg.to_address, {
+                    type: 'message',
+                    title: senderName,
+                    body: messagePreview,
+                    tag: `msg-${dmConvo.id}`,
+                    convo_id: dmConvo.id,
+                    from_address: msg.from_address,
+                    url: `/app?chat=${encodeURIComponent(dmConvo.id)}`
+                  });
+                  
                   // Still send convo:create to sender
                   ws.send(JSON.stringify({
                     type: 'convo:create',
