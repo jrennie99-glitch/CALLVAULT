@@ -911,11 +911,37 @@ export async function registerRoutes(
     res.json(convos);
   });
 
-  app.get('/api/messages/:convoId', (req, res) => {
+  app.get('/api/messages/:convoId', async (req, res) => {
     const { convoId } = req.params;
     const limit = parseInt(req.query.limit as string) || 50;
     const before = req.query.before ? parseInt(req.query.before as string) : undefined;
-    const messages = messageStore.getMessages(convoId, limit, before);
+    
+    // First try in-memory store
+    let messages = messageStore.getMessages(convoId, limit, before);
+    
+    // If no messages in memory, fallback to database
+    if (messages.length === 0) {
+      try {
+        const dbMessages = await storage.getMessagesSinceSeq(convoId, 0, limit);
+        // Convert DB format to API format
+        messages = dbMessages.map((m: any) => ({
+          id: m.id,
+          convo_id: m.convoId,
+          from_address: m.fromAddress,
+          to_address: m.toAddress,
+          content: m.content,
+          type: m.messageType || 'text',
+          timestamp: m.createdAt ? new Date(m.createdAt).getTime() : Date.now(),
+          server_timestamp: m.serverTimestamp ? new Date(m.serverTimestamp).getTime() : Date.now(),
+          seq: m.seq,
+          status: m.status || 'sent',
+          nonce: m.nonce
+        }));
+      } catch (error) {
+        console.error('Error fetching messages from DB:', error);
+      }
+    }
+    
     res.json(messages);
   });
 

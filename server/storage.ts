@@ -2209,10 +2209,11 @@ export class DatabaseStorage implements IStorage {
     
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        // Use advisory lock for the conversation to ensure sequential access
-        // pg_advisory_xact_lock uses the hash of convo_id as the lock key
+        // First acquire advisory lock for the conversation to ensure sequential access
+        await db.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${convoId}))`);
+        
+        // Then insert the message with the next sequence number
         const result = await db.execute(sql`
-          SELECT pg_advisory_xact_lock(hashtext(${convoId}));
           INSERT INTO persistent_messages (
             from_address, to_address, convo_id, content, media_type, media_url, 
             status, seq, server_timestamp, nonce, message_type, attachment_name, attachment_size
