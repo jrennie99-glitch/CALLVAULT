@@ -829,12 +829,74 @@ export function CallView({
     }
   };
 
-  const toggleVideo = () => {
-    if (localStreamRef.current) {
-      localStreamRef.current.getVideoTracks().forEach(track => {
-        track.enabled = !track.enabled;
+  const toggleVideo = async () => {
+    if (!localStreamRef.current) return;
+    
+    const videoTracks = localStreamRef.current.getVideoTracks();
+    
+    if (videoTracks.length === 0) {
+      // No video tracks exist - need to acquire camera
+      await enableVideoTrack();
+      return;
+    }
+    
+    // Toggle existing video tracks
+    videoTracks.forEach(track => {
+      track.enabled = !track.enabled;
+    });
+    setIsVideoEnabled(!isVideoEnabled);
+  };
+
+  const enableVideoTrack = async () => {
+    try {
+      const videoStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode }
       });
-      setIsVideoEnabled(!isVideoEnabled);
+      const newVideoTrack = videoStream.getVideoTracks()[0];
+      
+      if (!newVideoTrack) {
+        toast.error('Could not access camera');
+        return;
+      }
+      
+      // Add track to local stream
+      if (localStreamRef.current) {
+        localStreamRef.current.addTrack(newVideoTrack);
+      }
+      
+      // Update local video preview
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = localStreamRef.current;
+      }
+      
+      // Add track to peer connection for remote viewing
+      if (peerConnectionRef.current) {
+        const sender = peerConnectionRef.current.getSenders().find(s => s.track?.kind === 'video');
+        if (sender) {
+          await sender.replaceTrack(newVideoTrack);
+        } else {
+          peerConnectionRef.current.addTrack(newVideoTrack, localStreamRef.current!);
+          
+          // Trigger renegotiation
+          const offer = await peerConnectionRef.current.createOffer();
+          await peerConnectionRef.current.setLocalDescription(offer);
+          
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+              type: 'rtc:offer',
+              to_address: remoteAddressRef.current,
+              from_address: identity.address,
+              sdp: offer.sdp
+            }));
+          }
+        }
+      }
+      
+      setIsVideoEnabled(true);
+      toast.success('Camera enabled');
+    } catch (error) {
+      console.error('Failed to enable video:', error);
+      toast.error('Could not access camera');
     }
   };
 
@@ -845,21 +907,44 @@ export function CallView({
       });
       const newVideoTrack = videoStream.getVideoTracks()[0];
       
-      if (peerConnectionRef.current && newVideoTrack) {
-        peerConnectionRef.current.addTrack(newVideoTrack, localStreamRef.current || videoStream);
-        
-        if (localStreamRef.current) {
-          localStreamRef.current.addTrack(newVideoTrack);
-        }
-        
-        if (localVideoRef.current) {
-          localVideoRef.current.srcObject = localStreamRef.current || videoStream;
-        }
-        
-        setIsVideoCall(true);
-        setIsVideoEnabled(true);
-        toast.success('Upgraded to video call');
+      if (!newVideoTrack) {
+        toast.error('Could not access camera');
+        return;
       }
+      
+      // Add track to local stream
+      if (localStreamRef.current) {
+        localStreamRef.current.addTrack(newVideoTrack);
+      } else {
+        localStreamRef.current = videoStream;
+      }
+      
+      // Update local video preview
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = localStreamRef.current;
+      }
+      
+      // Add track to peer connection and renegotiate
+      if (peerConnectionRef.current) {
+        peerConnectionRef.current.addTrack(newVideoTrack, localStreamRef.current);
+        
+        // Trigger renegotiation so remote peer receives video
+        const offer = await peerConnectionRef.current.createOffer();
+        await peerConnectionRef.current.setLocalDescription(offer);
+        
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'rtc:offer',
+            to_address: remoteAddressRef.current,
+            from_address: identity.address,
+            sdp: offer.sdp
+          }));
+        }
+      }
+      
+      setIsVideoCall(true);
+      setIsVideoEnabled(true);
+      toast.success('Upgraded to video call');
     } catch (error) {
       console.error('Failed to upgrade to video:', error);
       toast.error('Could not access camera');

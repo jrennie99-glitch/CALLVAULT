@@ -475,11 +475,12 @@
       "to_address": "call:3Nka26GC36Cv2NtsruTC5YEZjqZAsAXN42pX8ZcyHjJA:fTjVxam4gfm",
       "timestamp": 1766645469539,
       "type": "text",
-      "content": "Yo I got to work",
+      "content": "Yo I got it to work",
       "nonce": "svx1bb3p7dmjl33kgz",
       "status": "sent",
       "seq": 1,
-      "server_timestamp": 1766645469936
+      "server_timestamp": 1766645469936,
+      "edited_at": 1766647190801
     }
   ]
 }
