@@ -524,14 +524,15 @@ export async function registerRoutes(
   // - "public": Use free OpenRelay TURN servers (TESTING ONLY - not for production)
   // - "custom": Use TURN_URLS, TURN_USERNAME, TURN_CREDENTIAL env vars
   // - "off": STUN only, no TURN
+  // STUN_URLS: Optional comma-separated STUN servers (defaults to Google STUN)
   app.get('/api/turn-config', async (_req, res) => {
     const turnMode = (process.env.TURN_MODE || 'public').toLowerCase();
     
-    // Base STUN servers (always included)
-    const stunServers = [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' }
-    ];
+    // Base STUN servers - configurable via STUN_URLS env var
+    const stunUrls = process.env.STUN_URLS
+      ? process.env.STUN_URLS.split(',').map(u => u.trim()).filter(Boolean)
+      : ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'];
+    const stunServers = stunUrls.map(url => ({ urls: url }));
     
     // TURN_MODE = "off" - STUN only
     if (turnMode === 'off') {
