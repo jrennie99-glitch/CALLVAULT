@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
-import { Fingerprint, Lock, ShieldCheck } from 'lucide-react';
+import { Fingerprint, Lock, ShieldCheck, AlertTriangle } from 'lucide-react';
 import { verifyBiometric, isPlatformAuthenticatorAvailable } from '@/lib/biometric';
 import { getAppSettings, saveAppSettings, clearBiometricCredential } from '@/lib/storage';
 
@@ -12,6 +12,8 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
   const [error, setError] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const [showDisableOption, setShowDisableOption] = useState(false);
+  const [showEmergencyReset, setShowEmergencyReset] = useState(false);
+  const failCountRef = useRef(0);
 
   useEffect(() => {
     handleUnlock();
@@ -24,25 +26,55 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
     try {
       const available = await isPlatformAuthenticatorAvailable();
       if (!available) {
-        setError('Biometric authentication not available');
+        setError('Biometric authentication not available on this device');
+        failCountRef.current++;
+        if (failCountRef.current >= 2) {
+          setShowEmergencyReset(true);
+        }
         return;
       }
 
       const success = await verifyBiometric();
       if (success) {
+        failCountRef.current = 0;
         onUnlock();
       } else {
-        setError('Verification failed');
+        setError('Verification failed. Please try again.');
+        failCountRef.current++;
+        if (failCountRef.current >= 2) {
+          setShowEmergencyReset(true);
+        }
       }
     } catch (err: any) {
+      console.error('Biometric unlock error:', err);
+      failCountRef.current++;
+      
       if (err.name === 'NotAllowedError') {
-        setError('Authentication cancelled');
+        setError('Authentication cancelled. Tap Unlock to try again.');
+      } else if (err.name === 'InvalidStateError' || err.message?.includes('No biometric credential')) {
+        setError('Biometric setup was lost. You may need to reset.');
+        setShowEmergencyReset(true);
+      } else if (err.name === 'SecurityError') {
+        setError('Security error. The app URL may have changed since you set up biometrics.');
+        setShowEmergencyReset(true);
       } else {
-        setError(err.message || 'Verification failed');
+        setError(err.message || 'Verification failed. Please try again.');
+      }
+      
+      if (failCountRef.current >= 2) {
+        setShowEmergencyReset(true);
       }
     } finally {
       setIsVerifying(false);
     }
+  };
+
+  const handleEmergencyReset = () => {
+    const settings = getAppSettings();
+    settings.biometricLockEnabled = false;
+    saveAppSettings(settings);
+    clearBiometricCredential();
+    onUnlock();
   };
 
   const handleDisableLock = async () => {
@@ -58,6 +90,10 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
       }
     } catch (err: any) {
       setError('Must verify to disable lock');
+      failCountRef.current++;
+      if (failCountRef.current >= 2) {
+        setShowEmergencyReset(true);
+      }
     } finally {
       setIsVerifying(false);
       setShowDisableOption(false);
@@ -99,7 +135,25 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
           )}
         </Button>
 
-        {!showDisableOption ? (
+        {showEmergencyReset ? (
+          <div className="space-y-3">
+            <div className="flex items-center justify-center gap-2 text-amber-400 text-sm">
+              <AlertTriangle className="w-4 h-4" />
+              <span>Can't verify biometrics?</span>
+            </div>
+            <Button
+              onClick={handleEmergencyReset}
+              variant="outline"
+              className="w-full border-amber-500/50 text-amber-400 hover:bg-amber-500/20"
+              data-testid="button-emergency-reset"
+            >
+              Reset Biometric Lock
+            </Button>
+            <p className="text-xs text-slate-500">
+              This will disable biometric lock. You can set it up again in Settings.
+            </p>
+          </div>
+        ) : !showDisableOption ? (
           <button
             onClick={() => setShowDisableOption(true)}
             className="text-slate-500 text-sm hover:text-slate-400"
