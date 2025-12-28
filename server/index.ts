@@ -3,6 +3,20 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import path from "path";
+import { readFileSync } from "fs";
+
+// Server configuration constants
+const DEFAULT_DEV_PORT = "5000";
+const DEFAULT_PROD_PORT = "3000";
+
+// Read version from package.json at startup
+let APP_VERSION = "1.0.0";
+try {
+  const packageJson = JSON.parse(readFileSync(path.resolve(__dirname, "../package.json"), "utf-8"));
+  APP_VERSION = packageJson.version || APP_VERSION;
+} catch {
+  // Fallback to default version if package.json cannot be read
+}
 
 const app = express();
 const httpServer = createServer(app);
@@ -107,13 +121,14 @@ export function log(message: string, source = "express") {
 
 // Health check endpoint - must be before logging middleware for clean responses
 app.get('/health', (_req, res) => {
+  const defaultPort = process.env.NODE_ENV === "production" ? DEFAULT_PROD_PORT : DEFAULT_DEV_PORT;
   res.status(200).json({ 
     status: "ok",
     timestamp: Date.now(),
     uptime: process.uptime(),
     nodeEnv: process.env.NODE_ENV || 'development',
-    port: process.env.PORT || (process.env.NODE_ENV === "production" ? "3000" : "5000"),
-    version: process.env.npm_package_version || '1.0.0'
+    port: process.env.PORT || defaultPort,
+    version: APP_VERSION
   });
 });
 
@@ -176,7 +191,7 @@ app.use((req, res, next) => {
   // ALWAYS serve the app on the port specified in the environment variable PORT
   // Default to 3000 in production (Coolify/Docker standard) or 5000 in development (Replit standard)
   // This serves both the API and the client.
-  const defaultPort = process.env.NODE_ENV === "production" ? "3000" : "5000";
+  const defaultPort = process.env.NODE_ENV === "production" ? DEFAULT_PROD_PORT : DEFAULT_DEV_PORT;
   const port = parseInt(process.env.PORT || defaultPort, 10);
   
   // Log detailed startup information
@@ -201,6 +216,7 @@ app.use((req, res, next) => {
       log(`Build Directory: ${buildDir}`);
       log(`Public URL: ${publicUrl}`);
       log(`Health Check: ${publicUrl}/health`);
+      log(`Version: ${APP_VERSION}`);
       console.log("=".repeat(60));
     },
   );

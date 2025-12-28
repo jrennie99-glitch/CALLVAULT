@@ -92,6 +92,8 @@ export function serveStatic(app: Express) {
 
   // SPA catch-all route: serve index.html for all non-API routes
   // This ensures client-side routing works correctly
+  // NOTE: This function must be called AFTER all API routes are registered
+  // so that API endpoints take precedence over this catch-all
   app.use("*", (_req, res) => {
     res.sendFile(indexPath);
   });
