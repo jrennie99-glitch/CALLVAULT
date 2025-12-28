@@ -3,7 +3,12 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import path from "path";
-import { readFileSync } from "fs";
+import { readFileSync, existsSync } from "fs";
+import { fileURLToPath } from "url";
+import { dirname } from "path";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Server configuration constants
 const DEFAULT_DEV_PORT = "5000";
@@ -121,15 +126,7 @@ export function log(message: string, source = "express") {
 
 // Health check endpoint - must be before logging middleware for clean responses
 app.get('/health', (_req, res) => {
-  const defaultPort = process.env.NODE_ENV === "production" ? DEFAULT_PROD_PORT : DEFAULT_DEV_PORT;
-  res.status(200).json({ 
-    status: "ok",
-    timestamp: Date.now(),
-    uptime: process.uptime(),
-    nodeEnv: process.env.NODE_ENV || 'development',
-    port: process.env.PORT || defaultPort,
-    version: APP_VERSION
-  });
+  res.status(200).json({ ok: true });
 });
 
 app.use((req, res, next) => {
@@ -214,9 +211,13 @@ app.use((req, res, next) => {
       log(`PORT: ${port}`);
       log(`HOST: 0.0.0.0`);
       log(`Build Directory: ${buildDir}`);
+      if (process.env.NODE_ENV === "production") {
+        log(`Dist Exists: ${existsSync(buildDir) ? 'Yes' : 'No (serving fallback HTML)'}`);
+      }
       log(`Public URL: ${publicUrl}`);
       log(`Health Check: ${publicUrl}/health`);
       log(`Version: ${APP_VERSION}`);
+      log(`Listening on: 0.0.0.0:${port}`);
       console.log("=".repeat(60));
     },
   );

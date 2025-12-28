@@ -1,6 +1,11 @@
 import express, { type Express } from "express";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
+import { dirname } from "path";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const FALLBACK_HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -56,6 +61,18 @@ const FALLBACK_HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
+// Helper function to serve root endpoint with simple status message
+function serveRootEndpoint(app: Express) {
+  app.get("/", (_req, res) => {
+    res.status(200).send('FileHelper is running ✅');
+  });
+}
+
+// Helper function to check if path should be served fallback HTML
+function shouldServeFallback(path: string): boolean {
+  return !path.startsWith('/api') && !path.startsWith('/health');
+}
+
 export function serveStatic(app: Express) {
   const distPath = path.resolve(__dirname, "public");
   
@@ -63,11 +80,16 @@ export function serveStatic(app: Express) {
   if (!fs.existsSync(distPath)) {
     console.error(`❌ Build directory not found: ${distPath}`);
     console.error('📦 Run "npm run build" to build the frontend.');
-    console.error('🔧 Serving fallback HTML page for missing build.');
+    console.error('🔧 Serving simple HTML message at root.');
     
-    // Serve fallback HTML for root in API-only mode
+    // Serve simple message at root only - don't override all routes
+    serveRootEndpoint(app);
+    
+    // For any other non-API routes, serve fallback HTML
     app.get("*", (_req, res) => {
-      res.status(503).send(FALLBACK_HTML);
+      if (shouldServeFallback(_req.path)) {
+        res.status(503).send(FALLBACK_HTML);
+      }
     });
     return;
   }
@@ -76,10 +98,14 @@ export function serveStatic(app: Express) {
   if (!fs.existsSync(indexPath)) {
     console.error(`❌ index.html not found in build directory: ${indexPath}`);
     console.error('📦 The build may be incomplete. Run "npm run build" again.');
-    console.error('🔧 Serving fallback HTML page for incomplete build.');
+    console.error('🔧 Serving simple HTML message at root.');
+    
+    serveRootEndpoint(app);
     
     app.get("*", (_req, res) => {
-      res.status(503).send(FALLBACK_HTML);
+      if (shouldServeFallback(_req.path)) {
+        res.status(503).send(FALLBACK_HTML);
+      }
     });
     return;
   }
