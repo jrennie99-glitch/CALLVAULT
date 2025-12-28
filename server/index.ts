@@ -124,6 +124,11 @@ export function log(message: string, source = "express") {
   console.log(`${formattedTime} [${source}] ${message}`);
 }
 
+// Root route - required for Coolify deployment health checks
+app.get('/', (_req, res) => {
+  res.status(200).send('OK');
+});
+
 // Health check endpoint - must be before logging middleware for clean responses
 app.get('/health', (_req, res) => {
   res.status(200).json({ ok: true });
@@ -156,7 +161,13 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  await registerRoutes(httpServer, app);
+  // Register routes with error handling to ensure server always starts
+  try {
+    await registerRoutes(httpServer, app);
+  } catch (error) {
+    console.error('⚠️  Error registering routes:', error);
+    console.error('   Server will continue with basic functionality');
+  }
 
   // Initialize default plan entitlements on startup
   try {
@@ -219,6 +230,8 @@ app.use((req, res, next) => {
       log(`Version: ${APP_VERSION}`);
       log(`Listening on: 0.0.0.0:${port}`);
       console.log("=".repeat(60));
+      // Required startup log format for Coolify
+      console.log("Server running on port", process.env.PORT || port);
     },
   );
 })();
