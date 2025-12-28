@@ -61,6 +61,18 @@ const FALLBACK_HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
+// Helper function to serve root endpoint with simple status message
+function serveRootEndpoint(app: Express) {
+  app.get("/", (_req, res) => {
+    res.status(200).send('FileHelper is running ✅');
+  });
+}
+
+// Helper function to check if path should be served fallback HTML
+function shouldServeFallback(path: string): boolean {
+  return !path.startsWith('/api') && !path.startsWith('/health');
+}
+
 export function serveStatic(app: Express) {
   const distPath = path.resolve(__dirname, "public");
   
@@ -71,13 +83,11 @@ export function serveStatic(app: Express) {
     console.error('🔧 Serving simple HTML message at root.');
     
     // Serve simple message at root only - don't override all routes
-    app.get("/", (_req, res) => {
-      res.status(200).send('FileHelper is running ✅');
-    });
+    serveRootEndpoint(app);
     
     // For any other non-API routes, serve fallback HTML
     app.get("*", (_req, res) => {
-      if (!_req.path.startsWith('/api') && !_req.path.startsWith('/health')) {
+      if (shouldServeFallback(_req.path)) {
         res.status(503).send(FALLBACK_HTML);
       }
     });
@@ -90,12 +100,10 @@ export function serveStatic(app: Express) {
     console.error('📦 The build may be incomplete. Run "npm run build" again.');
     console.error('🔧 Serving simple HTML message at root.');
     
-    app.get("/", (_req, res) => {
-      res.status(200).send('FileHelper is running ✅');
-    });
+    serveRootEndpoint(app);
     
     app.get("*", (_req, res) => {
-      if (!_req.path.startsWith('/api') && !_req.path.startsWith('/health')) {
+      if (shouldServeFallback(_req.path)) {
         res.status(503).send(FALLBACK_HTML);
       }
     });

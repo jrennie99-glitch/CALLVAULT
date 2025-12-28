@@ -197,12 +197,6 @@ app.use((req, res, next) => {
     : "development (using Vite)";
   const publicUrl = process.env.PUBLIC_URL || `http://0.0.0.0:${port}`;
   
-  // Check if dist directory exists (only in production)
-  let distExists = false;
-  if (process.env.NODE_ENV === "production") {
-    distExists = existsSync(buildDir);
-  }
-  
   httpServer.listen(
     {
       port,
@@ -218,7 +212,7 @@ app.use((req, res, next) => {
       log(`HOST: 0.0.0.0`);
       log(`Build Directory: ${buildDir}`);
       if (process.env.NODE_ENV === "production") {
-        log(`Dist Exists: ${distExists ? 'Yes' : 'No (serving fallback HTML)'}`);
+        log(`Dist Exists: ${existsSync(buildDir) ? 'Yes' : 'No (serving fallback HTML)'}`);
       }
       log(`Public URL: ${publicUrl}`);
       log(`Health Check: ${publicUrl}/health`);
