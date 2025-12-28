@@ -2,6 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import path from "path";
 
 const app = express();
 const httpServer = createServer(app);
@@ -106,7 +107,14 @@ export function log(message: string, source = "express") {
 
 // Health check endpoint - must be before logging middleware for clean responses
 app.get('/health', (_req, res) => {
-  res.json({ ok: true, timestamp: Date.now() });
+  res.status(200).json({ 
+    status: "ok",
+    timestamp: Date.now(),
+    uptime: process.uptime(),
+    nodeEnv: process.env.NODE_ENV || 'development',
+    port: process.env.PORT || (process.env.NODE_ENV === "production" ? "3000" : "5000"),
+    version: process.env.npm_package_version || '1.0.0'
+  });
 });
 
 app.use((req, res, next) => {
@@ -170,6 +178,13 @@ app.use((req, res, next) => {
   // This serves both the API and the client.
   const defaultPort = process.env.NODE_ENV === "production" ? "3000" : "5000";
   const port = parseInt(process.env.PORT || defaultPort, 10);
+  
+  // Log detailed startup information
+  const buildDir = process.env.NODE_ENV === "production" 
+    ? path.resolve(__dirname, "public")
+    : "development (using Vite)";
+  const publicUrl = process.env.PUBLIC_URL || `http://0.0.0.0:${port}`;
+  
   httpServer.listen(
     {
       port,
@@ -177,7 +192,16 @@ app.use((req, res, next) => {
       reusePort: true,
     },
     () => {
-      log(`serving on port ${port}`);
+      console.log("=".repeat(60));
+      log(`Call Vault Server Started`);
+      console.log("=".repeat(60));
+      log(`NODE_ENV: ${process.env.NODE_ENV || 'development'}`);
+      log(`PORT: ${port}`);
+      log(`HOST: 0.0.0.0`);
+      log(`Build Directory: ${buildDir}`);
+      log(`Public URL: ${publicUrl}`);
+      log(`Health Check: ${publicUrl}/health`);
+      console.log("=".repeat(60));
     },
   );
 })();
