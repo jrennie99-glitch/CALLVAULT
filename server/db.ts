@@ -18,12 +18,15 @@ try {
     console.log("✓ Database connection pool initialized");
     
     // Test connection asynchronously (non-blocking)
-    pool.query('SELECT NOW()').then(() => {
-      console.log("✓ Database connection verified");
-    }).catch((err) => {
-      console.error("⚠️  Database connection test failed:", err.message);
-      console.error("   Server will continue running with limited functionality");
-    });
+    (async () => {
+      try {
+        await pool.query('SELECT NOW()');
+        console.log("✓ Database connection verified");
+      } catch (err: any) {
+        console.error("⚠️  Database connection test failed:", err.message);
+        console.error("   Server will continue running with limited functionality");
+      }
+    })();
   }
 } catch (error) {
   console.error("⚠️  Failed to initialize database connection:", error);

@@ -231,7 +231,7 @@ app.use((req, res, next) => {
       log(`Listening on: 0.0.0.0:${port}`);
       console.log("=".repeat(60));
       // Required startup log format for Coolify
-      console.log("Server running on port", process.env.PORT || port);
+      console.log("Server running on port", port);
     },
   );
 })();
