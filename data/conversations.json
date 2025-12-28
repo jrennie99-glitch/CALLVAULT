@@ -119,5 +119,28 @@
       "seq": 1,
       "server_timestamp": 1766645469936
     }
+  },
+  {
+    "id": "dm_1ebj5c8_7dld2c_42goua",
+    "type": "direct",
+    "participant_addresses": [
+      "call:5YW1MtwRRXjEpMKtydZ7xcoSmhWEUBYdK2umBboV4Zxe:7vE15E4XePD",
+      "call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehgaZxj9ua2wq:iMbPcedKjup"
+    ],
+    "created_at": 1766791855592,
+    "created_by": "call:5YW1MtwRRXjEpMKtydZ7xcoSmhWEUBYdK2umBboV4Zxe:7vE15E4XePD",
+    "last_message": {
+      "id": "msg_1766792285322_ysordewqa",
+      "convo_id": "dm_1ebj5c8_7dld2c_42goua",
+      "from_address": "call:5YW1MtwRRXjEpMKtydZ7xcoSmhWEUBYdK2umBboV4Zxe:7vE15E4XePD",
+      "to_address": "call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehgaZxj9ua2wq:iMbPcedKjup",
+      "timestamp": 1766792285322,
+      "type": "text",
+      "content": "I did lol",
+      "nonce": "3f96cvb21zymjniic96",
+      "status": "sent",
+      "seq": 8,
+      "server_timestamp": 1766792285380
+    }
   }
 ]
