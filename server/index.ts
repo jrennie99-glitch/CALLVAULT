@@ -104,6 +104,11 @@ export function log(message: string, source = "express") {
   console.log(`${formattedTime} [${source}] ${message}`);
 }
 
+// Health check endpoint - must be before logging middleware for clean responses
+app.get('/health', (_req, res) => {
+  res.json({ ok: true, timestamp: Date.now() });
+});
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -161,10 +166,10 @@ app.use((req, res, next) => {
   }
 
   // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  const port = parseInt(process.env.PORT || "5000", 10);
+  // Default to 3000 in production (Coolify/Docker standard) or 5000 in development (Replit standard)
+  // This serves both the API and the client.
+  const defaultPort = process.env.NODE_ENV === "production" ? "3000" : "5000";
+  const port = parseInt(process.env.PORT || defaultPort, 10);
   httpServer.listen(
     {
       port,
