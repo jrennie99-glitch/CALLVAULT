@@ -8,6 +8,9 @@ import fs from "fs";
 const app: Express = express();
 const isDevelopment = process.env.NODE_ENV !== "production";
 
+// Trust proxy headers (X-Forwarded-*) from reverse proxies like Coolify's nginx
+app.set("trust proxy", true);
+
 // For ESM/CJS compatibility
 const getModuleDirname = () => {
   if (typeof import.meta.dirname !== 'undefined') {
@@ -65,6 +68,7 @@ async function startServer() {
     console.log(`NODE_ENV: ${process.env.NODE_ENV || "development"}`);
     console.log(`PORT: ${PORT}`);
     console.log(`HOST: 0.0.0.0`);
+    console.log(`Listening on: http://0.0.0.0:${PORT}`);
     console.log(`Version: ${version}`);
     
     if (!isDevelopment) {
@@ -74,7 +78,8 @@ async function startServer() {
     
     const publicUrl = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
     console.log(`Public URL: ${publicUrl}`);
-    console.log(`Health Check: ${publicUrl}/api/health`);
+    console.log(`Health Check: ${publicUrl}/health`);
+    console.log(`API Health Check: ${publicUrl}/api/health`);
     console.log("============================================================\n");
   });
 }
