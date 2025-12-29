@@ -1,0 +1,65 @@
+You are fixing deployment + routing for my fullstack app WITHOUT removing any feature or functionality.
+
+STACK:
+- Backend: Node.js + Express + TypeScript
+- Frontend: React + TypeScript + Vite
+- DB: Postgres + Drizzle
+
+PROBLEM:
+- App deploys on Coolify but site does not display (blank / 404). Coolify logs only show Caddy “server running/serving initial configuration”.
+- This usually means the Node app isn’t starting, isn’t listening on the correct PORT, or the built frontend isn’t being served.
+
+GOAL:
+Make the app work on Coolify + any host with ONE container/service, correct PORT binding, and correct serving of React build. Do NOT change features. Only fix deployment/build/runtime issues.
+
+DO ALL OF THIS:
+
+1) SERVER MUST LISTEN ON 0.0.0.0 AND USE process.env.PORT
+- Ensure Express binds to: const port = Number(process.env.PORT || 3000)
+- Listen on: app.listen(port, "0.0.0.0", ...)
+- Do not hardcode localhost.
+
+2) SERVE THE BUILT FRONTEND FROM EXPRESS IN PRODUCTION
+- Ensure Vite build output is served by Express (static):
+  - if repo has /client (Vite), then serve /client/dist
+  - Use express.static(distPath)
+  - Add SPA fallback for React routes: app.get("*", send index.html) ONLY after API routes.
+- Keep API routes working exactly the same.
+
+3) ENSURE BUILD PIPELINE CREATES client/dist DURING DEPLOY
+- Update root package.json scripts so a single build command builds BOTH server and client.
+- Example (adjust paths but keep idea):
+  - "build": "npm run build:client && npm run build:server"
+  - "build:client": "cd client && npm ci && npm run build"
+  - "build:server": "tsc -p tsconfig.json" (or existing)
+  - "start": "node dist/server.js" (or correct compiled entry)
+- If monorepo already has scripts, fix them—don’t add duplicates.
+
+4) COOLIFY/DOCKER/START COMMAND COMPATIBILITY
+- Provide a Dockerfile OR ensure existing one works:
+  - build stage compiles server + client
+  - runtime stage runs node with production deps
+  - expose PORT
+- If no Dockerfile, ensure Coolify can run using:
+  - Build command: npm ci && npm run build
+  - Start command: npm run start
+- Ensure it works with only env vars (no local files required).
+
+5) ENV VARS
+- Keep DATABASE_URL, JWT_SECRET, JWT_EXPIRES_IN.
+- Ensure code reads DATABASE_URL correctly for Drizzle.
+- Add safe checks: if DATABASE_URL missing, log clear error and exit with non-zero.
+
+6) FIX 404/BLANK ROOT PATH
+- Ensure GET / returns the React app in production.
+- Ensure API endpoints are under /api (or current structure) and do not conflict with SPA fallback.
+
+7) OUTPUT REQUIRED
+After changes, provide:
+- Files changed list
+- Final package.json scripts
+- Which server file serves static dist
+- Exact Coolify settings: build command, start command, port
+
+IMPORTANT:
+Do not remove any features. Do not “simplify” by deleting modules. Only fix build/start/serve/port/routing.
