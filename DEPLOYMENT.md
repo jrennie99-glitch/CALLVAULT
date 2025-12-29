@@ -109,32 +109,42 @@ npm run db:push
 
 ## Health Check
 
-The application includes a comprehensive health check endpoint at `/health`:
+The application includes multiple health check endpoints:
 
+**Simple Health Check** (`/health`):
 ```bash
 curl https://your-app.sslip.io/health
+```
+
+Response:
+```
+OK
+```
+
+**Detailed Health Check** (`/api/health`):
+```bash
+curl https://your-app.sslip.io/api/health
 ```
 
 Response:
 ```json
 {
   "status": "ok",
-  "timestamp": 1735379474123,
-  "uptime": 45.678,
-  "nodeEnv": "production",
-  "port": "3000",
-  "version": "1.0.0"
+  "timestamp": 1735379474123
 }
 ```
+
+Both endpoints return HTTP status code `200 OK` when the server is running correctly.
 
 ## Verification
 
 After deployment, verify the following:
 
-1. **Health Check**: Visit `https://your-app.sslip.io/health` - should return `200 OK` with JSON
-2. **Homepage**: Visit `https://your-app.sslip.io/` - should load the Call Vault frontend
-3. **API**: API endpoints are available at `https://your-app.sslip.io/api/*`
-4. **Static Files**: Assets like favicon, manifest.json should load from `https://your-app.sslip.io/`
+1. **Health Check**: Visit `https://your-app.sslip.io/health` - should return `200 OK` with text "OK"
+2. **API Health Check**: Visit `https://your-app.sslip.io/api/health` - should return `200 OK` with JSON
+3. **Homepage**: Visit `https://your-app.sslip.io/` - should load the Call Vault frontend (HTTP 200)
+4. **API**: API endpoints are available at `https://your-app.sslip.io/api/*`
+5. **Static Files**: Assets like favicon, manifest.json should load from `https://your-app.sslip.io/`
 
 ## Server Configuration Details
 
@@ -142,8 +152,11 @@ After deployment, verify the following:
 
 The server automatically:
 - Binds to `0.0.0.0` (all interfaces) for container compatibility
-- Uses `process.env.PORT` with fallback to `3000` in production
-- Supports Coolify's automatic port detection
+- Uses `process.env.PORT` with fallback to `3000` in production, `5000` in development
+- Supports Coolify's automatic port detection and assignment
+- **Coolify should route traffic to the port specified in `process.env.PORT`** (Coolify sets this automatically)
+
+**Expected Port:** The application expects Coolify to route traffic to the port set in the `PORT` environment variable (typically `3000` in production).
 
 ### Static File Serving
 
@@ -162,11 +175,16 @@ Call Vault Server Started
 NODE_ENV: production
 PORT: 3000
 HOST: 0.0.0.0
+Listening on: http://0.0.0.0:3000
+Version: 1.0.0
 Build Directory: /app/dist/public
 Public URL: https://your-app.sslip.io
 Health Check: https://your-app.sslip.io/health
+API Health Check: https://your-app.sslip.io/api/health
 ============================================================
 ```
+
+**Important:** The line "Listening on: http://0.0.0.0:3000" shows the actual port the server is listening on. Coolify should route traffic to this port.
 
 ## Troubleshooting
 
@@ -244,9 +262,11 @@ No additional configuration files (like `nixpacks.toml` or `Dockerfile`) are nee
 
 ### Behind Reverse Proxy
 
-When deployed on Coolify (behind nginx):
-- Set `TRUST_PROXY=true` to correctly handle X-Forwarded headers
-- The server automatically respects `X-Forwarded-Proto`, `X-Forwarded-Host`, etc.
+When deployed on Coolify (behind nginx), the application is automatically configured to work correctly:
+- **Trust Proxy**: The server is configured with `app.set("trust proxy", true)` by default
+- This allows the server to correctly handle `X-Forwarded-*` headers from Coolify's reverse proxy
+- The server automatically respects `X-Forwarded-Proto`, `X-Forwarded-Host`, `X-Forwarded-For`, etc.
+- No additional configuration needed for reverse proxy compatibility
 
 ## Security Considerations
 
@@ -278,8 +298,14 @@ If you encounter issues:
 - **Start Command**: `npm start` (automatically detected)
 - **Port**: Uses `PORT` environment variable (Coolify sets this automatically)
 - **Host**: Binds to `0.0.0.0` (container-compatible)
-- **Health Check**: `GET /health` returns `200 OK`
+- **Trust Proxy**: Enabled by default for reverse proxy compatibility
+- **Health Checks**: 
+  - `GET /health` returns `200 OK` with text "OK"
+  - `GET /api/health` returns `200 OK` with JSON
+  - `GET /` returns `200 OK` with SPA frontend
 - **Static Files**: Served from `dist/public/` with SPA fallback
 - **Fallback**: Shows styled error page if build is missing
+
+**Expected Port for Coolify:** The application listens on the port specified in the `PORT` environment variable (default: `3000` in production). Coolify should route traffic to this port.
 
 The application is now production-ready and will render correctly when accessed via the Coolify public domain URL.
