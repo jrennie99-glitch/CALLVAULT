@@ -71,7 +71,7 @@ const FALLBACK_HTML = `<!DOCTYPE html>
 // Helper function to serve root endpoint with simple status message
 function serveRootEndpoint(app: Express) {
   app.get("/", (_req, res) => {
-    res.status(200).send('FileHelper is running ✅');
+    res.status(200).send('CallVault backend is running');
   });
 }
 

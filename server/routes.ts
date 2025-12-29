@@ -505,20 +505,6 @@ export async function registerRoutes(
 ): Promise<Server> {
   ensureUploadsDir();
   
-  // Root endpoint
-  app.get('/', (_req, res) => {
-    res.status(200).send('CallVault backend is running.');
-  });
-  
-  // Health check endpoints for deployment verification
-  app.get('/health', (_req, res) => {
-    res.status(200).json({ ok: true });
-  });
-  
-  app.get('/api/health', (_req, res) => {
-    res.json({ status: 'ok', timestamp: Date.now() });
-  });
-  
   // Server time endpoint - provides authoritative server timestamp for client clock sync
   app.get('/api/server-time', (_req, res) => {
     const now = Date.now();
