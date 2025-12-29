@@ -505,9 +505,14 @@ export async function registerRoutes(
 ): Promise<Server> {
   ensureUploadsDir();
   
+  // Root endpoint
+  app.get('/', (_req, res) => {
+    res.status(200).send('CallVault backend is running.');
+  });
+  
   // Health check endpoints for deployment verification
   app.get('/health', (_req, res) => {
-    res.status(200).send('OK');
+    res.status(200).json({ ok: true });
   });
   
   app.get('/api/health', (_req, res) => {
