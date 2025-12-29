@@ -8,7 +8,7 @@ import fs from "fs";
 const app: Express = express();
 const isDevelopment = process.env.NODE_ENV !== "production";
 
-// Trust proxy for reverse proxy environments (Coolify, nginx, etc.)
+// Trust proxy headers (X-Forwarded-*) from reverse proxies like Coolify's nginx
 app.set("trust proxy", true);
 
 // For ESM/CJS compatibility

@@ -130,7 +130,7 @@ Response:
 ```json
 {
   "status": "ok",
-  "timestamp": 1735379474123
+  "timestamp": 1735448400000
 }
 ```
 
