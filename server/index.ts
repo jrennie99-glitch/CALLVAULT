@@ -13,6 +13,18 @@ app.set("trust proxy", true);
 
 // CRITICAL: Root and health endpoints must be registered FIRST
 // before any middleware or static file serving that could intercept them
+
+// Root endpoint - confirms server is running (for health checks without Accept: text/html)
+app.get("/", (req, res, next) => {
+  // If browser wants HTML, let static/Vite handle it
+  const acceptHeader = req.headers.accept || '';
+  if (acceptHeader.includes('text/html')) {
+    return next();
+  }
+  // For curl/health checks, return plain text
+  res.status(200).type('text/plain').send('CallVault backend is running');
+});
+
 app.get("/health", (_req, res) => {
   res.status(200).json({ ok: true });
 });
