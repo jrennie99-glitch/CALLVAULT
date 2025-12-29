@@ -1,0 +1,68 @@
+You are fixing my FULL-STACK Node project for production deployment on Coolify (Docker) + Hetzner.
+
+Stack:
+- Backend: Node.js + Express + TypeScript
+- Frontend: React + TypeScript + Vite
+- DB: PostgreSQL + Drizzle
+
+RULES:
+- Do NOT remove any features or pages.
+- Only fix deployment / routing / build / ports / env / proxy.
+- Keep the existing functionality.
+
+PROBLEM:
+- Site is not displaying publicly (Coolify shows logs but homepage is 404/blank).
+- I need the app to run correctly on ANY host (Coolify, Render, Railway, etc.)
+- Must use host-provided PORT env and bind to 0.0.0.0.
+
+REQUIRED CHANGES (DO ALL):
+1) Backend must listen on:
+   - host: 0.0.0.0
+   - port: process.env.PORT (fallback 3000)
+   Example:
+     const PORT = Number(process.env.PORT) || 3000;
+     app.listen(PORT, "0.0.0.0", ...)
+
+2) Serve the Vite frontend in production from the Express backend:
+   - Build frontend to /client/dist (or whatever client folder is).
+   - In Express, serve static dist:
+       app.use(express.static(path.join(__dirname, "..", "client", "dist")));
+       app.get("*", (req,res)=>res.sendFile(path.join(__dirname,"..","client","dist","index.html")));
+   - Ensure API routes are mounted BEFORE the catch-all.
+
+3) Fix dev vs prod routing:
+   - In dev: Vite runs separately (proxy /api -> backend).
+   - In prod: Express serves built frontend + API.
+
+4) Add /health endpoint on backend returning 200 JSON.
+
+5) Build & start scripts:
+   - package.json must include:
+     - build: builds BOTH server + client
+     - start: runs compiled server (node dist/server.js or similar)
+   - Ensure TypeScript compiles to dist/ for server.
+
+6) Dockerfile (create/update) so Coolify works:
+   - Multi-stage build recommended.
+   - Expose correct port (EXPOSE 3000)
+   - Start command uses node dist/...
+   - Do NOT rely on Vite dev server in production.
+
+7) Env handling:
+   - DATABASE_URL must be read from process.env.DATABASE_URL
+   - No hardcoded localhost DB in production.
+   - Drizzle migrations should be optional (don’t force-run on boot unless already designed).
+
+DELIVERABLES:
+- Show me the final folder layout expected (client + server).
+- Tell me the exact internal port the container listens on (should be 3000).
+- Tell me exactly what to set in Coolify: internal port + start command.
+- Confirm visiting:
+   - GET /health returns 200
+   - GET / loads the React app
+   - API routes still work (ex: /api/...)
+
+After implementing, run locally (or in container) and confirm:
+- server prints “listening on 0.0.0.0:PORT”
+- /health works
+- / returns index.html (not 404)
