@@ -1,11 +1,18 @@
 import express, { type Express } from "express";
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
-import { dirname } from "path";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+// In production (CJS bundle), __dirname will be the dist directory
+// In development (ESM), we need to compute it from import.meta
+const getStaticDir = () => {
+  // When bundled as CJS, __dirname points to dist/, so dist/public is __dirname/public
+  // When running as ESM in dev, we'd use import.meta.dirname
+  if (typeof __dirname !== 'undefined' && __dirname) {
+    return path.resolve(__dirname, "public");
+  }
+  // Fallback for ESM (shouldn't happen in production build)
+  return path.resolve(process.cwd(), "dist", "public");
+};
 
 const FALLBACK_HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -74,7 +81,7 @@ function shouldServeFallback(path: string): boolean {
 }
 
 export function serveStatic(app: Express) {
-  const distPath = path.resolve(__dirname, "public");
+  const distPath = getStaticDir();
   
   // Check if build exists
   if (!fs.existsSync(distPath)) {

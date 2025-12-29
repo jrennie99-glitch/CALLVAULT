@@ -2,12 +2,24 @@ import express, { type Express } from "express";
 import { createServer } from "http";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
-import { setupVite } from "./vite";
 import path from "path";
 import fs from "fs";
 
 const app: Express = express();
 const isDevelopment = process.env.NODE_ENV !== "production";
+
+// For ESM/CJS compatibility
+const getModuleDirname = () => {
+  if (typeof import.meta.dirname !== 'undefined') {
+    return import.meta.dirname;
+  }
+  if (typeof __dirname !== 'undefined') {
+    return __dirname;
+  }
+  return process.cwd();
+};
+
+const moduleDirname = getModuleDirname();
 
 // Determine port based on environment
 const DEFAULT_DEV_PORT = 5000;
@@ -20,7 +32,7 @@ const PORT = process.env.PORT
 let version = "1.0.0";
 try {
   const packageJson = JSON.parse(
-    fs.readFileSync(path.resolve(import.meta.dirname, "..", "package.json"), "utf-8")
+    fs.readFileSync(path.resolve(moduleDirname, "..", "package.json"), "utf-8")
   );
   version = packageJson.version;
 } catch (err) {
@@ -37,6 +49,8 @@ async function startServer() {
   // Setup static file serving or Vite dev server
   if (isDevelopment) {
     console.log("🔧 Development mode: Setting up Vite dev server...");
+    // Dynamically import vite module only in development
+    const { setupVite } = await import("./vite");
     await setupVite(httpServer, app);
   } else {
     console.log("📦 Production mode: Serving static files...");
@@ -54,7 +68,7 @@ async function startServer() {
     console.log(`Version: ${version}`);
     
     if (!isDevelopment) {
-      const buildDir = path.resolve(import.meta.dirname, "public");
+      const buildDir = path.resolve(moduleDirname, "public");
       console.log(`Build Directory: ${buildDir}`);
     }
     
