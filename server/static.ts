@@ -7,7 +7,7 @@ import path from "path";
 const getStaticDir = () => {
   // When bundled as CJS, __dirname points to dist/, so dist/public is __dirname/public
   // When running as ESM in dev, we'd use import.meta.dirname
-  if (typeof __dirname !== 'undefined' && __dirname) {
+  if (typeof __dirname !== 'undefined') {
     return path.resolve(__dirname, "public");
   }
   // Fallback for ESM (shouldn't happen in production build)
