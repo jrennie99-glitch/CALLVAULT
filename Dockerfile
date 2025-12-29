@@ -53,12 +53,16 @@ RUN mkdir -p /app/data /app/uploads && \
 # Switch to non-root user
 USER callvault
 
+# Environment variables
+ENV NODE_ENV=production
+ENV PORT=3000
+
 # Expose port
-EXPOSE 5000
+EXPOSE 3000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:5000/api/health || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1
 
 # Use tini as init system
 ENTRYPOINT ["/sbin/tini", "--"]
