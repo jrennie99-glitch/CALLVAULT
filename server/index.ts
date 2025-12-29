@@ -11,6 +11,22 @@ const isDevelopment = process.env.NODE_ENV !== "production";
 // Trust proxy headers (X-Forwarded-*) from reverse proxies like Coolify's nginx
 app.set("trust proxy", true);
 
+// CRITICAL: Root and health endpoints must be registered FIRST
+// before any middleware or static file serving that could intercept them
+app.get("/health", (_req, res) => {
+  res.status(200).json({ ok: true });
+});
+
+app.get("/api/health", (_req, res) => {
+  res.status(200).json({ ok: true, timestamp: Date.now() });
+});
+
+// Root endpoint for deployment verification - returns plain text
+// This confirms the server is running even if frontend build is missing
+app.get("/", (_req, res) => {
+  res.status(200).type('text/plain').send('CallVault backend is running');
+});
+
 // For ESM/CJS compatibility
 const getModuleDirname = () => {
   if (typeof import.meta.dirname !== 'undefined') {
