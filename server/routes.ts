@@ -505,7 +505,11 @@ export async function registerRoutes(
 ): Promise<Server> {
   ensureUploadsDir();
   
-  // Health check endpoint - for deployment verification
+  // Health check endpoints for deployment verification
+  app.get('/health', (_req, res) => {
+    res.status(200).send('OK');
+  });
+  
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', timestamp: Date.now() });
   });
