@@ -8,6 +8,8 @@ import requests
 import json
 import sys
 import time
+import websocket
+import threading
 from datetime import datetime
 
 class CallVaultAPITester:
