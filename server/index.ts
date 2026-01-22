@@ -86,6 +86,13 @@ async function startServer() {
   // Register all API routes and WebSocket handlers
   await registerRoutes(httpServer, app);
 
+  // API 404 handler: Ensure unmatched /api/* routes return JSON, never HTML
+  // This MUST be registered AFTER all API routes but BEFORE static/Vite handlers
+  app.use('/api/*', (_req, res) => {
+    res.status(404).json({ error: 'Not found', path: _req.originalUrl });
+  });
+  console.log('📋 Route order: API routes → API 404 handler → static/Vite');
+
   // Setup static file serving or Vite dev server
   if (isDevelopment) {
     console.log("🔧 Development mode: Setting up Vite dev server...");

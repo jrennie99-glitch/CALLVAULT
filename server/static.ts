@@ -127,7 +127,13 @@ export function serveStatic(app: Express) {
   // This ensures client-side routing works correctly
   // NOTE: This function must be called AFTER all API routes are registered
   // so that API endpoints take precedence over this catch-all
-  app.use("*", (_req, res) => {
+  app.use("*", (req, res) => {
+    // NEVER serve index.html for API routes - return 404 JSON instead
+    if (req.originalUrl.startsWith('/api/') || req.originalUrl.startsWith('/api')) {
+      return res.status(404).json({ error: 'Not found', path: req.originalUrl });
+    }
     res.sendFile(indexPath);
   });
+
+  console.log('📋 Route order: API routes → static files → SPA catch-all (excludes /api/*)');
 }
