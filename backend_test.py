@@ -329,6 +329,7 @@ class CallVaultAPITester:
         self.test_health_endpoints()
         self.test_diagnostic_endpoints()
         self.test_webrtc_endpoints()
+        self.test_call_session_token()
         self.test_websocket_endpoint()
         self.test_server_binding()
         
