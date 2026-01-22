@@ -203,17 +203,17 @@
     "created_at": 1769093477670,
     "created_by": "call:69NeAv8oaWr7T3c6HhWnYHTR6ZeNSRE9CSVfX2cCeTUX:P6LoqRq8of2",
     "last_message": {
-      "id": "msg_1769093477478_aq05scs8z",
+      "id": "msg_1769094842642_tpvp2x0fh",
       "convo_id": "dm_wf7th1_1oie369_1l79ey7",
       "from_address": "call:69NeAv8oaWr7T3c6HhWnYHTR6ZeNSRE9CSVfX2cCeTUX:P6LoqRq8of2",
       "to_address": "call:67tfm9RjaXdcUgF6xEf1iou4twNb4kxuRw1pfeUzPXwn:hmeBK5bQVnT",
-      "timestamp": 1769093477478,
+      "timestamp": 1769094842642,
       "type": "text",
-      "content": "Dawgist",
-      "nonce": "n7wojlfbe6imkpkkvhi",
+      "content": "Hey yo",
+      "nonce": "4vhj657cezrmkple4uq",
       "status": "sent",
-      "seq": 1,
-      "server_timestamp": 1769093477655
+      "seq": 4,
+      "server_timestamp": 1769094842773
     }
   }
 ]
