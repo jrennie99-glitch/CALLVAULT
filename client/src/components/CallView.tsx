@@ -113,10 +113,13 @@ export function CallView({
   // Ringback tone for caller (plays while waiting for answer)
   useEffect(() => {
     if (callState === 'calling' || callState === 'ringing') {
+      console.log('[CallView] callState is', callState, '- starting ringback');
       import('@/lib/audio').then(({ playRingback }) => {
         playRingback();
+        console.log('[CallView] playRingback() called');
       });
     } else {
+      console.log('[CallView] callState is', callState, '- stopping ringback');
       import('@/lib/audio').then(({ stopRingback }) => {
         stopRingback();
       });
@@ -586,12 +589,21 @@ export function CallView({
 
     const signedIntent = crypto.signCallIntent(intent, identity.secretKey);
 
+    // Check WebSocket connection before sending
+    if (ws.readyState !== WebSocket.OPEN) {
+      console.error('[CallView] WebSocket not open, cannot initiate call. State:', ws.readyState);
+      setCallError('Connection lost. Please refresh and try again.');
+      return;
+    }
+
+    console.log('[CallView] Sending call:init to', destinationAddress.slice(0, 20) + '...');
     ws.send(JSON.stringify({
       type: 'call:init',
       data: signedIntent,
       callToken: tokenData.token // Include token for server-side validation
     }));
 
+    console.log('[CallView] Setting callState to "calling" - ringback should start');
     setCallState('calling');
     setConnectionStatus('Ringing...');
   };

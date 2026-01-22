@@ -184,9 +184,11 @@ export function stopRingtone(): void {
 }
 
 export async function playRingback(): Promise<void> {
+  console.log('[Audio] playRingback() called');
   stopRingback();
   
   // Try to unlock audio first
+  console.log('[Audio] Attempting to unlock audio...');
   await unlockAudio();
   
   const ctx = await ensureAudioReady();
@@ -196,13 +198,27 @@ export async function playRingback(): Promise<void> {
   }
   
   // Log audio state for debugging  
-  console.log('[Audio] Ringback - AudioContext state:', ctx.state);
+  console.log('[Audio] Ringback - AudioContext state:', ctx.state, 'sampleRate:', ctx.sampleRate);
+  
+  if (ctx.state !== 'running') {
+    console.warn('[Audio] AudioContext not running, attempting to resume...');
+    try {
+      await ctx.resume();
+      console.log('[Audio] AudioContext resumed, new state:', ctx.state);
+    } catch (e) {
+      console.error('[Audio] Failed to resume AudioContext:', e);
+    }
+  }
   
   currentRingback = { intervalId: null, oscillators: [] };
   
   const playTone = () => {
-    if (!ctx || ctx.state !== 'running') return;
+    if (!ctx || ctx.state !== 'running') {
+      console.warn('[Audio] playTone skipped - ctx:', !!ctx, 'state:', ctx?.state);
+      return;
+    }
     
+    console.log('[Audio] Playing ringback tone at', ctx.currentTime);
     try {
       const gainNode = ctx.createGain();
       gainNode.connect(ctx.destination);
