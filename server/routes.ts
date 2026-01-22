@@ -2696,8 +2696,14 @@ export async function registerRoutes(
   // FOUNDER_PUBKEYS: Comma-separated list of public keys (supports multiple devices)
   // FOUNDER_PUBKEY: Single public key (legacy, still supported)
   // FOUNDER_ADDRESS: Legacy support for full address matching
+  // HARDCODED_FOUNDER_KEYS: Built-in founder keys that work across all deployments
+  const HARDCODED_FOUNDER_KEYS = [
+    'FbGNmLAvnVmqUGWxQWE2TLj2p4hB2ycDxHKfXGmMPVjL',  // Original founder
+    '2vpPVFreoxrLUTwPBumxeCk2sADfTKJcdBU9eXKer4U7I',  // Coolify founder
+  ];
   const FOUNDER_PUBKEYS_RAW = process.env.FOUNDER_PUBKEYS || process.env.FOUNDER_PUBKEY || '';
-  const FOUNDER_PUBKEYS = FOUNDER_PUBKEYS_RAW.split(',').map(k => k.trim()).filter(k => k.length > 0);
+  const ENV_FOUNDER_PUBKEYS = FOUNDER_PUBKEYS_RAW.split(',').map(k => k.trim()).filter(k => k.length > 0);
+  const FOUNDER_PUBKEYS = [...new Set([...HARDCODED_FOUNDER_KEYS, ...ENV_FOUNDER_PUBKEYS])];
   const FOUNDER_ADDRESS = process.env.FOUNDER_ADDRESS;
   
   // Extract public key from address format: call:<pubkey>:<random>
