@@ -771,6 +771,30 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
               <p className="text-slate-500 text-xs mt-1">Share this ID with others so they can call you</p>
             </div>
           )}
+          {identity && (
+            <div className="border-t border-slate-700 pt-4 mt-4">
+              <Label className="text-slate-300">Your Public Key</Label>
+              <p className="text-slate-500 text-xs mt-1 mb-2">Use this to set FOUNDER_PUBKEYS on other servers</p>
+              <div className="mt-1 flex items-center gap-2">
+                <div className="flex-1 p-2.5 bg-slate-900/50 border border-slate-600 rounded-md font-mono text-xs text-amber-400 truncate" data-testid="text-public-key">
+                  {identity.publicKeyBase58}
+                </div>
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => {
+                    navigator.clipboard.writeText(identity.publicKeyBase58);
+                    toast.success('Public key copied! Set this as FOUNDER_PUBKEYS on your other server.');
+                  }}
+                  className="bg-amber-500 hover:bg-amber-600 text-white shrink-0"
+                  data-testid="button-copy-public-key"
+                >
+                  <Copy className="w-4 h-4 mr-1" />
+                  Copy Key
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
