@@ -192,5 +192,28 @@
       "seq": 1,
       "server_timestamp": 1769087331804
     }
+  },
+  {
+    "id": "dm_wf7th1_1oie369_1l79ey7",
+    "type": "direct",
+    "participant_addresses": [
+      "call:69NeAv8oaWr7T3c6HhWnYHTR6ZeNSRE9CSVfX2cCeTUX:P6LoqRq8of2",
+      "call:67tfm9RjaXdcUgF6xEf1iou4twNb4kxuRw1pfeUzPXwn:hmeBK5bQVnT"
+    ],
+    "created_at": 1769093477670,
+    "created_by": "call:69NeAv8oaWr7T3c6HhWnYHTR6ZeNSRE9CSVfX2cCeTUX:P6LoqRq8of2",
+    "last_message": {
+      "id": "msg_1769093477478_aq05scs8z",
+      "convo_id": "dm_wf7th1_1oie369_1l79ey7",
+      "from_address": "call:69NeAv8oaWr7T3c6HhWnYHTR6ZeNSRE9CSVfX2cCeTUX:P6LoqRq8of2",
+      "to_address": "call:67tfm9RjaXdcUgF6xEf1iou4twNb4kxuRw1pfeUzPXwn:hmeBK5bQVnT",
+      "timestamp": 1769093477478,
+      "type": "text",
+      "content": "Dawgist",
+      "nonce": "n7wojlfbe6imkpkkvhi",
+      "status": "sent",
+      "seq": 1,
+      "server_timestamp": 1769093477655
+    }
   }
 ]
