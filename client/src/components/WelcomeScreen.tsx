@@ -184,7 +184,7 @@ export function WelcomeScreen({ onIdentityCreated }: WelcomeScreenProps) {
 
     setIsRecovering(true);
     try {
-      const identity = recoverIdentityFromPrivateKey(privateKeyInput.trim());
+      const identity = await recoverIdentityFromPrivateKey(privateKeyInput.trim());
       
       if (!identity) {
         toast.error('Invalid private key. Make sure you copied the full key.');

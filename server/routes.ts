@@ -4766,6 +4766,27 @@ export async function registerRoutes(
     }
   });
 
+  // Look up address by public key (for private key recovery)
+  app.get('/api/identity/lookup/:publicKeyBase58', async (req, res) => {
+    try {
+      const { publicKeyBase58 } = req.params;
+      const identity = await storage.getIdentityByPublicKey(publicKeyBase58);
+      if (identity) {
+        res.json({ 
+          exists: true, 
+          address: identity.address,
+          displayName: identity.displayName,
+          handle: identity.handle
+        });
+      } else {
+        res.json({ exists: false });
+      }
+    } catch (error) {
+      console.error('Error looking up identity:', error);
+      res.status(500).json({ error: 'Failed to lookup identity' });
+    }
+  });
+
   // TRUSTED DEVICES ENDPOINTS (Passwordless login from recognized devices)
   
   // Helper to generate device fingerprint from request (IP-free for stability across networks)

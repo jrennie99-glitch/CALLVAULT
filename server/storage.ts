@@ -55,6 +55,7 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
 
   getIdentity(address: string): Promise<CryptoIdentityRecord | undefined>;
+  getIdentityByPublicKey(publicKeyBase58: string): Promise<CryptoIdentityRecord | undefined>;
   createIdentity(identity: InsertCryptoIdentity): Promise<CryptoIdentityRecord>;
   updateIdentity(address: string, updates: Partial<InsertCryptoIdentity>): Promise<CryptoIdentityRecord | undefined>;
 
@@ -349,6 +350,11 @@ export class DatabaseStorage implements IStorage {
 
   async getIdentity(address: string): Promise<CryptoIdentityRecord | undefined> {
     const [identity] = await db.select().from(cryptoIdentities).where(eq(cryptoIdentities.address, address));
+    return identity || undefined;
+  }
+
+  async getIdentityByPublicKey(publicKeyBase58: string): Promise<CryptoIdentityRecord | undefined> {
+    const [identity] = await db.select().from(cryptoIdentities).where(eq(cryptoIdentities.publicKeyBase58, publicKeyBase58));
     return identity || undefined;
   }
 

@@ -137,7 +137,8 @@ export function importIdentity(backupString: string): CryptoIdentity | null {
 // Recover identity from private key (secret key) directly
 // This allows users to restore their identity using just the private key
 // The Ed25519 secret key contains both the seed (32 bytes) and public key (32 bytes)
-export function recoverIdentityFromPrivateKey(privateKeyBase58: string): CryptoIdentity | null {
+// IMPORTANT: This now looks up the original address from the server to preserve data
+export async function recoverIdentityFromPrivateKey(privateKeyBase58: string): Promise<CryptoIdentity | null> {
   try {
     const secretKey = bs58.decode(privateKeyBase58.trim());
     
@@ -151,8 +152,22 @@ export function recoverIdentityFromPrivateKey(privateKeyBase58: string): CryptoI
     const publicKey = secretKey.slice(32);
     const publicKeyBase58 = bs58.encode(publicKey);
     
-    // Generate a new address for this identity
-    const address = generateCallAddress(publicKey);
+    // Look up the original address from the server (to preserve contacts/messages)
+    let address: string;
+    try {
+      const response = await fetch(`/api/identity/lookup/${encodeURIComponent(publicKeyBase58)}`);
+      const data = await response.json();
+      if (data.exists && data.address) {
+        console.log('[Recovery] Found existing address:', data.address.slice(0, 20) + '...');
+        address = data.address;
+      } else {
+        console.log('[Recovery] No existing address found, generating new one');
+        address = generateCallAddress(publicKey);
+      }
+    } catch (lookupError) {
+      console.warn('[Recovery] Failed to lookup address, generating new one:', lookupError);
+      address = generateCallAddress(publicKey);
+    }
     
     const identity: CryptoIdentity = {
       publicKey,
