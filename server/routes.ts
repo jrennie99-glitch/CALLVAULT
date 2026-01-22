@@ -1622,6 +1622,29 @@ export async function registerRoutes(
     }
   });
 
+  // Debug endpoint - list active WebSocket connections (for troubleshooting)
+  app.get('/api/debug/connections', async (req, res) => {
+    try {
+      const result: { address: string; connectionCount: number; readyStates: number[] }[] = [];
+      const entries = Array.from(connections.entries());
+      for (const entry of entries) {
+        const [address, conns] = entry;
+        result.push({
+          address: address.slice(0, 30) + '...',
+          connectionCount: conns.length,
+          readyStates: conns.map((c: ClientConnection) => c.ws.readyState)
+        });
+      }
+      res.json({ 
+        totalAddresses: connections.size,
+        connections: result
+      });
+    } catch (error) {
+      console.error('Error getting debug connections:', error);
+      res.status(500).json({ error: 'Failed to get connections' });
+    }
+  });
+
   // Phase 5: Call History API
   app.get('/api/calls/:address', async (req, res) => {
     try {

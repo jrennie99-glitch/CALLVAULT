@@ -87,6 +87,7 @@ export default function CallPage() {
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteAddressRef = useRef<string | null>(null);
   const pendingCallRef = useRef<{ address: string; video: boolean } | null>(null);
+  const wsMessageHandlerRef = useRef<((message: WSMessage) => void) | null>(null);
 
   useEffect(() => {
     const settings = getAppSettings();
@@ -415,7 +416,10 @@ export default function CallPage() {
         return;
       }
       
-      handleWebSocketMessage(message);
+      // Use ref to always call the latest handler (avoids stale closure)
+      if (wsMessageHandlerRef.current) {
+        wsMessageHandlerRef.current(message);
+      }
     };
 
     websocket.onerror = (error) => {
@@ -630,6 +634,11 @@ export default function CallPage() {
       });
     }
   }, [activeChat]);
+
+  // Keep the message handler ref updated so WebSocket always uses latest handler
+  useEffect(() => {
+    wsMessageHandlerRef.current = handleWebSocketMessage;
+  }, [handleWebSocketMessage]);
 
   const handleStartCall = (address: string, video: boolean) => {
     // Guard: Prevent duplicate calls
