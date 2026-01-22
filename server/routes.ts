@@ -700,12 +700,19 @@ export async function registerRoutes(
       const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
 
       if (!address) {
-        await recordTokenMetric('verify_invalid', undefined, userAgent, clientIp, 'Missing address');
+        try { await recordTokenMetric('verify_invalid', undefined, userAgent, clientIp, 'Missing address'); } catch(e) {}
         return res.status(400).json({ error: 'Address required' });
       }
 
       // Get user's plan and entitlements
-      const user = await storage.getIdentity(address);
+      let user = null;
+      try {
+        user = await storage.getIdentity(address);
+      } catch (dbError) {
+        // Database unavailable - proceed with defaults
+        console.warn('[CallToken] Database unavailable, using default plan settings');
+      }
+      
       let plan = 'free';
       let allowTurn = false;
       let allowVideo = true;
