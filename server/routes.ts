@@ -6381,9 +6381,9 @@ export async function registerRoutes(
               return;
             }
             
-            console.log(`[call:init] Recipient ${recipientAddr.slice(0, 12)}... is online, forwarding call`);
+            console.log(`[call:init] Recipient ${recipientAddr.slice(0, 12)}... is online, processing call policies...`);
             
-            // Recipient is online - send "ringing" status to caller
+            // Send "ringing" status to caller - note: call may still be blocked by policies
             ws.send(JSON.stringify({ 
               type: 'call:ringing', 
               message: 'Ringing...',
@@ -6406,6 +6406,8 @@ export async function registerRoutes(
                 const isEitherContact = !!(callerContact || calleeContact); // EITHER party added the other
                 const isContact = !!callerContact;
                 const isPaidCall = !!pass_id; // has paid pass
+                
+                console.log(`[call:init] Contact check: callerHasRecipient=${!!callerContact}, recipientHasCaller=${!!calleeContact}, mutual=${isMutualContact}, either=${isEitherContact}`);
                 
                 // Free Tier Shield: Check if caller can start this call
                 const shieldCheck = await FreeTierShield.canStartCall(callerAddress, recipientAddress, {
@@ -6537,6 +6539,8 @@ export async function registerRoutes(
                   pass_id
                 );
                 
+                console.log(`[call:init] Policy decision: action=${decision.action}, reason=${'reason' in decision ? decision.reason : 'none'}`);
+                
                 switch (decision.action) {
                   case 'block':
                     await FreeTierShield.recordFailedStart(callerAddress);
@@ -6608,6 +6612,8 @@ export async function registerRoutes(
                     // Include max call duration for free tier users
                     const maxDuration = shieldCheck.maxDurationSeconds;
                     
+                    console.log(`[call:init] Sending call:incoming to recipient ${recipientAddress.slice(0, 12)}...`);
+                    
                     targetConnection.ws.send(JSON.stringify({
                       type: 'call:incoming',
                       from_address: callerAddress,
@@ -6617,7 +6623,7 @@ export async function registerRoutes(
                       maxDurationSeconds: maxDuration
                     } as WSMessage));
                     
-                    console.log(`Call initiated from ${callerAddress} to ${recipientAddress}`);
+                    console.log(`[call:init] SUCCESS - call:incoming sent to ${recipientAddress.slice(0, 12)}...`);
                     break;
                   }
                 }

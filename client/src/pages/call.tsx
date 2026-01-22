@@ -651,8 +651,8 @@ export default function CallPage() {
       return;
     }
     
-    // Check if pre-call check should be shown
-    const skipPreCallCheck = localStorage.getItem('cv_skip_precall_check') === 'true';
+    // Check if pre-call check should be shown (defaults to SKIP - only show if explicitly set to 'false')
+    const skipPreCallCheck = localStorage.getItem('cv_skip_precall_check') !== 'false';
     if (!skipPreCallCheck) {
       // Just unlock audio here (preserve gesture context) but don't start ringback yet
       unlockAudio();
