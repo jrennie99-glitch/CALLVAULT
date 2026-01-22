@@ -73,7 +73,16 @@ export function syncContactToServer(ownerAddress: string, contactAddress: string
       contactAddress,
       name
     })
-  }).catch(err => console.error('Failed to sync contact to server:', err));
+  })
+  .then(async (res) => {
+    if (!res.ok) {
+      const text = await res.text().catch(() => 'No response body');
+      console.error('Contact sync failed:', res.status, text);
+    } else {
+      console.log('Contact synced to server:', name);
+    }
+  })
+  .catch(err => console.error('Failed to sync contact to server:', err));
 }
 
 export async function syncAllContactsToServer(ownerAddress: string): Promise<void> {

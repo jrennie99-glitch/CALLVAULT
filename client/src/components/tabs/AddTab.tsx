@@ -75,15 +75,20 @@ export function AddTab({ myAddress, onContactAdded, onStartCall, onNavigateToInv
       return;
     }
 
-    addContact({
-      name: newContactName.trim(),
-      address: newContactAddress.trim()
-    }, myAddress);
+    try {
+      addContact({
+        name: newContactName.trim(),
+        address: newContactAddress.trim()
+      }, myAddress);
 
-    setNewContactName('');
-    setNewContactAddress('');
-    toast.success('Contact added!');
-    onContactAdded();
+      setNewContactName('');
+      setNewContactAddress('');
+      toast.success('Contact added!');
+      onContactAdded();
+    } catch (error) {
+      console.error('Failed to add contact:', error);
+      toast.error('Failed to save contact. Please try again.');
+    }
   };
 
   const handlePasteQrPayload = () => {
