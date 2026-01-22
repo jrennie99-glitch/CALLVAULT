@@ -83,6 +83,47 @@ export async function syncAllContactsToServer(ownerAddress: string): Promise<voi
   }
 }
 
+// Fetch contacts from server and merge with localStorage (for identity recovery)
+export async function syncContactsFromServer(ownerAddress: string): Promise<{ imported: number; total: number }> {
+  try {
+    const response = await fetch(`/api/contacts/${encodeURIComponent(ownerAddress)}`);
+    if (!response.ok) {
+      console.error('Failed to fetch contacts from server:', response.status);
+      return { imported: 0, total: 0 };
+    }
+    
+    const serverContacts = await response.json();
+    if (!Array.isArray(serverContacts) || serverContacts.length === 0) {
+      return { imported: 0, total: 0 };
+    }
+    
+    const localContacts = getContacts();
+    const localAddresses = new Set(localContacts.map(c => c.address));
+    let imported = 0;
+    
+    for (const sc of serverContacts) {
+      if (!localAddresses.has(sc.contactAddress)) {
+        localContacts.push({
+          id: sc.id || `imported_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          name: sc.name || 'Unknown',
+          address: sc.contactAddress,
+          addedAt: sc.createdAt ? new Date(sc.createdAt).getTime() : Date.now(),
+        });
+        imported++;
+      }
+    }
+    
+    if (imported > 0) {
+      saveContacts(localContacts);
+    }
+    
+    return { imported, total: serverContacts.length };
+  } catch (error) {
+    console.error('Error syncing contacts from server:', error);
+    return { imported: 0, total: 0 };
+  }
+}
+
 export function updateContact(id: string, updates: Partial<Contact>): void {
   const contacts = getContacts();
   const index = contacts.findIndex(c => c.id === id);

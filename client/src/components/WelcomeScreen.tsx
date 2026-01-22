@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { decryptIdentityFromVault, saveIdentity, generateIdentity, signPayload, generateNonce, recoverIdentityFromPrivateKey } from '@/lib/crypto';
+import { syncContactsFromServer } from '@/lib/storage';
 import { toast } from 'sonner';
 import type { CryptoIdentity } from '@shared/types';
 
@@ -153,7 +154,19 @@ export function WelcomeScreen({ onIdentityCreated }: WelcomeScreenProps) {
         }
       }
 
-      toast.success('Welcome back!');
+      // Sync contacts from server after cloud backup recovery
+      try {
+        const syncResult = await syncContactsFromServer(identity.address);
+        if (syncResult.imported > 0) {
+          toast.success(`Welcome back! Synced ${syncResult.imported} contacts.`);
+        } else {
+          toast.success('Welcome back!');
+        }
+      } catch (syncError) {
+        console.error('Failed to sync contacts:', syncError);
+        toast.success('Welcome back!');
+      }
+
       onIdentityCreated(identity);
     } catch (error) {
       console.error('Failed to decrypt identity:', error);
@@ -163,7 +176,7 @@ export function WelcomeScreen({ onIdentityCreated }: WelcomeScreenProps) {
     }
   };
 
-  const handleRecoverFromPrivateKey = () => {
+  const handleRecoverFromPrivateKey = async () => {
     if (!privateKeyInput.trim()) {
       toast.error('Please enter your private key');
       return;
@@ -203,7 +216,21 @@ export function WelcomeScreen({ onIdentityCreated }: WelcomeScreenProps) {
         }
       }
 
-      toast.success('Identity restored from private key!');
+      // Sync contacts from server after identity recovery
+      try {
+        const syncResult = await syncContactsFromServer(identity.address);
+        if (syncResult.imported > 0) {
+          toast.success(`Identity restored! Synced ${syncResult.imported} contacts.`);
+        } else if (syncResult.total > 0) {
+          toast.success('Identity restored! Contacts already synced.');
+        } else {
+          toast.success('Identity restored from private key!');
+        }
+      } catch (syncError) {
+        console.error('Failed to sync contacts:', syncError);
+        toast.success('Identity restored from private key!');
+      }
+
       onIdentityCreated(identity);
     } catch (error) {
       console.error('Failed to recover from private key:', error);
