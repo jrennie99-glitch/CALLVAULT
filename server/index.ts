@@ -33,6 +33,21 @@ app.get("/api/health", (_req, res) => {
   res.status(200).json({ ok: true, timestamp: Date.now() });
 });
 
+// Deploy version stamp
+const BUILD_COMMIT = process.env.BUILD_COMMIT || "unknown";
+const BUILD_TIME = new Date().toISOString();
+
+app.get("/api/version", (_req, res) => {
+  res.status(200).json({
+    app: "CallVault",
+    env: process.env.NODE_ENV || "development",
+    buildTime: BUILD_TIME,
+    commit: BUILD_COMMIT
+  });
+});
+
+console.log(`CallVault boot: commit=${BUILD_COMMIT} buildTime=${BUILD_TIME}`);
+
 // For ESM/CJS compatibility
 const getModuleDirname = () => {
   if (typeof import.meta.dirname !== 'undefined') {
