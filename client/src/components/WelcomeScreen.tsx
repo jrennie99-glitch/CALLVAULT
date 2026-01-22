@@ -1,16 +1,18 @@
-import { useState } from 'react';
-import { Cloud, Plus, ArrowRight, Eye, EyeOff, Shield } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Cloud, Plus, ArrowRight, Eye, EyeOff, Shield, Smartphone, Key, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { decryptIdentityFromVault, saveIdentity, generateIdentity } from '@/lib/crypto';
+import { decryptIdentityFromVault, saveIdentity, generateIdentity, signPayload, generateNonce } from '@/lib/crypto';
 import { toast } from 'sonner';
 import type { CryptoIdentity } from '@shared/types';
 
 interface WelcomeScreenProps {
   onIdentityCreated: (identity: CryptoIdentity) => void;
 }
+
+const REMEMBERED_KEY_STORAGE = 'cv_remembered_pubkey';
 
 export function WelcomeScreen({ onIdentityCreated }: WelcomeScreenProps) {
   const [showRecoveryDialog, setShowRecoveryDialog] = useState(false);
@@ -23,12 +25,52 @@ export function WelcomeScreen({ onIdentityCreated }: WelcomeScreenProps) {
     salt: string;
     hint: string | null;
   } | null>(null);
-  const [step, setStep] = useState<'enter_key' | 'enter_pin'>('enter_key');
+  const [step, setStep] = useState<'enter_key' | 'enter_pin' | 'quick_login'>('enter_key');
+  const [rememberedKey, setRememberedKey] = useState<string | null>(null);
+  const [rememberThisDevice, setRememberThisDevice] = useState(true);
+
+  useEffect(() => {
+    const saved = localStorage.getItem(REMEMBERED_KEY_STORAGE);
+    if (saved) {
+      setRememberedKey(saved);
+    }
+  }, []);
 
   const handleCreateNew = () => {
     const newIdentity = generateIdentity();
     saveIdentity(newIdentity);
     onIdentityCreated(newIdentity);
+  };
+
+  const handleQuickLogin = async () => {
+    if (!rememberedKey) return;
+    
+    setIsRecovering(true);
+    try {
+      const res = await fetch(`/api/identity/vault/${encodeURIComponent(rememberedKey)}`);
+      
+      if (!res.ok) {
+        if (res.status === 404) {
+          toast.error('No cloud backup found. Account may have been deleted.');
+          localStorage.removeItem(REMEMBERED_KEY_STORAGE);
+          setRememberedKey(null);
+        } else {
+          toast.error('Failed to check cloud backup');
+        }
+        return;
+      }
+
+      const data = await res.json();
+      setVaultData(data);
+      setPublicKeyInput(rememberedKey);
+      setStep('enter_pin');
+      setShowRecoveryDialog(true);
+    } catch (error) {
+      console.error('Failed to check vault:', error);
+      toast.error('Failed to connect to server');
+    } finally {
+      setIsRecovering(false);
+    }
   };
 
   const handleCheckVault = async () => {
@@ -77,11 +119,37 @@ export function WelcomeScreen({ onIdentityCreated }: WelcomeScreenProps) {
 
       if (!identity) {
         toast.error('Incorrect PIN. Please try again.');
+        setIsRecovering(false);
         return;
       }
 
       saveIdentity(identity);
-      toast.success('Identity restored successfully!');
+      
+      if (rememberThisDevice) {
+        localStorage.setItem(REMEMBERED_KEY_STORAGE, identity.publicKeyBase58);
+        
+        try {
+          const nonce = generateNonce();
+          const timestamp = Date.now();
+          const payload = { action: 'trust_device', publicKeyBase58: identity.publicKeyBase58, nonce, timestamp };
+          const signature = signPayload(identity.secretKey, payload);
+          
+          await fetch('/api/devices/trust', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              publicKeyBase58: identity.publicKeyBase58,
+              signature,
+              nonce,
+              timestamp
+            })
+          });
+        } catch (e) {
+          console.log('Failed to register trusted device, continuing anyway');
+        }
+      }
+
+      toast.success('Welcome back!');
       onIdentityCreated(identity);
     } catch (error) {
       console.error('Failed to decrypt identity:', error);
@@ -91,6 +159,12 @@ export function WelcomeScreen({ onIdentityCreated }: WelcomeScreenProps) {
     }
   };
 
+  const handleForgetDevice = () => {
+    localStorage.removeItem(REMEMBERED_KEY_STORAGE);
+    setRememberedKey(null);
+    toast.success('Device forgotten');
+  };
+
   const resetRecovery = () => {
     setShowRecoveryDialog(false);
     setPublicKeyInput('');
@@ -98,6 +172,11 @@ export function WelcomeScreen({ onIdentityCreated }: WelcomeScreenProps) {
     setVaultData(null);
     setStep('enter_key');
     setShowPin(false);
+  };
+
+  const truncateKey = (key: string) => {
+    if (key.length <= 12) return key;
+    return `${key.slice(0, 6)}...${key.slice(-6)}`;
   };
 
   return (
@@ -112,6 +191,35 @@ export function WelcomeScreen({ onIdentityCreated }: WelcomeScreenProps) {
         </div>
 
         <div className="space-y-4">
+          {rememberedKey && (
+            <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 mb-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Smartphone className="w-5 h-5 text-emerald-400" />
+                  <span className="text-sm text-slate-300">Remembered Account</span>
+                </div>
+                <button
+                  onClick={handleForgetDevice}
+                  className="text-slate-500 hover:text-slate-300 p-1"
+                  title="Forget this device"
+                  data-testid="button-forget-device"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <p className="text-xs text-slate-500 font-mono mb-3">{truncateKey(rememberedKey)}</p>
+              <Button
+                onClick={handleQuickLogin}
+                disabled={isRecovering}
+                className="w-full bg-emerald-500 hover:bg-emerald-600 text-white"
+                data-testid="button-quick-login"
+              >
+                {isRecovering ? 'Loading...' : 'Continue with PIN'}
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            </div>
+          )}
+
           <Button
             onClick={handleCreateNew}
             className="w-full h-14 bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-600 hover:to-cyan-600 text-white text-lg font-medium"
@@ -136,8 +244,8 @@ export function WelcomeScreen({ onIdentityCreated }: WelcomeScreenProps) {
             className="w-full h-14 border-slate-600 text-slate-300 hover:bg-slate-800 hover:text-white text-lg"
             data-testid="button-restore-from-cloud"
           >
-            <Cloud className="w-5 h-5 mr-2" />
-            Restore from Cloud
+            <Key className="w-5 h-5 mr-2" />
+            {rememberedKey ? 'Use Different Account' : 'Restore from Cloud'}
           </Button>
         </div>
 
@@ -173,7 +281,7 @@ export function WelcomeScreen({ onIdentityCreated }: WelcomeScreenProps) {
                   data-testid="input-recovery-public-key"
                 />
                 <p className="text-xs text-slate-500 mt-1">
-                  You can find your public key in Settings on your other device.
+                  Find your public key in Settings on your other device.
                 </p>
               </div>
               <div className="flex gap-3">
@@ -226,6 +334,15 @@ export function WelcomeScreen({ onIdentityCreated }: WelcomeScreenProps) {
                   </button>
                 </div>
               </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={rememberThisDevice}
+                  onChange={(e) => setRememberThisDevice(e.target.checked)}
+                  className="rounded border-slate-600 bg-slate-800 text-emerald-500 focus:ring-emerald-500"
+                />
+                <span className="text-sm text-slate-400">Remember this device</span>
+              </label>
               <div className="flex gap-3">
                 <Button 
                   variant="outline" 
@@ -241,7 +358,7 @@ export function WelcomeScreen({ onIdentityCreated }: WelcomeScreenProps) {
                   disabled={isRecovering || !pinInput}
                   data-testid="button-restore-identity"
                 >
-                  {isRecovering ? 'Restoring...' : 'Restore Identity'}
+                  {isRecovering ? 'Restoring...' : 'Login'}
                 </Button>
               </div>
             </div>

@@ -61,9 +61,18 @@ Preferred communication style: Simple, everyday language.
 - **Voicemail Routing**: Automatic voicemail when DND is active.
 - **Freeze Mode**: Per-Call ID freeze to block unwanted calls.
 
+### Remember Me / Trusted Devices
+- **Device Recognition**: Stores user public key in localStorage after successful login with "Remember this device" enabled.
+- **Quick Login**: Remembered devices show "Continue with PIN" button on welcome screen, skipping the public key entry step.
+- **Device Fingerprinting**: SHA256 hash of User-Agent + Accept-Language + Accept-Encoding (no IP for network stability).
+- **Trusted Devices Table**: `trusted_devices` stores device registrations with signature verification.
+- **Ownership Verification**: Device revocation requires ownership check to prevent cross-user attacks.
+- **Forget Device**: Users can clear remembered account from welcome screen or Settings.
+
 ### Security Measures
 - Ed25519 signature verification for critical actions.
-- Timestamp freshness and nonce replay protection.
+- Timestamp freshness (±2 minute window) and persistent nonce replay protection.
+- Nonces stored in `used_nonces` table with 5-minute TTL and automatic cleanup every 5 minutes.
 - Rate limiting.
 - Optional biometric app lock (WebAuthn).
 

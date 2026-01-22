@@ -35,6 +35,8 @@ import {
   devicePushTokens, type DevicePushToken,
   identityVaults, type IdentityVault, type InsertIdentityVault,
   vaultAccessLogs, type VaultAccessLog, type InsertVaultAccessLog,
+  trustedDevices, type TrustedDevice, type InsertTrustedDevice,
+  usedNonces, type UsedNonce,
   callIdSettings, type CallIdSettings, type InsertCallIdSettings,
   platformPricing, type PlatformPricing, type InsertPlatformPricing,
   subscriptionPurchases, type SubscriptionPurchase, type InsertSubscriptionPurchase,
@@ -45,7 +47,7 @@ import {
 import type { UserMode, FeatureFlags } from "@shared/types";
 import { randomUUID, createHash } from "crypto";
 import { db } from "./db";
-import { eq, and, desc, asc, sql, gte, lte, ilike, or, gt } from "drizzle-orm";
+import { eq, and, desc, asc, sql, gte, lte, lt, ilike, or, gt } from "drizzle-orm";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -143,6 +145,19 @@ export interface IStorage {
   logVaultAccess(log: InsertVaultAccessLog): Promise<VaultAccessLog>;
   getRecentVaultAccessAttempts(publicKeyBase58: string, minutesAgo: number): Promise<VaultAccessLog[]>;
   getVaultAccessesByIp(ipAddress: string, minutesAgo: number): Promise<VaultAccessLog[]>;
+
+  // Trusted devices (passwordless login from recognized devices)
+  getTrustedDevice(publicKeyBase58: string, deviceFingerprint: string): Promise<TrustedDevice | undefined>;
+  getTrustedDevicesForUser(publicKeyBase58: string): Promise<TrustedDevice[]>;
+  createTrustedDevice(device: InsertTrustedDevice): Promise<TrustedDevice>;
+  updateTrustedDeviceLastUsed(id: string): Promise<TrustedDevice | undefined>;
+  revokeTrustedDevice(id: string): Promise<boolean>;
+  revokeAllTrustedDevices(publicKeyBase58: string): Promise<number>;
+
+  // Nonce replay protection
+  isNonceUsed(nonce: string): Promise<boolean>;
+  recordUsedNonce(nonce: string, action: string, publicKeyBase58: string): Promise<void>;
+  cleanupExpiredNonces(): Promise<number>;
 
   // Entitlement helpers
   canUseProFeatures(address: string): Promise<boolean>;
@@ -949,6 +964,81 @@ export class DatabaseStorage implements IStorage {
         gte(vaultAccessLogs.createdAt, cutoffTime)
       ))
       .orderBy(desc(vaultAccessLogs.createdAt));
+  }
+
+  // Trusted devices (passwordless login from recognized devices)
+  async getTrustedDevice(publicKeyBase58: string, deviceFingerprint: string): Promise<TrustedDevice | undefined> {
+    const [device] = await db.select().from(trustedDevices)
+      .where(and(
+        eq(trustedDevices.publicKeyBase58, publicKeyBase58),
+        eq(trustedDevices.deviceFingerprint, deviceFingerprint),
+        eq(trustedDevices.isRevoked, false)
+      ));
+    return device || undefined;
+  }
+
+  async getTrustedDevicesForUser(publicKeyBase58: string): Promise<TrustedDevice[]> {
+    return db.select().from(trustedDevices)
+      .where(and(
+        eq(trustedDevices.publicKeyBase58, publicKeyBase58),
+        eq(trustedDevices.isRevoked, false)
+      ))
+      .orderBy(desc(trustedDevices.lastUsedAt));
+  }
+
+  async createTrustedDevice(device: InsertTrustedDevice): Promise<TrustedDevice> {
+    const [created] = await db.insert(trustedDevices).values(device).returning();
+    return created;
+  }
+
+  async updateTrustedDeviceLastUsed(id: string): Promise<TrustedDevice | undefined> {
+    const [updated] = await db.update(trustedDevices)
+      .set({ lastUsedAt: new Date() })
+      .where(eq(trustedDevices.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async revokeTrustedDevice(id: string): Promise<boolean> {
+    const [revoked] = await db.update(trustedDevices)
+      .set({ isRevoked: true })
+      .where(eq(trustedDevices.id, id))
+      .returning();
+    return !!revoked;
+  }
+
+  async revokeAllTrustedDevices(publicKeyBase58: string): Promise<number> {
+    const result = await db.update(trustedDevices)
+      .set({ isRevoked: true })
+      .where(and(
+        eq(trustedDevices.publicKeyBase58, publicKeyBase58),
+        eq(trustedDevices.isRevoked, false)
+      ))
+      .returning();
+    return result.length;
+  }
+
+  async isNonceUsed(nonce: string): Promise<boolean> {
+    const [existing] = await db.select().from(usedNonces)
+      .where(eq(usedNonces.nonce, nonce));
+    return !!existing;
+  }
+
+  async recordUsedNonce(nonce: string, action: string, publicKeyBase58: string): Promise<void> {
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minute TTL (timestamp window is 2 min)
+    await db.insert(usedNonces).values({
+      nonce,
+      action,
+      publicKeyBase58,
+      expiresAt,
+    }).onConflictDoNothing();
+  }
+
+  async cleanupExpiredNonces(): Promise<number> {
+    const result = await db.delete(usedNonces)
+      .where(lt(usedNonces.expiresAt, new Date()))
+      .returning();
+    return result.length;
   }
 
   async createInviteLink(link: InsertInviteLink): Promise<InviteLink> {

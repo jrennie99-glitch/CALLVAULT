@@ -6,7 +6,7 @@ import bs58 from "bs58";
 import bcrypt from "bcrypt";
 import * as fs from "fs";
 import * as path from "path";
-import { randomUUID } from "crypto";
+import { randomUUID, createHash } from "crypto";
 import webpush from "web-push";
 import type { WSMessage, SignedCallIntent, CallIntent, SignedMessage, Message, Conversation, CallPolicy, ContactOverride, CallPass, BlockedUser, RoutingRule, WalletVerification, CallRequest, GroupCallRoom, GroupCallParticipant } from "@shared/types";
 import * as messageStore from "./messageStore";
@@ -4739,6 +4739,178 @@ export async function registerRoutes(
       res.status(500).json({ error: 'Failed to check vault' });
     }
   });
+
+  // TRUSTED DEVICES ENDPOINTS (Passwordless login from recognized devices)
+  
+  // Helper to generate device fingerprint from request (IP-free for stability across networks)
+  function generateDeviceFingerprint(req: any): string {
+    const userAgent = req.headers['user-agent'] || '';
+    const acceptLang = req.headers['accept-language'] || '';
+    const acceptEncoding = req.headers['accept-encoding'] || '';
+    // Exclude IP for stability (mobile networks change IP frequently)
+    return createHash('sha256').update(`${userAgent}|${acceptLang}|${acceptEncoding}`).digest('hex').substring(0, 32);
+  }
+
+  // Helper to generate device name from user agent
+  function getDeviceName(userAgent: string): string {
+    const ua = userAgent.toLowerCase();
+    let browser = 'Unknown Browser';
+    let os = 'Unknown OS';
+    
+    if (ua.includes('chrome') && !ua.includes('edge')) browser = 'Chrome';
+    else if (ua.includes('firefox')) browser = 'Firefox';
+    else if (ua.includes('safari') && !ua.includes('chrome')) browser = 'Safari';
+    else if (ua.includes('edge')) browser = 'Edge';
+    
+    if (ua.includes('windows')) os = 'Windows';
+    else if (ua.includes('mac')) os = 'macOS';
+    else if (ua.includes('linux')) os = 'Linux';
+    else if (ua.includes('android')) os = 'Android';
+    else if (ua.includes('iphone') || ua.includes('ipad')) os = 'iOS';
+    
+    return `${browser} on ${os}`;
+  }
+
+  // NOTE: /api/devices/check endpoint removed to prevent privacy leaks (unauthenticated probing)
+  // The "Remember Me" flow uses localStorage for public key + normal PIN recovery instead
+
+  // Register current device as trusted (requires signature to prove identity ownership)
+  app.post('/api/devices/trust', async (req, res) => {
+    try {
+      const { publicKeyBase58, signature, nonce, timestamp } = req.body;
+      const ipAddress = req.headers['x-forwarded-for']?.toString().split(',')[0]?.trim() || req.ip || 'unknown';
+      const userAgent = req.headers['user-agent'] || 'unknown';
+      
+      if (!publicKeyBase58 || !signature || !nonce || !timestamp) {
+        return res.status(400).json({ error: 'Missing required fields' });
+      }
+      
+      const payload = { action: 'trust_device', publicKeyBase58, nonce, timestamp };
+      const isValid = verifyGenericSignature(payload, signature, publicKeyBase58, nonce, timestamp);
+      
+      if (!isValid) {
+        return res.status(401).json({ error: 'Invalid signature' });
+      }
+      
+      // Check for nonce replay (persistent across restarts)
+      if (await storage.isNonceUsed(nonce)) {
+        return res.status(401).json({ error: 'Nonce already used (replay attack prevented)' });
+      }
+      await storage.recordUsedNonce(nonce, 'trust_device', publicKeyBase58);
+      
+      const fingerprint = generateDeviceFingerprint(req);
+      const deviceName = getDeviceName(userAgent);
+      
+      const existing = await storage.getTrustedDevice(publicKeyBase58, fingerprint);
+      if (existing) {
+        await storage.updateTrustedDeviceLastUsed(existing.id);
+        return res.json({ 
+          success: true, 
+          message: 'Device already trusted',
+          deviceId: existing.id,
+          deviceName 
+        });
+      }
+      
+      const device = await storage.createTrustedDevice({
+        publicKeyBase58,
+        deviceFingerprint: fingerprint,
+        ipAddress,
+        deviceName,
+        isRevoked: false,
+      });
+      
+      res.json({ 
+        success: true, 
+        message: 'Device registered as trusted',
+        deviceId: device.id,
+        deviceName 
+      });
+    } catch (error) {
+      console.error('Error trusting device:', error);
+      res.status(500).json({ error: 'Failed to trust device' });
+    }
+  });
+
+  // Get all trusted devices for a user (requires signature for privacy)
+  app.post('/api/devices/list', async (req, res) => {
+    try {
+      const { publicKeyBase58, signature, nonce, timestamp } = req.body;
+      
+      if (!publicKeyBase58 || !signature || !nonce || !timestamp) {
+        return res.status(400).json({ error: 'Missing required fields' });
+      }
+      
+      const payload = { action: 'list_devices', publicKeyBase58, nonce, timestamp };
+      const isValid = verifyGenericSignature(payload, signature, publicKeyBase58, nonce, timestamp);
+      
+      if (!isValid) {
+        return res.status(401).json({ error: 'Invalid signature' });
+      }
+      
+      // Check for nonce replay (persistent across restarts)
+      if (await storage.isNonceUsed(nonce)) {
+        return res.status(401).json({ error: 'Nonce already used (replay attack prevented)' });
+      }
+      await storage.recordUsedNonce(nonce, 'list_devices', publicKeyBase58);
+      
+      const devices = await storage.getTrustedDevicesForUser(publicKeyBase58);
+      res.json({ 
+        devices: devices.map(d => ({
+          id: d.id,
+          deviceName: d.deviceName,
+          lastUsedAt: d.lastUsedAt,
+          createdAt: d.createdAt,
+        })) 
+      });
+    } catch (error) {
+      console.error('Error getting trusted devices:', error);
+      res.status(500).json({ error: 'Failed to get devices' });
+    }
+  });
+
+  // Revoke a trusted device (requires signature and ownership verification)
+  app.delete('/api/devices/:deviceId', async (req, res) => {
+    try {
+      const { deviceId } = req.params;
+      const { publicKeyBase58, signature, nonce, timestamp } = req.body;
+      
+      if (!publicKeyBase58 || !signature || !nonce || !timestamp) {
+        return res.status(400).json({ error: 'Missing required fields' });
+      }
+      
+      const payload = { action: 'revoke_device', deviceId, publicKeyBase58, nonce, timestamp };
+      const isValid = verifyGenericSignature(payload, signature, publicKeyBase58, nonce, timestamp);
+      
+      if (!isValid) {
+        return res.status(401).json({ error: 'Invalid signature' });
+      }
+      
+      // Check for nonce replay (persistent across restarts)
+      if (await storage.isNonceUsed(nonce)) {
+        return res.status(401).json({ error: 'Nonce already used (replay attack prevented)' });
+      }
+      await storage.recordUsedNonce(nonce, 'revoke_device', publicKeyBase58);
+      
+      // Verify ownership: device must belong to the user requesting revocation
+      const userDevices = await storage.getTrustedDevicesForUser(publicKeyBase58);
+      const deviceBelongsToUser = userDevices.some(d => d.id === deviceId);
+      
+      if (!deviceBelongsToUser) {
+        return res.status(403).json({ error: 'Device does not belong to this user' });
+      }
+      
+      await storage.revokeTrustedDevice(deviceId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error revoking device:', error);
+      res.status(500).json({ error: 'Failed to revoke device' });
+    }
+  });
+
+  // NOTE: /api/devices/recover endpoint removed - "Remember Me" flow now uses
+  // localStorage for public key + normal PIN recovery via /api/identity/vault/:publicKeyBase58
+  // This avoids potential fingerprint spoofing attacks while still providing convenience.
 
   // LINKED ADDRESSES ENDPOINTS (Multiple numbers under one account)
   

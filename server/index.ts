@@ -2,6 +2,7 @@ import express, { type Express } from "express";
 import { createServer } from "http";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
+import { storage } from "./storage";
 import path from "path";
 import fs from "fs";
 
@@ -10,6 +11,10 @@ const isDevelopment = process.env.NODE_ENV !== "production";
 
 // Trust proxy headers (X-Forwarded-*) from reverse proxies like Coolify's nginx
 app.set("trust proxy", true);
+
+// Body parsing middleware
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
 
 // CRITICAL: Root and health endpoints must be registered FIRST
 // before any middleware or static file serving that could intercept them
@@ -125,6 +130,26 @@ async function startServer() {
     console.log(`Health Check: ${publicUrl}/health`);
     console.log(`API Health Check: ${publicUrl}/api/health`);
     console.log("============================================================\n");
+    
+    // Start nonce cleanup job (runs every 5 minutes)
+    const NONCE_CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 minutes
+    setInterval(async () => {
+      try {
+        const cleaned = await storage.cleanupExpiredNonces();
+        if (cleaned > 0) {
+          console.log(`[Nonce Cleanup] Removed ${cleaned} expired nonces`);
+        }
+      } catch (err) {
+        console.error('[Nonce Cleanup] Error:', err);
+      }
+    }, NONCE_CLEANUP_INTERVAL);
+    
+    // Run initial cleanup on startup
+    storage.cleanupExpiredNonces().then(cleaned => {
+      if (cleaned > 0) {
+        console.log(`[Nonce Cleanup] Initial cleanup: removed ${cleaned} expired nonces`);
+      }
+    }).catch(err => console.error('[Nonce Cleanup] Initial cleanup error:', err));
   });
 }
 

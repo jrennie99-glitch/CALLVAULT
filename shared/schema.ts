@@ -121,6 +121,44 @@ export const insertVaultAccessLogSchema = createInsertSchema(vaultAccessLogs).om
 export type InsertVaultAccessLog = z.infer<typeof insertVaultAccessLogSchema>;
 export type VaultAccessLog = typeof vaultAccessLogs.$inferSelect;
 
+// Trusted devices for passwordless login from recognized devices
+export const trustedDevices = pgTable("trusted_devices", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  publicKeyBase58: text("public_key_base58").notNull(),
+  deviceFingerprint: text("device_fingerprint").notNull(), // Hash of user agent + other browser info
+  ipAddress: text("ip_address"),
+  deviceName: text("device_name"), // User-friendly name like "Chrome on Windows"
+  lastUsedAt: timestamp("last_used_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  isRevoked: boolean("is_revoked").default(false),
+}, (table) => [
+  index("trusted_devices_pubkey_idx").on(table.publicKeyBase58),
+  index("trusted_devices_fingerprint_idx").on(table.deviceFingerprint),
+]);
+
+export const insertTrustedDeviceSchema = createInsertSchema(trustedDevices).omit({
+  id: true,
+  createdAt: true,
+  lastUsedAt: true,
+});
+export type InsertTrustedDevice = z.infer<typeof insertTrustedDeviceSchema>;
+export type TrustedDevice = typeof trustedDevices.$inferSelect;
+
+// Used nonces for replay protection (persisted across server restarts)
+export const usedNonces = pgTable("used_nonces", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  nonce: text("nonce").notNull().unique(),
+  action: text("action").notNull(), // 'trust_device', 'list_devices', 'revoke_device'
+  publicKeyBase58: text("public_key_base58").notNull(),
+  usedAt: timestamp("used_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at").notNull(), // For cleanup
+}, (table) => [
+  index("used_nonces_nonce_idx").on(table.nonce),
+  index("used_nonces_expires_idx").on(table.expiresAt),
+]);
+
+export type UsedNonce = typeof usedNonces.$inferSelect;
+
 // Push subscriptions for offline notifications
 export const pushSubscriptions = pgTable("push_subscriptions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
