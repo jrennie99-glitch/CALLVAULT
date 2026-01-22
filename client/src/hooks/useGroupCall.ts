@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { GroupCallRoom, GroupCallParticipant, WSMessage } from '@shared/types';
+import { generateUUID } from '@/lib/uuid';
 
 interface PeerConnection {
   peerAddress: string;
@@ -256,7 +257,7 @@ export function useGroupCall(ws: WebSocket | null, myAddress: string) {
     if (!stream) return;
 
     const timestamp = Date.now();
-    const nonce = crypto.randomUUID();
+    const nonce = generateUUID();
 
     ws.send(JSON.stringify({
       type: 'room:create',
@@ -281,7 +282,7 @@ export function useGroupCall(ws: WebSocket | null, myAddress: string) {
     if (!stream) return;
 
     const timestamp = Date.now();
-    const nonce = crypto.randomUUID();
+    const nonce = generateUUID();
 
     ws.send(JSON.stringify({
       type: 'room:join',

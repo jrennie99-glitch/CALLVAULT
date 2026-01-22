@@ -1,3 +1,5 @@
+import { generateUUID } from './uuid';
+
 export interface Contact {
   id: string;
   name: string;
@@ -50,7 +52,7 @@ export function addContact(contact: Omit<Contact, 'id' | 'addedAt'>, ownerAddres
   const contacts = getContacts();
   const newContact: Contact = {
     ...contact,
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     addedAt: Date.now()
   };
   contacts.push(newContact);
@@ -164,7 +166,7 @@ export function addCallRecord(record: Omit<CallRecord, 'id'>): CallRecord {
   const history = getCallHistory();
   const newRecord: CallRecord = {
     ...record,
-    id: crypto.randomUUID()
+    id: generateUUID()
   };
   history.unshift(newRecord);
   if (history.length > 100) history.pop();

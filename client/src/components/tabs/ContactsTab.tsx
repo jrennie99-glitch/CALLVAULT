@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Search, User, Video, Phone, Trash2, ChevronLeft, UserPlus, QrCode, MessageSquare, Shield, Ban, Check, Ticket, Snowflake, Send, Copy, Share2 } from 'lucide-react';
+import { generateUUID } from '@/lib/uuid';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -383,7 +384,7 @@ export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR, onOpenCha
               </Button>
               <Button
                 onClick={() => {
-                  const passId = crypto.randomUUID();
+                  const passId = generateUUID();
                   const pass = {
                     id: passId,
                     recipient_address: selectedContact.address,
