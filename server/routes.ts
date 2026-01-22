@@ -6834,7 +6834,18 @@ export async function registerRoutes(
           case 'webrtc:ice': {
             const targetConnection = getConnection(message.to_address);
             if (targetConnection) {
+              console.log(`[WebRTC] Forwarding ${message.type} to ${message.to_address?.slice(0, 12)}...`);
               targetConnection.ws.send(JSON.stringify(message));
+            } else {
+              console.log(`[WebRTC] Target ${message.to_address?.slice(0, 12)}... not online - ${message.type} not delivered`);
+              // Notify sender that recipient is offline
+              if (clientAddress) {
+                ws.send(JSON.stringify({
+                  type: 'webrtc:peer_offline',
+                  to_address: message.to_address,
+                  signalType: message.type
+                }));
+              }
             }
             break;
           }
