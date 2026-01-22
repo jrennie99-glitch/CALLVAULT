@@ -38,6 +38,59 @@ app.get("/api/health", (_req, res) => {
   res.status(200).json({ ok: true, timestamp: Date.now() });
 });
 
+// Production diagnostic endpoint - helps verify configuration
+app.get("/api/diagnostics", (_req, res) => {
+  const turnMode = process.env.TURN_MODE || 'public';
+  const turnUrls = process.env.TURN_URLS || '';
+  const turnConfigured = !!(process.env.TURN_URLS && process.env.TURN_USERNAME && process.env.TURN_CREDENTIAL);
+  const stunUrls = process.env.STUN_URLS || 'stun:stun.l.google.com:19302';
+  const vapidConfigured = !!(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
+  const dbConfigured = !!process.env.DATABASE_URL;
+  
+  // Detect if behind proxy
+  const trustProxy = app.get('trust proxy');
+  
+  res.json({
+    app: "CallVault",
+    environment: process.env.NODE_ENV || "development",
+    timestamp: Date.now(),
+    server: {
+      port: PORT,
+      host: "0.0.0.0",
+      trustProxy: trustProxy,
+      baseUrl: process.env.PUBLIC_URL || `http://localhost:${PORT}`
+    },
+    webrtc: {
+      turnMode: turnMode,
+      turnConfigured: turnConfigured,
+      turnUrls: turnUrls ? turnUrls.split(',').map(u => u.trim().replace(/:[^:@]+@/, ':***@')) : [],
+      stunUrls: stunUrls.split(',').map(u => u.trim()),
+      recommendation: !turnConfigured && turnMode === 'custom' 
+        ? 'TURN_MODE=custom requires TURN_URLS, TURN_USERNAME, TURN_CREDENTIAL'
+        : turnMode === 'public'
+        ? 'Using public OpenRelay (testing only - set TURN_MODE=custom for production)'
+        : 'OK'
+    },
+    websocket: {
+      path: "/ws",
+      protocol: "wss (auto-detected by client based on page protocol)"
+    },
+    push: {
+      vapidConfigured: vapidConfigured,
+      recommendation: !vapidConfigured ? 'Set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY for push notifications' : 'OK'
+    },
+    database: {
+      configured: dbConfigured,
+      recommendation: !dbConfigured ? 'DATABASE_URL is required' : 'OK'
+    },
+    messaging: {
+      type: "In-app WebSocket (WhatsApp-style)",
+      smsProvider: "None (not required)",
+      storage: "PostgreSQL + local filesystem for media"
+    }
+  });
+});
+
 // Deploy version stamp
 const BUILD_COMMIT = process.env.BUILD_COMMIT || "unknown";
 const BUILD_TIME = new Date().toISOString();
