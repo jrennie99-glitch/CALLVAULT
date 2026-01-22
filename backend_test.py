@@ -205,6 +205,77 @@ class CallVaultAPITester:
             self.log(f"   Client time: {client_time}")
             self.log(f"   Time difference: {time_diff}ms")
     
+    def test_call_session_token(self):
+        """Test call session token endpoint"""
+        self.log("\n=== CALL SESSION TOKEN ENDPOINT ===")
+        
+        # Test POST /api/call-session-token with required JSON body
+        url = f"{self.base_url}/api/call-session-token"
+        self.tests_run += 1
+        
+        self.log("🔍 Testing Call Session Token Endpoint...")
+        self.log(f"   URL: {url}")
+        
+        try:
+            # Test data as specified in the review request
+            test_data = {"address": "test-address-123"}
+            
+            response = requests.post(
+                url, 
+                json=test_data,
+                headers={'Content-Type': 'application/json'},
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                self.log(f"✅ Status: {response.status_code} (Expected: 200)")
+                
+                try:
+                    response_json = response.json()
+                    
+                    # Check for required fields: token, nonce, iceServers
+                    required_fields = ['token', 'nonce', 'iceServers']
+                    missing_fields = []
+                    
+                    for field in required_fields:
+                        if field not in response_json:
+                            missing_fields.append(field)
+                    
+                    if not missing_fields:
+                        self.log("✅ All required fields present (token, nonce, iceServers)")
+                        self.log(f"   Token: {response_json.get('token', 'N/A')[:20]}...")
+                        self.log(f"   Nonce: {response_json.get('nonce', 'N/A')[:20]}...")
+                        self.log(f"   ICE Servers: {len(response_json.get('iceServers', []))}")
+                        self.log(f"   Plan: {response_json.get('plan', 'N/A')}")
+                        self.log(f"   Allow TURN: {response_json.get('allowTurn', 'N/A')}")
+                        self.log(f"   Allow Video: {response_json.get('allowVideo', 'N/A')}")
+                        self.tests_passed += 1
+                    else:
+                        self.log(f"❌ Missing required fields: {missing_fields}")
+                        self.failed_tests.append(f"Call Session Token: Missing fields {missing_fields}")
+                        
+                except json.JSONDecodeError:
+                    self.log("❌ Response is not valid JSON")
+                    self.failed_tests.append("Call Session Token: Invalid JSON response")
+            else:
+                self.log(f"❌ Status: {response.status_code} (Expected: 200)")
+                try:
+                    error_response = response.json()
+                    self.log(f"   Error: {error_response}")
+                except:
+                    self.log(f"   Response text: {response.text}")
+                self.failed_tests.append(f"Call Session Token: Status {response.status_code}")
+                
+        except requests.exceptions.Timeout:
+            self.log("❌ Timeout after 10s")
+            self.failed_tests.append("Call Session Token: Timeout")
+        except requests.exceptions.ConnectionError:
+            self.log("❌ Connection error")
+            self.failed_tests.append("Call Session Token: Connection error")
+        except Exception as e:
+            self.log(f"❌ Error: {str(e)}")
+            self.failed_tests.append(f"Call Session Token: {str(e)}")
+    
     def test_websocket_endpoint(self):
         """Test WebSocket endpoint availability (HTTP upgrade check)"""
         self.log("\n=== WEBSOCKET ENDPOINT ===")
