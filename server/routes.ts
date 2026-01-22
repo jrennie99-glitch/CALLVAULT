@@ -250,8 +250,13 @@ function isConnectionForAddress(address: string, ws: WebSocket): boolean {
 // Helper to broadcast to all connections for an address
 function broadcastToAddress(address: string, message: any) {
   const conns = connections.get(address);
-  if (!conns) return;
+  if (!conns || conns.length === 0) {
+    console.log(`[broadcast] No connections for ${address.slice(0, 12)}... - message not delivered`);
+    return;
+  }
   const msgStr = typeof message === 'string' ? message : JSON.stringify(message);
+  const msgType = typeof message === 'object' && message.type ? message.type : 'unknown';
+  console.log(`[broadcast] Sending ${msgType} to ${address.slice(0, 12)}... (${conns.length} connection(s))`);
   for (const conn of conns) {
     try {
       conn.ws.send(msgStr);
@@ -7094,9 +7099,11 @@ export async function registerRoutes(
           }
 
           case 'msg:send': {
+            console.log(`[msg:send] Received message from ${clientAddress?.slice(0, 12)}...`);
             const { data: signedMsg } = message;
             
             if (!verifyMessageSignature(signedMsg)) {
+              console.log(`[msg:send] FAILED - Invalid signature from ${clientAddress?.slice(0, 12)}...`);
               ws.send(JSON.stringify({ type: 'error', message: 'Invalid message signature' } as WSMessage));
               return;
             }
