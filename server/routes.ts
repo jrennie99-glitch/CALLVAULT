@@ -596,6 +596,89 @@ export async function registerRoutes(
     return res.json({ iceServers: openRelayServers, mode: 'public_openrelay' });
   });
 
+  // ICE/TURN verification endpoint - for production readiness testing
+  // Returns detailed configuration info to help diagnose WebRTC issues
+  app.get('/api/ice-verify', async (_req, res) => {
+    const turnMode = (process.env.TURN_MODE || 'public').toLowerCase();
+    const turnUrls = process.env.TURN_URLS?.split(',').map(u => u.trim()).filter(Boolean) || [];
+    const turnUsername = process.env.TURN_USERNAME;
+    const turnCredential = process.env.TURN_CREDENTIAL;
+    const stunUrls = process.env.STUN_URLS?.split(',').map(u => u.trim()).filter(Boolean) || 
+      ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'];
+    
+    const issues: string[] = [];
+    const recommendations: string[] = [];
+    
+    // Check TURN configuration
+    if (turnMode === 'custom') {
+      if (!turnUrls.length) {
+        issues.push('TURN_MODE=custom but TURN_URLS is empty');
+      }
+      if (!turnUsername) {
+        issues.push('TURN_MODE=custom but TURN_USERNAME is missing');
+      }
+      if (!turnCredential) {
+        issues.push('TURN_MODE=custom but TURN_CREDENTIAL is missing');
+      }
+      
+      // Check if TURN URLs include both UDP and TCP transport
+      const hasUdp = turnUrls.some(u => !u.includes('transport=') || u.includes('transport=udp'));
+      const hasTcp = turnUrls.some(u => u.includes('transport=tcp'));
+      if (!hasTcp) {
+        recommendations.push('Add TCP transport for TURN (turn:server:3478?transport=tcp) to handle strict firewalls');
+      }
+    } else if (turnMode === 'public') {
+      recommendations.push('TURN_MODE=public uses free OpenRelay servers - not recommended for production');
+      recommendations.push('Set TURN_MODE=custom and configure your own coturn server for production');
+    } else if (turnMode === 'off') {
+      recommendations.push('TURN_MODE=off - calls may fail behind NAT/firewalls. Only use if all users are on open networks');
+    }
+    
+    // Build test configuration (without exposing credentials)
+    const testConfig = {
+      turnMode,
+      turnServersCount: turnUrls.length,
+      turnServers: turnUrls.map(u => u.replace(/:[^:@]+@/, ':***@')), // Mask passwords if inline
+      stunServers: stunUrls,
+      credentialsConfigured: !!(turnUsername && turnCredential)
+    };
+    
+    // Provide trickle-ice test URLs
+    const testUrls = {
+      trickleIce: 'https://webrtc.github.io/samples/src/content/peerconnection/trickle-ice/',
+      instructions: [
+        '1. Open the Trickle ICE page',
+        '2. Remove default servers',
+        `3. Add STUN server: ${stunUrls[0] || 'stun:stun.l.google.com:19302'}`,
+        turnMode === 'custom' && turnUrls.length > 0
+          ? `4. Add TURN server: ${turnUrls[0]} with username/credential`
+          : '4. Add your TURN server with credentials',
+        '5. Click "Gather candidates"',
+        '6. Look for "relay" type candidates (TURN) and "srflx" candidates (STUN)',
+        '7. If no relay candidates appear, check coturn config and firewall'
+      ]
+    };
+    
+    res.json({
+      status: issues.length === 0 ? 'ok' : 'issues_found',
+      timestamp: Date.now(),
+      configuration: testConfig,
+      issues,
+      recommendations,
+      testing: testUrls,
+      firewall: {
+        required: [
+          'TCP 3478 (TURN signaling)',
+          'UDP 3478 (TURN signaling)',
+          'TCP 5349 (TURNS - TLS, optional)',
+          'UDP 5349 (TURNS - TLS, optional)',
+          'UDP 49152-65535 (TURN relay range - can be smaller)'
+        ],
+        note: 'Ensure these ports are open on both server firewall (ufw/iptables) and Hetzner cloud firewall'
+      }
+    });
+  });
+
   // Cleanup expired call tokens from database every hour
   setInterval(async () => {
     try {
