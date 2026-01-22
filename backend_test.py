@@ -279,26 +279,89 @@ class CallVaultAPITester:
             self.failed_tests.append(f"Call Session Token: {str(e)}")
     
     def test_websocket_endpoint(self):
-        """Test WebSocket endpoint availability (HTTP upgrade check)"""
+        """Test WebSocket endpoint functionality"""
         self.log("\n=== WEBSOCKET ENDPOINT ===")
         
-        # Test WebSocket endpoint with HTTP (should get upgrade error or 400)
+        # Convert HTTP URL to WebSocket URL
+        ws_url = self.base_url.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws'
+        self.log(f"   WebSocket URL: {ws_url}")
+        
+        self.tests_run += 1
+        
         try:
-            response = requests.get(f"{self.base_url}/ws", timeout=5)
-            if response.status_code in [400, 426]:  # Bad Request or Upgrade Required
-                self.log("✅ WebSocket endpoint available (HTTP upgrade required as expected)")
-                self.tests_run += 1
-                self.tests_passed += 1
+            # Test WebSocket connection
+            ws_connected = False
+            ws_response_received = False
+            connection_error = None
+            
+            def on_message(ws, message):
+                nonlocal ws_response_received
+                self.log(f"   📨 Received: {message}")
+                ws_response_received = True
+                ws.close()
+            
+            def on_error(ws, error):
+                nonlocal connection_error
+                connection_error = str(error)
+                self.log(f"   ❌ WebSocket error: {error}")
+            
+            def on_open(ws):
+                nonlocal ws_connected
+                ws_connected = True
+                self.log("   ✅ WebSocket connection established")
+                # Send a test message
+                test_message = json.dumps({"type": "ping", "timestamp": int(time.time() * 1000)})
+                ws.send(test_message)
+                self.log(f"   📤 Sent: {test_message}")
+            
+            def on_close(ws, close_status_code, close_msg):
+                self.log(f"   🔌 WebSocket connection closed")
+            
+            # Create WebSocket connection with timeout
+            ws = websocket.WebSocketApp(
+                ws_url,
+                on_open=on_open,
+                on_message=on_message,
+                on_error=on_error,
+                on_close=on_close
+            )
+            
+            # Run WebSocket in a separate thread with timeout
+            ws_thread = threading.Thread(target=ws.run_forever)
+            ws_thread.daemon = True
+            ws_thread.start()
+            
+            # Wait for connection and response (max 5 seconds)
+            timeout = 5
+            start_time = time.time()
+            
+            while time.time() - start_time < timeout:
+                if ws_connected and (ws_response_received or connection_error):
+                    break
+                time.sleep(0.1)
+            
+            # Close WebSocket if still open
+            if ws.sock and ws.sock.connected:
+                ws.close()
+            
+            # Evaluate results
+            if connection_error:
+                self.log(f"❌ WebSocket connection failed: {connection_error}")
+                self.failed_tests.append(f"WebSocket endpoint: {connection_error}")
+            elif ws_connected:
+                if ws_response_received:
+                    self.log("✅ WebSocket connection and message exchange successful")
+                    self.tests_passed += 1
+                else:
+                    self.log("⚠️  WebSocket connected but no response received")
+                    self.log("✅ WebSocket endpoint accepts connections")
+                    self.tests_passed += 1
             else:
-                self.log(f"⚠️  WebSocket endpoint returned unexpected status: {response.status_code}")
-                self.tests_run += 1
-        except requests.exceptions.ConnectionError:
-            self.log("❌ WebSocket endpoint not accessible")
-            self.tests_run += 1
-            self.failed_tests.append("WebSocket endpoint: Connection error")
+                self.log("❌ WebSocket connection timeout")
+                self.failed_tests.append("WebSocket endpoint: Connection timeout")
+                
         except Exception as e:
             self.log(f"❌ WebSocket test error: {str(e)}")
-            self.tests_run += 1
             self.failed_tests.append(f"WebSocket endpoint: {str(e)}")
     
     def test_server_binding(self):
