@@ -76,6 +76,16 @@ export function AddTab({ myAddress, onContactAdded, onStartCall, onNavigateToInv
     }
 
     try {
+      // Test localStorage access first
+      try {
+        localStorage.setItem('_test', '1');
+        localStorage.removeItem('_test');
+      } catch (storageError) {
+        console.error('localStorage not available:', storageError);
+        toast.error('Storage unavailable. Are you in Private Browsing mode?');
+        return;
+      }
+      
       addContact({
         name: newContactName.trim(),
         address: newContactAddress.trim()
@@ -87,7 +97,8 @@ export function AddTab({ myAddress, onContactAdded, onStartCall, onNavigateToInv
       onContactAdded();
     } catch (error) {
       console.error('Failed to add contact:', error);
-      toast.error('Failed to save contact. Please try again.');
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      toast.error(`Failed to save: ${errorMessage}`);
     }
   };
 
