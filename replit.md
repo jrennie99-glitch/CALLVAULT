@@ -69,6 +69,12 @@ Preferred communication style: Simple, everyday language.
 - **Ownership Verification**: Device revocation requires ownership check to prevent cross-user attacks.
 - **Forget Device**: Users can clear remembered account from welcome screen or Settings.
 
+### Identity Recovery Options
+- **Cloud Backup Recovery**: Enter public key + PIN to restore identity from encrypted cloud backup.
+- **Private Key Recovery**: Enter private key (base58) directly to restore identity on any device, bypassing cloud and PIN.
+- **Private Key Export**: Settings → Advanced Identity → Export Private Key. Reveals base58-encoded Ed25519 secret key for backup.
+- **Device Override**: Private key recovery works on any device without prior trust registration - the ultimate recovery method.
+
 ### Security Measures
 - Ed25519 signature verification for critical actions.
 - Timestamp freshness (±2 minute window) and persistent nonce replay protection.

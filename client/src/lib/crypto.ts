@@ -134,6 +134,46 @@ export function importIdentity(backupString: string): CryptoIdentity | null {
   }
 }
 
+// Recover identity from private key (secret key) directly
+// This allows users to restore their identity using just the private key
+// The Ed25519 secret key contains both the seed (32 bytes) and public key (32 bytes)
+export function recoverIdentityFromPrivateKey(privateKeyBase58: string): CryptoIdentity | null {
+  try {
+    const secretKey = bs58.decode(privateKeyBase58.trim());
+    
+    // Ed25519 secret key is 64 bytes: 32-byte seed + 32-byte public key
+    if (secretKey.length !== 64) {
+      console.error('Invalid private key length:', secretKey.length, 'expected 64');
+      return null;
+    }
+    
+    // Extract public key from the secret key (last 32 bytes)
+    const publicKey = secretKey.slice(32);
+    const publicKeyBase58 = bs58.encode(publicKey);
+    
+    // Generate a new address for this identity
+    const address = generateCallAddress(publicKey);
+    
+    const identity: CryptoIdentity = {
+      publicKey,
+      secretKey,
+      address,
+      publicKeyBase58,
+    };
+    
+    saveIdentity(identity);
+    return identity;
+  } catch (error) {
+    console.error('Failed to recover identity from private key:', error);
+    return null;
+  }
+}
+
+// Get the private key (secret key) in base58 format for export
+export function getPrivateKeyBase58(identity: CryptoIdentity): string {
+  return bs58.encode(identity.secretKey);
+}
+
 // Identity Vault - PIN-based encryption for cross-browser sync
 
 export async function deriveKeyFromPin(pin: string, salt: Uint8Array): Promise<CryptoKey> {

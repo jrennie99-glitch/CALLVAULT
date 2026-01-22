@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { User, Shield, Wifi, ChevronDown, ChevronUp, Copy, RefreshCw, Fingerprint, Eye, EyeOff, MessageSquare, CheckCheck, Clock, Phone, Ban, Bot, Wallet, ChevronRight, Ticket, Briefcase, BarChart3, Crown, Lock, Sparkles, CreditCard, ExternalLink, Snowflake, Download, Upload, Cloud, CloudOff, Check, LogOut, AlertTriangle, BellOff, Video, Mic, Bell, Smartphone } from 'lucide-react';
+import { User, Shield, Wifi, ChevronDown, ChevronUp, Copy, RefreshCw, Fingerprint, Eye, EyeOff, MessageSquare, CheckCheck, Clock, Phone, Ban, Bot, Wallet, ChevronRight, Ticket, Briefcase, BarChart3, Crown, Lock, Sparkles, CreditCard, ExternalLink, Snowflake, Download, Upload, Cloud, CloudOff, Check, LogOut, AlertTriangle, BellOff, Video, Mic, Bell, Smartphone, Key } from 'lucide-react';
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
 import { FreezeModeSetupModal } from '@/components/FreezeModeSetupModal';
@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { getUserProfile, saveUserProfile, getAppSettings, saveAppSettings } from '@/lib/storage';
-import { exportIdentity, importIdentity, encryptIdentityForVault, decryptIdentityFromVault, saveIdentity, signPayload, generateNonce } from '@/lib/crypto';
+import { exportIdentity, importIdentity, encryptIdentityForVault, decryptIdentityFromVault, saveIdentity, signPayload, generateNonce, getPrivateKeyBase58 } from '@/lib/crypto';
 import { getPrivacySettings, savePrivacySettings, type PrivacySettings } from '@/lib/messageStorage';
 import { enrollBiometric, disableBiometric, isPlatformAuthenticatorAvailable, isInIframe, isIOS } from '@/lib/biometric';
 import { toast } from 'sonner';
@@ -57,6 +57,8 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
   const [isTogglingFreezeMode, setIsTogglingFreezeMode] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [importBackupText, setImportBackupText] = useState('');
+  const [showPrivateKeyDialog, setShowPrivateKeyDialog] = useState(false);
+  const [privateKeyRevealed, setPrivateKeyRevealed] = useState(false);
   
   // Identity vault state
   const [vaultExists, setVaultExists] = useState(false);
@@ -540,7 +542,7 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
   };
 
   const sendTestNotification = async () => {
-    if (!identity?.address || !identity?.keypair) return;
+    if (!identity?.address || !identity?.secretKey) return;
     
     try {
       const timestamp = Date.now().toString();
@@ -550,7 +552,7 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
       // Sign the request
       const message = `push-test:${identity.address}:${timestamp}:${nonce}`;
       const messageBytes = new TextEncoder().encode(message);
-      const signatureBytes = nacl.sign.detached(messageBytes, identity.keypair.secretKey);
+      const signatureBytes = nacl.sign.detached(messageBytes, identity.secretKey);
       const signature = bs58.encode(signatureBytes);
       
       const res = await fetch('/api/push/test', {
@@ -1482,6 +1484,19 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
                   <Upload className="w-4 h-4 mr-2" />
                   Import Backup
                 </Button>
+                <Button
+                  onClick={() => {
+                    setPrivateKeyRevealed(false);
+                    setShowPrivateKeyDialog(true);
+                  }}
+                  variant="outline"
+                  size="sm"
+                  className="border-amber-500/50 text-amber-400 hover:bg-amber-500/10"
+                  data-testid="button-export-private-key"
+                >
+                  <Key className="w-4 h-4 mr-2" />
+                  Export Private Key
+                </Button>
               </div>
             </div>
             <div className="border-t border-slate-700 pt-4 mt-4">
@@ -1724,6 +1739,84 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
                 Restore Identity
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showPrivateKeyDialog} onOpenChange={(open) => {
+        if (!open) setPrivateKeyRevealed(false);
+        setShowPrivateKeyDialog(open);
+      }}>
+        <DialogContent className="bg-slate-800 border-slate-700 max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <Key className="w-5 h-5 text-amber-400" />
+              Export Private Key
+            </DialogTitle>
+            <DialogDescription className="text-slate-400">
+              Your private key gives complete access to your identity. Keep it secret!
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3">
+              <p className="text-sm text-red-200 font-medium">Security Warning</p>
+              <p className="text-xs text-red-300/70 mt-1">
+                Anyone with your private key can fully control your identity. Never share it with anyone. Store it securely offline.
+              </p>
+            </div>
+            
+            {!privateKeyRevealed ? (
+              <div className="space-y-3">
+                <p className="text-sm text-slate-400">
+                  Your private key will be revealed below. Make sure no one is watching your screen.
+                </p>
+                <Button
+                  onClick={() => setPrivateKeyRevealed(true)}
+                  className="w-full bg-amber-500 hover:bg-amber-600"
+                  data-testid="button-reveal-private-key"
+                >
+                  <Eye className="w-4 h-4 mr-2" />
+                  Reveal Private Key
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="relative">
+                  <textarea
+                    readOnly
+                    value={identity ? getPrivateKeyBase58(identity) : ''}
+                    className="w-full h-24 p-3 bg-slate-900/50 border border-amber-500/50 rounded-lg text-amber-300 text-xs font-mono resize-none focus:outline-none"
+                    data-testid="text-private-key"
+                  />
+                </div>
+                <Button
+                  onClick={() => {
+                    if (identity) {
+                      navigator.clipboard.writeText(getPrivateKeyBase58(identity));
+                      toast.success('Private key copied to clipboard');
+                    }
+                  }}
+                  variant="outline"
+                  className="w-full border-amber-500/50 text-amber-400 hover:bg-amber-500/10"
+                  data-testid="button-copy-private-key"
+                >
+                  <Copy className="w-4 h-4 mr-2" />
+                  Copy to Clipboard
+                </Button>
+              </div>
+            )}
+
+            <Button 
+              variant="outline" 
+              className="w-full" 
+              onClick={() => {
+                setPrivateKeyRevealed(false);
+                setShowPrivateKeyDialog(false);
+              }}
+              data-testid="button-close-private-key"
+            >
+              Close
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

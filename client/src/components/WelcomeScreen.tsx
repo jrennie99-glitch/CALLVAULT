@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Cloud, Plus, ArrowRight, Eye, EyeOff, Shield, Smartphone, Key, X } from 'lucide-react';
+import { Cloud, Plus, ArrowRight, Eye, EyeOff, Shield, Smartphone, Key, X, Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { decryptIdentityFromVault, saveIdentity, generateIdentity, signPayload, generateNonce } from '@/lib/crypto';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { decryptIdentityFromVault, saveIdentity, generateIdentity, signPayload, generateNonce, recoverIdentityFromPrivateKey } from '@/lib/crypto';
 import { toast } from 'sonner';
 import type { CryptoIdentity } from '@shared/types';
 
@@ -17,15 +19,17 @@ const REMEMBERED_KEY_STORAGE = 'cv_remembered_pubkey';
 export function WelcomeScreen({ onIdentityCreated }: WelcomeScreenProps) {
   const [showRecoveryDialog, setShowRecoveryDialog] = useState(false);
   const [publicKeyInput, setPublicKeyInput] = useState('');
+  const [privateKeyInput, setPrivateKeyInput] = useState('');
   const [pinInput, setPinInput] = useState('');
   const [showPin, setShowPin] = useState(false);
+  const [showPrivateKey, setShowPrivateKey] = useState(false);
   const [isRecovering, setIsRecovering] = useState(false);
   const [vaultData, setVaultData] = useState<{
     encryptedKeypair: string;
     salt: string;
     hint: string | null;
   } | null>(null);
-  const [step, setStep] = useState<'enter_key' | 'enter_pin' | 'quick_login'>('enter_key');
+  const [step, setStep] = useState<'choose_method' | 'enter_key' | 'enter_pin' | 'enter_private_key'>('choose_method');
   const [rememberedKey, setRememberedKey] = useState<string | null>(null);
   const [rememberThisDevice, setRememberThisDevice] = useState(true);
 
@@ -159,6 +163,56 @@ export function WelcomeScreen({ onIdentityCreated }: WelcomeScreenProps) {
     }
   };
 
+  const handleRecoverFromPrivateKey = () => {
+    if (!privateKeyInput.trim()) {
+      toast.error('Please enter your private key');
+      return;
+    }
+
+    setIsRecovering(true);
+    try {
+      const identity = recoverIdentityFromPrivateKey(privateKeyInput.trim());
+      
+      if (!identity) {
+        toast.error('Invalid private key. Make sure you copied the full key.');
+        setIsRecovering(false);
+        return;
+      }
+
+      if (rememberThisDevice) {
+        localStorage.setItem(REMEMBERED_KEY_STORAGE, identity.publicKeyBase58);
+        
+        try {
+          const nonce = generateNonce();
+          const timestamp = Date.now();
+          const payload = { action: 'trust_device', publicKeyBase58: identity.publicKeyBase58, nonce, timestamp };
+          const signature = signPayload(identity.secretKey, payload);
+          
+          fetch('/api/devices/trust', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              publicKeyBase58: identity.publicKeyBase58,
+              signature,
+              nonce,
+              timestamp
+            })
+          }).catch(() => {});
+        } catch (e) {
+          console.log('Failed to register trusted device, continuing anyway');
+        }
+      }
+
+      toast.success('Identity restored from private key!');
+      onIdentityCreated(identity);
+    } catch (error) {
+      console.error('Failed to recover from private key:', error);
+      toast.error('Failed to restore identity. Check your private key.');
+    } finally {
+      setIsRecovering(false);
+    }
+  };
+
   const handleForgetDevice = () => {
     localStorage.removeItem(REMEMBERED_KEY_STORAGE);
     setRememberedKey(null);
@@ -168,10 +222,12 @@ export function WelcomeScreen({ onIdentityCreated }: WelcomeScreenProps) {
   const resetRecovery = () => {
     setShowRecoveryDialog(false);
     setPublicKeyInput('');
+    setPrivateKeyInput('');
     setPinInput('');
     setVaultData(null);
-    setStep('enter_key');
+    setStep('choose_method');
     setShowPin(false);
+    setShowPrivateKey(false);
   };
 
   const truncateKey = (key: string) => {
@@ -245,7 +301,7 @@ export function WelcomeScreen({ onIdentityCreated }: WelcomeScreenProps) {
             data-testid="button-restore-from-cloud"
           >
             <Key className="w-5 h-5 mr-2" />
-            {rememberedKey ? 'Use Different Account' : 'Restore from Cloud'}
+            {rememberedKey ? 'Use Different Account' : 'Restore Identity'}
           </Button>
         </div>
 
@@ -258,17 +314,71 @@ export function WelcomeScreen({ onIdentityCreated }: WelcomeScreenProps) {
         <DialogContent className="bg-slate-800 border-slate-700 max-w-md">
           <DialogHeader>
             <DialogTitle className="text-white flex items-center gap-2">
-              <Cloud className="w-5 h-5 text-cyan-400" />
-              Restore from Cloud
+              <Key className="w-5 h-5 text-cyan-400" />
+              Restore Identity
             </DialogTitle>
             <DialogDescription className="text-slate-400">
-              {step === 'enter_key' 
-                ? 'Enter your public key to find your cloud backup.'
-                : 'Enter your PIN to decrypt your identity.'}
+              {step === 'choose_method' && 'Choose how to restore your identity.'}
+              {step === 'enter_key' && 'Enter your public key to find your cloud backup.'}
+              {step === 'enter_pin' && 'Enter your PIN to decrypt your identity.'}
+              {step === 'enter_private_key' && 'Enter your private key to restore your identity directly.'}
             </DialogDescription>
           </DialogHeader>
           
-          {step === 'enter_key' ? (
+          {step === 'choose_method' && (
+            <div className="space-y-4 mt-4">
+              <Tabs defaultValue="cloud" className="w-full">
+                <TabsList className="grid w-full grid-cols-2 bg-slate-700/50">
+                  <TabsTrigger value="cloud" className="data-[state=active]:bg-cyan-500">
+                    <Cloud className="w-4 h-4 mr-2" />
+                    Cloud Backup
+                  </TabsTrigger>
+                  <TabsTrigger value="private" className="data-[state=active]:bg-amber-500">
+                    <Lock className="w-4 h-4 mr-2" />
+                    Private Key
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="cloud" className="mt-4 space-y-4">
+                  <p className="text-sm text-slate-400">
+                    Restore using your public key and PIN. Your encrypted backup is stored securely in the cloud.
+                  </p>
+                  <Button 
+                    className="w-full bg-cyan-500 hover:bg-cyan-600"
+                    onClick={() => setStep('enter_key')}
+                    data-testid="button-restore-cloud-method"
+                  >
+                    Continue with Cloud Backup
+                    <ArrowRight className="w-4 h-4 ml-2" />
+                  </Button>
+                </TabsContent>
+                <TabsContent value="private" className="mt-4 space-y-4">
+                  <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+                    <p className="text-sm text-amber-200">
+                      <strong>Advanced:</strong> Your private key gives full access to your identity. Only use this if you have your private key backup.
+                    </p>
+                  </div>
+                  <Button 
+                    className="w-full bg-amber-500 hover:bg-amber-600"
+                    onClick={() => setStep('enter_private_key')}
+                    data-testid="button-restore-privatekey-method"
+                  >
+                    Continue with Private Key
+                    <ArrowRight className="w-4 h-4 ml-2" />
+                  </Button>
+                </TabsContent>
+              </Tabs>
+              <Button 
+                variant="outline" 
+                className="w-full" 
+                onClick={resetRecovery}
+                data-testid="button-cancel-recovery"
+              >
+                Cancel
+              </Button>
+            </div>
+          )}
+
+          {step === 'enter_key' && (
             <div className="space-y-4 mt-4">
               <div>
                 <Label className="text-slate-300 text-sm">Public Key</Label>
@@ -288,10 +398,10 @@ export function WelcomeScreen({ onIdentityCreated }: WelcomeScreenProps) {
                 <Button 
                   variant="outline" 
                   className="flex-1" 
-                  onClick={resetRecovery}
-                  data-testid="button-cancel-recovery"
+                  onClick={() => setStep('choose_method')}
+                  data-testid="button-back-to-methods"
                 >
-                  Cancel
+                  Back
                 </Button>
                 <Button 
                   className="flex-1 bg-cyan-500 hover:bg-cyan-600"
@@ -304,7 +414,9 @@ export function WelcomeScreen({ onIdentityCreated }: WelcomeScreenProps) {
                 </Button>
               </div>
             </div>
-          ) : (
+          )}
+
+          {step === 'enter_pin' && (
             <div className="space-y-4 mt-4">
               {vaultData?.hint && (
                 <div className="bg-slate-700/50 rounded-lg p-3">
@@ -359,6 +471,65 @@ export function WelcomeScreen({ onIdentityCreated }: WelcomeScreenProps) {
                   data-testid="button-restore-identity"
                 >
                   {isRecovering ? 'Restoring...' : 'Login'}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {step === 'enter_private_key' && (
+            <div className="space-y-4 mt-4">
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+                <p className="text-xs text-amber-200">
+                  Your private key is never sent to any server. Recovery happens entirely on your device.
+                </p>
+              </div>
+              <div>
+                <Label className="text-slate-300 text-sm">Private Key</Label>
+                <div className="relative">
+                  <Textarea
+                    value={privateKeyInput}
+                    onChange={(e) => setPrivateKeyInput(e.target.value)}
+                    placeholder="Paste your private key (base58)"
+                    className="mt-1 bg-slate-900/50 border-slate-600 text-white font-mono text-xs min-h-[80px] pr-10"
+                    data-testid="input-recovery-private-key"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPrivateKey(!showPrivateKey)}
+                    className="absolute right-3 top-3 text-slate-400 hover:text-white"
+                  >
+                    {showPrivateKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  Find your private key in Settings → Export Private Key
+                </p>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={rememberThisDevice}
+                  onChange={(e) => setRememberThisDevice(e.target.checked)}
+                  className="rounded border-slate-600 bg-slate-800 text-emerald-500 focus:ring-emerald-500"
+                />
+                <span className="text-sm text-slate-400">Remember this device</span>
+              </label>
+              <div className="flex gap-3">
+                <Button 
+                  variant="outline" 
+                  className="flex-1" 
+                  onClick={() => setStep('choose_method')}
+                  data-testid="button-back-to-methods-from-private"
+                >
+                  Back
+                </Button>
+                <Button 
+                  className="flex-1 bg-amber-500 hover:bg-amber-600"
+                  onClick={handleRecoverFromPrivateKey}
+                  disabled={isRecovering || !privateKeyInput.trim()}
+                  data-testid="button-restore-from-private-key"
+                >
+                  {isRecovering ? 'Restoring...' : 'Restore Identity'}
                 </Button>
               </div>
             </div>
