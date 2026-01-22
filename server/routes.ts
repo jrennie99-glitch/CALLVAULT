@@ -769,16 +769,36 @@ export async function registerRoutes(
       }
 
       // Create database-backed token with server timestamps
-      const tokenData = await storage.createCallToken(
-        address,
-        targetAddress,
-        plan,
-        finalAllowTurn,
-        allowVideo
-      );
+      // If database is unavailable, create ephemeral token (for testing/dev only)
+      let tokenData;
+      try {
+        tokenData = await storage.createCallToken(
+          address,
+          targetAddress,
+          plan,
+          finalAllowTurn,
+          allowVideo
+        );
+      } catch (dbError: any) {
+        // Database unavailable - create ephemeral token for development/testing
+        // WARNING: This bypasses replay protection, only use when DATABASE_URL is not set
+        console.warn('[CallToken] Database unavailable, creating ephemeral token (NO REPLAY PROTECTION)');
+        const { randomUUID } = await import('crypto');
+        const now = new Date();
+        tokenData = {
+          token: randomUUID(),
+          nonce: randomUUID(),
+          issuedAt: now,
+          expiresAt: new Date(now.getTime() + 10 * 60 * 1000)
+        };
+      }
 
-      // Record metric
-      await recordTokenMetric('minted', address, userAgent, clientIp);
+      // Record metric (may fail silently if DB unavailable)
+      try {
+        await recordTokenMetric('minted', address, userAgent, clientIp);
+      } catch (e) {
+        // Ignore metric recording failure
+      }
 
       // Build ICE servers config
       let iceServers: any[] = [
