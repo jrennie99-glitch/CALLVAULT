@@ -592,7 +592,8 @@ export function CallView({
     // Check WebSocket connection before sending
     if (ws.readyState !== WebSocket.OPEN) {
       console.error('[CallView] WebSocket not open, cannot initiate call. State:', ws.readyState);
-      setCallError('Connection lost. Please refresh and try again.');
+      toast.error('Connection lost. Please refresh and try again.');
+      setShowHandshakeError(true);
       return;
     }
 
