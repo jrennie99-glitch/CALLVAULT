@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { addContact, getContactByAddress } from '@/lib/storage';
 import { getCreatorProfile } from '@/lib/policyStorage';
 import { copyToClipboard } from '@/lib/clipboard';
+import { toast } from 'sonner';
 import QRCode from 'qrcode';
 import { Scanner } from '@yudiel/react-qr-scanner';
 
