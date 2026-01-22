@@ -142,5 +142,32 @@
       "seq": 8,
       "server_timestamp": 1766792285380
     }
+  },
+  {
+    "id": "dm_1at29e5_3v4h49_jzsw7",
+    "type": "direct",
+    "participant_addresses": [
+      "call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehgaZxj9ua2wq:iMbPcedKjup",
+      "call:FD9BuQhBpMBPshsZTjPaLaGgmNCJZ4R3Qck11CK4WQwz:j9yN8Y1gSGe"
+    ],
+    "created_at": 1767223970841,
+    "created_by": "call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehgaZxj9ua2wq:iMbPcedKjup",
+    "last_message": {
+      "id": "msg_1767224211405_l4ba55wub",
+      "convo_id": "dm_1at29e5_3v4h49_jzsw7",
+      "from_address": "call:FbGNmLAvDsPxspTbyfHi9mA4u1JRJBgehgaZxj9ua2wq:iMbPcedKjup",
+      "to_address": "call:FD9BuQhBpMBPshsZTjPaLaGgmNCJZ4R3Qck11CK4WQwz:j9yN8Y1gSGe",
+      "timestamp": 1767224211405,
+      "type": "voice",
+      "content": "",
+      "attachment_url": "/api/files/1767224211231_0jmguwca.webm",
+      "attachment_name": "voice_1767224210243.webm",
+      "attachment_size": 123249,
+      "attachment_duration": 5,
+      "nonce": "84ut7imqgtmjuno0jx",
+      "status": "sent",
+      "seq": 3,
+      "server_timestamp": 1767224211515
+    }
   }
 ]
