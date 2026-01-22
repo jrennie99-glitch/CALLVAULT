@@ -7142,30 +7142,41 @@ export async function registerRoutes(
               server_timestamp: serverTimestamp.getTime()
             } as WSMessage));
             
-            const convo = messageStore.getConversation(msg.convo_id);
-            if (convo) {
-              messageStore.addMessage(msg);
-              messageStore.updateConversationLastMessage(msg.convo_id, msg);
-              
-              const recipients = convo.participant_addresses.filter(a => a !== msg.from_address);
-              for (const recipientAddr of recipients) {
-                const recipientConnection = getConnection(recipientAddr);
-                if (recipientConnection) {
-                  broadcastToAddress(recipientAddr, {
-                    type: 'msg:incoming',
-                    message: msg,
-                    from_pubkey: signedMsg.from_pubkey
-                  });
-                  
-                  msg.status = 'delivered';
-                  messageStore.updateMessageStatus(msg.id, 'delivered');
-                  ws.send(JSON.stringify({
-                    type: 'msg:delivered',
-                    message_id: msg.id,
-                    convo_id: msg.convo_id,
-                    delivered_at: Date.now()
-                  } as WSMessage));
-                } else {
+            let convo = messageStore.getConversation(msg.convo_id);
+            
+            // If conversation not in memory, ensure it's created (critical for message delivery)
+            if (!convo) {
+              console.log(`[msg:send] Conversation ${msg.convo_id} not in memory, creating/loading...`);
+              // For direct messages, create or get the conversation
+              convo = messageStore.getOrCreateDirectConversation(msg.from_address, msg.to_address);
+              console.log(`[msg:send] Conversation created/loaded with ${convo.participant_addresses.length} participants`);
+            }
+            
+            messageStore.addMessage(msg);
+            messageStore.updateConversationLastMessage(msg.convo_id, msg);
+            
+            const recipients = convo.participant_addresses.filter(a => a !== msg.from_address);
+            console.log(`[msg:send] Message ${msg.id.slice(0, 8)}... from ${msg.from_address.slice(0, 12)}... to ${recipients.length} recipient(s)`);
+            
+            for (const recipientAddr of recipients) {
+              const recipientConnection = getConnection(recipientAddr);
+              if (recipientConnection) {
+                console.log(`[msg:send] Delivering to ${recipientAddr.slice(0, 12)}... (online)`);
+                broadcastToAddress(recipientAddr, {
+                  type: 'msg:incoming',
+                  message: msg,
+                  from_pubkey: signedMsg.from_pubkey
+                });
+                
+                msg.status = 'delivered';
+                messageStore.updateMessageStatus(msg.id, 'delivered');
+                ws.send(JSON.stringify({
+                  type: 'msg:delivered',
+                  message_id: msg.id,
+                  convo_id: msg.convo_id,
+                  delivered_at: Date.now()
+                } as WSMessage));
+              } else {
                   // Recipient offline - store message for later delivery and send push notification
                   storage.storeMessage(
                     msg.from_address,
@@ -7204,89 +7215,11 @@ export async function registerRoutes(
                       message_id: msg.id,
                       convo_id: msg.convo_id
                     } as WSMessage));
-                  }).catch(console.error);
-                }
-              }
-            } else {
-              const dmConvo = messageStore.getOrCreateDirectConversation(msg.from_address, msg.to_address);
-              msg.convo_id = dmConvo.id;
-              messageStore.addMessage(msg);
-              messageStore.updateConversationLastMessage(dmConvo.id, msg);
-              
-              const recipientConnection = getConnection(msg.to_address);
-              if (recipientConnection) {
-                broadcastToAddress(msg.to_address, {
-                  type: 'msg:incoming',
-                  message: msg,
-                  from_pubkey: signedMsg.from_pubkey
-                });
-                
-                ws.send(JSON.stringify({
-                  type: 'convo:create',
-                  convo: dmConvo
-                } as WSMessage));
-                broadcastToAddress(msg.to_address, {
-                  type: 'convo:create',
-                  convo: dmConvo
-                });
-                
-                msg.status = 'delivered';
-                messageStore.updateMessageStatus(msg.id, 'delivered');
-                ws.send(JSON.stringify({
-                  type: 'msg:delivered',
-                  message_id: msg.id,
-                  convo_id: msg.convo_id,
-                  delivered_at: Date.now()
-                } as WSMessage));
-              } else {
-                // Recipient offline - store message for later delivery and send push notification
-                storage.storeMessage(
-                  msg.from_address,
-                  msg.to_address,
-                  dmConvo.id,
-                  msg.content,
-                  msg.type,
-                  undefined
-                ).then(async () => {
-                  console.log(`Stored message for offline delivery to ${msg.to_address}`);
-                  
-                  // Send push notification to alert the offline recipient
-                  const senderIdentity = await storage.getIdentity(msg.from_address);
-                  const senderContact = await storage.getContact(msg.to_address, msg.from_address);
-                  const senderName = senderContact?.name || senderIdentity?.displayName || msg.from_address.slice(5, 15) + '...';
-                  
-                  const messagePreview = msg.type === 'text' 
-                    ? (msg.content.length > 50 ? msg.content.slice(0, 50) + '...' : msg.content)
-                    : msg.type === 'voice' ? 'Voice message'
-                    : msg.type === 'video' ? 'Video message'
-                    : msg.type === 'image' ? 'Photo'
-                    : 'New message';
-                  
-                  await sendPushNotification(msg.to_address, {
-                    type: 'message',
-                    title: senderName,
-                    body: messagePreview,
-                    tag: `msg-${dmConvo.id}`,
-                    convo_id: dmConvo.id,
-                    from_address: msg.from_address,
-                    url: `/app?chat=${encodeURIComponent(dmConvo.id)}`
-                  });
-                  
-                  // Still send convo:create to sender
-                  ws.send(JSON.stringify({
-                    type: 'convo:create',
-                    convo: dmConvo
-                  } as WSMessage));
-                  ws.send(JSON.stringify({
-                    type: 'msg:queued',
-                    message_id: msg.id,
-                    convo_id: msg.convo_id
-                  } as WSMessage));
                 }).catch(console.error);
               }
             }
             
-            console.log(`Message sent from ${msg.from_address} in convo ${msg.convo_id}`);
+            console.log(`[msg:send] SUCCESS - Message sent from ${msg.from_address.slice(0, 12)}... in convo ${msg.convo_id}`);
             break;
           }
 
