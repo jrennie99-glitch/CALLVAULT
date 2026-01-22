@@ -1450,6 +1450,9 @@ export async function registerRoutes(
       const { id } = req.params;
       
       // Get the existing member to find their team (authoritative lookup)
+      if (!db) {
+        return res.status(500).json({ error: 'Database not available' });
+      }
       const members = await db.select().from(teamMembers).where(eq(teamMembers.id, id));
       if (members.length === 0) {
         return res.status(404).json({ error: 'Team member not found' });

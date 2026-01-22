@@ -169,5 +169,28 @@
       "seq": 3,
       "server_timestamp": 1767224211515
     }
+  },
+  {
+    "id": "dm_16y09t3_1dbh803_1d5uh5t",
+    "type": "direct",
+    "participant_addresses": [
+      "call:EgirR3sJ44CBjq6k1KpksmwkHB3sYKSz812XjjZck2N5:iigui2hVuUd",
+      "call:TestAddress123:abc12345"
+    ],
+    "created_at": 1769087331856,
+    "created_by": "call:EgirR3sJ44CBjq6k1KpksmwkHB3sYKSz812XjjZck2N5:iigui2hVuUd",
+    "last_message": {
+      "id": "msg_1769087331715_v9aymgwwz",
+      "convo_id": "dm_16y09t3_1dbh803_1d5uh5t",
+      "from_address": "call:EgirR3sJ44CBjq6k1KpksmwkHB3sYKSz812XjjZck2N5:iigui2hVuUd",
+      "to_address": "call:TestAddress123:abc12345",
+      "timestamp": 1769087331715,
+      "type": "text",
+      "content": "Hello test message",
+      "nonce": "1j63jqk3xm1mkpgx5dv",
+      "status": "sent",
+      "seq": 1,
+      "server_timestamp": 1769087331804
+    }
   }
 ]
