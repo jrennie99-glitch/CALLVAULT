@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { getContacts, deleteContact, getUserProfile, type Contact } from '@/lib/storage';
 import { Avatar } from '@/components/Avatar';
 import { getLocalOverrides, saveLocalOverride, deleteLocalOverride, isLocallyBlocked, addToLocalBlocklist, removeFromLocalBlocklist, getLocalPasses, saveLocalPass } from '@/lib/policyStorage';
+import { copyToClipboard } from '@/lib/clipboard';
 import { toast } from 'sonner';
 import {
   AlertDialog,
@@ -210,16 +211,14 @@ export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR, onOpenCha
         }
       }
     } else {
-      await navigator.clipboard.writeText(shareText);
-      toast.success('Invite copied to clipboard!');
+      await copyToClipboard(shareText, 'Invite copied to clipboard!');
     }
   };
 
   const handleCopyInvite = async () => {
     if (!inviteUrl) return;
     const shareText = `Hey ${inviteContactName}! Join me on Call Vault for secure video calls. ${inviteUrl}`;
-    await navigator.clipboard.writeText(shareText);
-    toast.success('Invite copied!');
+    await copyToClipboard(shareText, 'Invite copied!');
   };
 
   const handleCloseInviteDialog = () => {
@@ -395,8 +394,7 @@ export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR, onOpenCha
                     revoked: false
                   };
                   saveLocalPass(pass);
-                  navigator.clipboard.writeText(`call-invite:${passId}`);
-                  toast.success('Call invite created and copied!');
+                  copyToClipboard(`call-invite:${passId}`, 'Call invite created and copied!');
                 }}
                 variant="ghost"
                 className="w-full justify-start text-purple-400 hover:text-purple-300 hover:bg-purple-500/10"

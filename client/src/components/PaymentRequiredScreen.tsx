@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar } from '@/components/Avatar';
 import { formatPrice } from '@/lib/policyStorage';
+import { copyToClipboard } from '@/lib/clipboard';
 import { toast } from 'sonner';
 import type { CallPricing } from '@shared/types';
 
@@ -199,9 +200,8 @@ export function PaymentRequiredScreen({
     }
   };
 
-  const copyToClipboard = (text: string, label: string) => {
-    navigator.clipboard.writeText(text);
-    toast.success(`${label} copied!`);
+  const handleCopyToClipboard = (text: string, label: string) => {
+    copyToClipboard(text, `${label} copied!`);
   };
 
   const handlePayment = async () => {

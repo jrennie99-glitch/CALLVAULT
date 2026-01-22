@@ -14,6 +14,7 @@ import {
   Settings, UserCog, Ban, CheckCircle, AlertTriangle, Stethoscope
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { copyToClipboard } from '@/lib/clipboard';
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
 
@@ -404,8 +405,7 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
       setIsCreateInviteOpen(false);
       // Copy to clipboard
       const inviteUrl = `${window.location.origin}/invite/${data.code}`;
-      navigator.clipboard.writeText(inviteUrl);
-      toast.success('Invite URL copied to clipboard');
+      copyToClipboard(inviteUrl, 'Invite URL copied to clipboard');
     },
     onError: () => {
       toast.error('Failed to create invite link');
@@ -454,8 +454,7 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
 
   const copyInviteLink = (code: string) => {
     const inviteUrl = `${window.location.origin}/invite/${code}`;
-    navigator.clipboard.writeText(inviteUrl);
-    toast.success('Invite URL copied to clipboard');
+    copyToClipboard(inviteUrl, 'Invite URL copied to clipboard');
   };
 
   const handleCreateInvite = () => {
@@ -1773,8 +1772,7 @@ export function AdminConsole({ identity, onBack }: AdminConsoleProps) {
                   variant="outline"
                   size="icon"
                   onClick={() => {
-                    navigator.clipboard.writeText(`${window.location.origin}/admin/login`);
-                    toast.success('Link copied');
+                    copyToClipboard(`${window.location.origin}/admin/login`, 'Link copied');
                   }}
                   data-testid="button-copy-admin-login-url"
                 >

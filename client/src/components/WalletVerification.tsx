@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { getLocalWalletVerification, saveLocalWalletVerification, clearLocalWalletVerification } from '@/lib/policyStorage';
+import { copyToClipboard } from '@/lib/clipboard';
 import { toast } from 'sonner';
 import type { WalletVerification as WalletVerificationType, CryptoIdentity } from '@shared/types';
 import * as cryptoLib from '@/lib/crypto';
@@ -81,8 +82,7 @@ export function WalletVerification({ identity, ws, onBack }: WalletVerificationP
   };
 
   const copyMessage = () => {
-    navigator.clipboard.writeText(messageToSign);
-    toast.success('Message copied! Sign this in your wallet app.');
+    copyToClipboard(messageToSign, 'Message copied! Sign this in your wallet app.');
   };
 
   return (

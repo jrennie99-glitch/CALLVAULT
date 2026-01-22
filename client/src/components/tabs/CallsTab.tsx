@@ -3,6 +3,7 @@ import { Phone, Video, PhoneIncoming, PhoneOutgoing, PhoneMissed, UserPlus, Bell
 import { Button } from '@/components/ui/button';
 import { getCallHistory, getContactByAddress, type CallRecord } from '@/lib/storage';
 import { getLocalPasses, isLocallyBlocked, getCreatorProfile, getCallPricingSettings, formatPrice } from '@/lib/policyStorage';
+import { copyToClipboard } from '@/lib/clipboard';
 import { formatDistanceToNow } from 'date-fns';
 import { Avatar } from '@/components/Avatar';
 import { toast } from 'sonner';
@@ -48,8 +49,7 @@ export function CallsTab({ onStartCall, onNavigateToAdd, onNavigateToContacts, o
   const generatePaidCallLink = () => {
     const tokenId = `paid_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const link = `${window.location.origin}/pay/${tokenId}`;
-    navigator.clipboard.writeText(link);
-    toast.success('Paid call link copied!');
+    copyToClipboard(link, 'Paid call link copied!');
     setShowPaidLinkModal(false);
   };
 
@@ -107,8 +107,7 @@ export function CallsTab({ onStartCall, onNavigateToAdd, onNavigateToContacts, o
               onClick={() => {
                 const handle = creatorProfile?.handle || creatorProfile?.address.slice(5, 15);
                 const profileUrl = `${window.location.origin}/u/${handle}`;
-                navigator.clipboard.writeText(profileUrl);
-                toast.success('Profile link copied!');
+                copyToClipboard(profileUrl, 'Profile link copied!');
               }}
               variant="outline"
               className="border-purple-500/30 text-purple-300 hover:bg-purple-500/10"

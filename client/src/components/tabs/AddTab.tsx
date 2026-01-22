@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { addContact, getContactByAddress } from '@/lib/storage';
 import { getCreatorProfile } from '@/lib/policyStorage';
-import { toast } from 'sonner';
+import { copyToClipboard } from '@/lib/clipboard';
 import QRCode from 'qrcode';
 import { Scanner } from '@yudiel/react-qr-scanner';
 
@@ -96,21 +96,18 @@ export function AddTab({ myAddress, onContactAdded, onStartCall, onNavigateToInv
   };
 
   const copyMyAddress = () => {
-    navigator.clipboard.writeText(myAddress);
-    toast.success('Address copied!');
+    copyToClipboard(myAddress, 'Address copied!');
   };
 
   const copyInviteLink = () => {
     const inviteLink = `${window.location.origin}?invite=${encodeURIComponent(myAddress)}`;
-    navigator.clipboard.writeText(inviteLink);
-    toast.success('Invite link copied!');
+    copyToClipboard(inviteLink, 'Invite link copied!');
   };
 
   const copyProfileLink = () => {
     const handle = creatorProfile?.handle || myAddress.slice(5, 15);
     const profileUrl = `${window.location.origin}/u/${handle}`;
-    navigator.clipboard.writeText(profileUrl);
-    toast.success('Profile link copied!');
+    copyToClipboard(profileUrl, 'Profile link copied!');
   };
 
   return (

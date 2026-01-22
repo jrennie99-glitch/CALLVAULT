@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { getLocalPasses, saveLocalPass, removeLocalPass, formatPassExpiry, getPassShareUrl } from '@/lib/policyStorage';
+import { copyToClipboard } from '@/lib/clipboard';
 import { toast } from 'sonner';
 import type { CallPass, PassType, CryptoIdentity } from '@shared/types';
 import * as cryptoLib from '@/lib/crypto';
@@ -119,8 +120,7 @@ export function InvitePassManager({ identity, ws, onBack }: InvitePassManagerPro
 
   const copyPassLink = (pass: CallPass) => {
     const url = getPassShareUrl(pass.id);
-    navigator.clipboard.writeText(url);
-    toast.success('Link copied! Share it with anyone you want to allow calling you.');
+    copyToClipboard(url, 'Link copied! Share it with anyone you want to allow calling you.');
   };
 
   const sharePass = async (pass: CallPass) => {

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Copy, Reply, Forward, Trash2, Smile, Share2, Pin, Flag, Pencil } from 'lucide-react';
+import { copyToClipboard } from '@/lib/clipboard';
 import { toast } from 'sonner';
 
 const QUICK_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🔥', '👏', '🙏'];
@@ -39,8 +40,7 @@ export function MessageContextMenu({
 
   const handleCopy = () => {
     if (messageType === 'text' && messageContent) {
-      navigator.clipboard.writeText(messageContent);
-      toast.success('Copied to clipboard');
+      copyToClipboard(messageContent, 'Copied to clipboard');
     }
     onCopy();
     onClose();

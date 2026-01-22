@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Badge } from '@/components/ui/badge';
 import { getUserProfile, saveUserProfile, getAppSettings, saveAppSettings } from '@/lib/storage';
 import { exportIdentity, importIdentity, encryptIdentityForVault, decryptIdentityFromVault, saveIdentity, signPayload, generateNonce, getPrivateKeyBase58 } from '@/lib/crypto';
+import { copyToClipboard } from '@/lib/clipboard';
 import { getPrivacySettings, savePrivacySettings, type PrivacySettings } from '@/lib/messageStorage';
 import { enrollBiometric, disableBiometric, isPlatformAuthenticatorAvailable, isInIframe, isIOS } from '@/lib/biometric';
 import { toast } from 'sonner';
@@ -639,15 +640,13 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
 
   const copyAddress = () => {
     if (identity) {
-      navigator.clipboard.writeText(identity.address);
-      toast.success('Address copied!');
+      copyToClipboard(identity.address, 'Address copied!');
     }
   };
 
   const copyPublicKey = () => {
     if (identity) {
-      navigator.clipboard.writeText(identity.publicKeyBase58);
-      toast.success('Public key copied!');
+      copyToClipboard(identity.publicKeyBase58, 'Public key copied!');
     }
   };
 
@@ -759,10 +758,7 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
                 <Button
                   variant="default"
                   size="sm"
-                  onClick={() => {
-                    navigator.clipboard.writeText(identity.address);
-                    toast.success('Call ID copied!');
-                  }}
+                  onClick={() => copyToClipboard(identity.address, 'Call ID copied!')}
                   className="bg-blue-500 hover:bg-blue-600 text-white shrink-0"
                   data-testid="button-copy-call-id"
                 >
@@ -784,10 +780,7 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
                 <Button
                   variant="default"
                   size="sm"
-                  onClick={() => {
-                    navigator.clipboard.writeText(identity.publicKeyBase58);
-                    toast.success('Public key copied! Set this as FOUNDER_PUBKEYS on your other server.');
-                  }}
+                  onClick={() => copyToClipboard(identity.publicKeyBase58, 'Public key copied! Set this as FOUNDER_PUBKEYS on your other server.')}
                   className="bg-amber-500 hover:bg-amber-600 text-white shrink-0"
                   data-testid="button-copy-public-key"
                 >
@@ -1792,8 +1785,7 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
                 <Button
                   onClick={() => {
                     if (identity) {
-                      navigator.clipboard.writeText(getPrivateKeyBase58(identity));
-                      toast.success('Private key copied to clipboard');
+                      copyToClipboard(getPrivateKeyBase58(identity), 'Private key copied to clipboard');
                     }
                   }}
                   variant="outline"
