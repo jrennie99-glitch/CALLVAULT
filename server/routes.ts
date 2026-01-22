@@ -2693,17 +2693,13 @@ export async function registerRoutes(
   // ============================================
 
   // Founder seeding on startup
-  // FOUNDER_PUBKEYS: Comma-separated list of public keys (supports multiple devices)
+  // FOUNDER_PUBKEYS: Comma-separated list of public keys (env-based only, no hardcoded keys)
   // FOUNDER_PUBKEY: Single public key (legacy, still supported)
   // FOUNDER_ADDRESS: Legacy support for full address matching
-  // HARDCODED_FOUNDER_KEYS: Built-in founder keys that work across all deployments
-  const HARDCODED_FOUNDER_KEYS = [
-    'FbGNmLAvnVmqUGWxQWE2TLj2p4hB2ycDxHKfXGmMPVjL',  // Original founder
-    '2vpPVFreoxrLUTwPBumxeCk2sADfTKJcdBU9eXKer4U7',   // Coolify founder
-  ];
-  const FOUNDER_PUBKEYS_RAW = process.env.FOUNDER_PUBKEYS || process.env.FOUNDER_PUBKEY || '';
-  const ENV_FOUNDER_PUBKEYS = FOUNDER_PUBKEYS_RAW.split(',').map(k => k.trim()).filter(k => k.length > 0);
-  const FOUNDER_PUBKEYS = [...new Set([...HARDCODED_FOUNDER_KEYS, ...ENV_FOUNDER_PUBKEYS])];
+  const FOUNDER_PUBKEYS = (process.env.FOUNDER_PUBKEYS || process.env.FOUNDER_PUBKEY || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
   const FOUNDER_ADDRESS = process.env.FOUNDER_ADDRESS;
   
   // Extract public key from address format: call:<pubkey>:<random>
@@ -2716,11 +2712,20 @@ export async function registerRoutes(
     return null;
   }
   
-  // Check if an address matches any founder (by pubkey or full address)
+  // Check if an address or pubkey matches any founder
+  function isFounderPubkey(pubkey: string): boolean {
+    const isMatch = FOUNDER_PUBKEYS.includes(pubkey);
+    if (process.env.NODE_ENV !== 'production') {
+      const masked = pubkey.length > 8 ? `${pubkey.slice(0, 4)}...${pubkey.slice(-4)}` : pubkey;
+      console.log(`[Founder Check] pubkey=${masked} match=${isMatch} configured=${FOUNDER_PUBKEYS.length}`);
+    }
+    return isMatch;
+  }
+  
   function isFounderAddress(address: string): boolean {
     if (FOUNDER_PUBKEYS.length > 0) {
       const pubkey = extractPubkeyFromAddress(address);
-      if (pubkey && FOUNDER_PUBKEYS.includes(pubkey)) {
+      if (pubkey && isFounderPubkey(pubkey)) {
         return true;
       }
     }
@@ -2730,28 +2735,29 @@ export async function registerRoutes(
     return false;
   }
   
-  async function seedFounder() {
-    if (FOUNDER_PUBKEYS.length === 0 && !FOUNDER_ADDRESS) return;
+  // Check and promote founder on every authenticated request
+  async function checkAndPromoteFounder(address: string, pubkeyBase58?: string): Promise<boolean> {
+    const pubkey = pubkeyBase58 || extractPubkeyFromAddress(address);
+    if (!pubkey) return false;
     
-    // If using pubkeys, we can't seed until we see matching addresses
-    if (FOUNDER_PUBKEYS.length > 0) {
-      console.log(`Founder pubkeys configured: ${FOUNDER_PUBKEYS.length} keys - will be promoted on registration`);
-      FOUNDER_PUBKEYS.forEach((pk, i) => console.log(`  Founder ${i + 1}: ${pk.slice(0, 8)}...`));
-      return;
-    }
-    
-    if (FOUNDER_ADDRESS) {
-      const identity = await storage.getIdentity(FOUNDER_ADDRESS);
+    const isFounder = isFounderPubkey(pubkey);
+    if (isFounder) {
+      const identity = await storage.getIdentity(address);
       if (identity && identity.role !== 'founder') {
-        await storage.updateIdentity(FOUNDER_ADDRESS, { role: 'founder' } as any);
-        console.log(`Promoted ${FOUNDER_ADDRESS} to founder role`);
-      } else if (!identity) {
-        console.log(`Founder address ${FOUNDER_ADDRESS} not found in database yet - will be promoted on first registration`);
+        await storage.updateIdentity(address, { role: 'founder' } as any);
+        console.log(`Promoted ${address.slice(0, 20)}... to founder role`);
       }
     }
+    return isFounder;
   }
   
-  seedFounder().catch(console.error);
+  // Log configured founder keys on startup
+  if (FOUNDER_PUBKEYS.length > 0) {
+    console.log(`Founder pubkeys configured: ${FOUNDER_PUBKEYS.length} keys - will be promoted on any authenticated request`);
+    FOUNDER_PUBKEYS.forEach((pk, i) => console.log(`  Founder ${i + 1}: ${pk.slice(0, 8)}...`));
+  } else {
+    console.log('No founder pubkeys configured (set FOUNDER_PUBKEYS env var)');
+  }
 
   // Admin auth middleware with RBAC support
   async function requireAdmin(req: any, res: any, next: any) {
@@ -4529,6 +4535,7 @@ export async function registerRoutes(
   });
 
   // Auto-promote founder on identity creation/registration
+  // Founder check uses publicKeyBase58 field (same as shown in Settings → Advanced Identity)
   app.post('/api/identity/register', async (req, res) => {
     try {
       const { address, publicKeyBase58, displayName } = req.body;
@@ -4540,11 +4547,8 @@ export async function registerRoutes(
         // Update last login
         await storage.updateIdentity(address, { lastLoginAt: new Date() } as any);
         
-        // ALWAYS check founder status on every login (for cross-browser sync)
-        if (isFounderAddress(address) && identity.role !== 'founder') {
-          identity = await storage.updateIdentity(address, { role: 'founder' } as any) || identity;
-          console.log(`Existing user ${address} promoted to founder role on login`);
-        }
+        // ALWAYS check founder status on every login using canonical pubkey
+        await checkAndPromoteFounder(address, publicKeyBase58 || identity.publicKeyBase58);
         
         // Refetch to get updated identity
         identity = await storage.getIdentity(address) || identity;
@@ -4558,11 +4562,11 @@ export async function registerRoutes(
         displayName,
       });
       
-      // Check if this is the founder (by pubkey or full address)
-      if (isFounderAddress(address)) {
-        identity = await storage.updateIdentity(address, { role: 'founder' } as any) || identity;
-        console.log(`New user ${address} promoted to founder role`);
-      }
+      // Check if this is the founder using canonical pubkey
+      await checkAndPromoteFounder(address, publicKeyBase58);
+      
+      // Refetch to get updated identity with founder role if promoted
+      identity = await storage.getIdentity(address) || identity;
       
       res.json(identity);
     } catch (error) {
