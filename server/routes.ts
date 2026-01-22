@@ -7265,14 +7265,24 @@ export async function registerRoutes(
               (msg as any).server_timestamp = serverTimestamp.getTime();
             } catch (dbError) {
               console.error('Failed to persist message to DB:', dbError);
-              // Return error to client instead of silent fallback
-              ws.send(JSON.stringify({
-                type: 'msg:ack',
-                message_id: msg.id,
-                status: 'error' as any,
-                error: 'Failed to persist message'
-              } as WSMessage));
-              return;
+              // Fallback to in-memory only mode (for dev/testing without DB)
+              // WARNING: Messages will be lost on server restart
+              if (!process.env.DATABASE_URL) {
+                console.warn('[msg:send] No DATABASE_URL - using in-memory only (messages not persisted)');
+                serverSeq = Date.now();
+                serverTimestamp = new Date();
+                (msg as any).seq = serverSeq;
+                (msg as any).server_timestamp = serverTimestamp.getTime();
+              } else {
+                // DB is configured but failed - this is a real error
+                ws.send(JSON.stringify({
+                  type: 'msg:ack',
+                  message_id: msg.id,
+                  status: 'error' as any,
+                  error: 'Failed to persist message'
+                } as WSMessage));
+                return;
+              }
             }
             
             // Send acknowledgment with server-assigned seq for ordering
