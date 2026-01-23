@@ -6486,44 +6486,47 @@ export async function registerRoutes(
             ws.send(JSON.stringify({ type: 'success', message: 'Registered successfully' } as WSMessage));
             console.log(`Client registered: ${address}`);
             
-            // Deliver any pending messages for this user
-            storage.getPendingMessages(address).then(async (pendingMsgs) => {
-              for (const pendingMsg of pendingMsgs) {
-                try {
-                  ws.send(JSON.stringify({
-                    type: 'msg:incoming',
-                    message: {
-                      id: pendingMsg.id,
-                      convo_id: pendingMsg.convoId,
-                      from_address: pendingMsg.fromAddress,
-                      to_address: pendingMsg.toAddress,
-                      content: pendingMsg.content,
-                      type: pendingMsg.mediaType || 'text',
-                      timestamp: pendingMsg.createdAt.getTime(),
-                      status: 'delivered'
-                    },
-                    from_pubkey: '' // Pubkey not stored for pending messages
-                  } as WSMessage));
-                  
-                  // Mark as delivered
-                  await storage.markMessageDelivered(pendingMsg.id);
-                  console.log(`Delivered pending message ${pendingMsg.id} to ${address}`);
-                  
-                  // Notify sender if online
-                  broadcastToAddress(pendingMsg.fromAddress, {
-                      type: 'msg:delivered',
-                      message_id: pendingMsg.id,
-                      convo_id: pendingMsg.convoId,
-                      delivered_at: Date.now()
-                    });
-                } catch (e) {
-                  console.error('Error delivering pending message:', e);
+            // Deliver any pending messages for this user (only if DB available)
+            const { isDatabaseAvailable } = await import('./db');
+            if (isDatabaseAvailable()) {
+              storage.getPendingMessages(address).then(async (pendingMsgs) => {
+                for (const pendingMsg of pendingMsgs) {
+                  try {
+                    ws.send(JSON.stringify({
+                      type: 'msg:incoming',
+                      message: {
+                        id: pendingMsg.id,
+                        convo_id: pendingMsg.convoId,
+                        from_address: pendingMsg.fromAddress,
+                        to_address: pendingMsg.toAddress,
+                        content: pendingMsg.content,
+                        type: pendingMsg.mediaType || 'text',
+                        timestamp: pendingMsg.createdAt.getTime(),
+                        status: 'delivered'
+                      },
+                      from_pubkey: '' // Pubkey not stored for pending messages
+                    } as WSMessage));
+                    
+                    // Mark as delivered
+                    await storage.markMessageDelivered(pendingMsg.id);
+                    console.log(`Delivered pending message ${pendingMsg.id} to ${address}`);
+                    
+                    // Notify sender if online
+                    broadcastToAddress(pendingMsg.fromAddress, {
+                        type: 'msg:delivered',
+                        message_id: pendingMsg.id,
+                        convo_id: pendingMsg.convoId,
+                        delivered_at: Date.now()
+                      });
+                  } catch (e) {
+                    console.error('Error delivering pending message:', e);
+                  }
                 }
-              }
-              if (pendingMsgs.length > 0) {
-                console.log(`Delivered ${pendingMsgs.length} pending messages to ${address}`);
-              }
-            }).catch(console.error);
+                if (pendingMsgs.length > 0) {
+                  console.log(`Delivered ${pendingMsgs.length} pending messages to ${address}`);
+                }
+              }).catch(console.error);
+            }
             break;
           }
 
