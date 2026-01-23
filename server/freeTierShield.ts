@@ -178,6 +178,12 @@ export class FreeTierShield {
       isEitherContact?: boolean; // True if EITHER party has added the other
     }
   ): Promise<ShieldCheckResult> {
+    // Check if database is available - if not, allow all calls (demo mode)
+    const { isDatabaseAvailable } = await import('./db');
+    if (!isDatabaseAvailable()) {
+      return { allowed: true };
+    }
+    
     const tier = await storage.getUserTier(calleeAddress);
     
     // Admin and paid users can receive any call
