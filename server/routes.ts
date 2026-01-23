@@ -596,6 +596,84 @@ export async function registerRoutes(
     return res.json({ iceServers: openRelayServers, mode: 'public_openrelay' });
   });
 
+  // ICE credentials endpoint with coturn shared-secret authentication
+  // Uses HMAC-SHA1 to generate time-limited TURN credentials
+  // Required env vars: TURN_SECRET, TURN_SERVER (e.g., turn.example.com)
+  app.get('/api/ice', async (_req, res) => {
+    const turnSecret = process.env.TURN_SECRET;
+    const turnServer = process.env.TURN_SERVER || process.env.TURN_HOST;
+    
+    // Base STUN servers
+    const stunUrls = process.env.STUN_URLS
+      ? process.env.STUN_URLS.split(',').map(u => u.trim()).filter(Boolean)
+      : ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'];
+    const stunServers = stunUrls.map(url => ({ urls: url }));
+    
+    // If TURN_SECRET is not configured, fall back to OpenRelay for testing
+    if (!turnSecret || !turnServer) {
+      console.log('[/api/ice] TURN_SECRET or TURN_SERVER not set, using OpenRelay fallback');
+      const fallbackServers = [
+        ...stunServers,
+        { urls: 'stun:stun.relay.metered.ca:80' },
+        { urls: 'turn:openrelay.metered.ca:80?transport=udp', username: 'openrelayproject', credential: 'openrelayproject' },
+        { urls: 'turn:openrelay.metered.ca:443?transport=udp', username: 'openrelayproject', credential: 'openrelayproject' },
+        { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+      ];
+      return res.json({ iceServers: fallbackServers, mode: 'openrelay_fallback' });
+    }
+    
+    try {
+      // Generate coturn shared-secret credentials
+      // Username format: expiry_timestamp:random_id
+      // Password: Base64(HMAC-SHA1(username, TURN_SECRET))
+      const ttl = 86400; // 24 hours credential validity
+      const expiry = Math.floor(Date.now() / 1000) + ttl;
+      const username = `${expiry}:callvault`;
+      
+      // Generate HMAC-SHA1 password
+      const crypto = await import('crypto');
+      const hmac = crypto.createHmac('sha1', turnSecret);
+      hmac.update(username);
+      const credential = hmac.digest('base64');
+      
+      // Build ICE servers array with UDP (3478) and TLS (5349) endpoints
+      const iceServers = [
+        ...stunServers,
+        // STUN on the TURN server
+        { urls: `stun:${turnServer}:3478` },
+        // TURN UDP on port 3478
+        { 
+          urls: `turn:${turnServer}:3478?transport=udp`,
+          username,
+          credential
+        },
+        // TURN TCP on port 3478
+        { 
+          urls: `turn:${turnServer}:3478?transport=tcp`,
+          username,
+          credential
+        },
+        // TURN TLS on port 5349
+        { 
+          urls: `turns:${turnServer}:5349?transport=tcp`,
+          username,
+          credential
+        }
+      ];
+      
+      console.log(`[/api/ice] Generated coturn credentials for ${turnServer}, expiry: ${new Date(expiry * 1000).toISOString()}`);
+      return res.json({ 
+        iceServers, 
+        mode: 'coturn_shared_secret',
+        ttl,
+        username // Include for debugging (credential is secret)
+      });
+    } catch (error) {
+      console.error('[/api/ice] Error generating credentials:', error);
+      return res.status(500).json({ error: 'Failed to generate ICE credentials' });
+    }
+  });
+
   // Cleanup expired call tokens from database every hour
   setInterval(async () => {
     try {
@@ -705,7 +783,30 @@ export async function registerRoutes(
 
       // Add TURN servers based on TURN_MODE and user entitlements
       if (finalAllowTurn) {
-        if (turnMode === 'public') {
+        // Check for coturn shared-secret auth first (TURN_SECRET + TURN_SERVER)
+        const turnSecret = process.env.TURN_SECRET;
+        const turnServer = process.env.TURN_SERVER || process.env.TURN_HOST;
+        
+        if (turnSecret && turnServer) {
+          // Generate coturn shared-secret credentials
+          const crypto = await import('crypto');
+          const ttl = 86400; // 24 hours
+          const expiry = Math.floor(Date.now() / 1000) + ttl;
+          const username = `${expiry}:callvault`;
+          const hmac = crypto.createHmac('sha1', turnSecret);
+          hmac.update(username);
+          const credential = hmac.digest('base64');
+          
+          iceServers = [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: `stun:${turnServer}:3478` },
+            { urls: `turn:${turnServer}:3478?transport=udp`, username, credential },
+            { urls: `turn:${turnServer}:3478?transport=tcp`, username, credential },
+            { urls: `turns:${turnServer}:5349?transport=tcp`, username, credential }
+          ];
+          console.log(`[TURN] Using coturn shared-secret auth for ${turnServer}`);
+        } else if (turnMode === 'public') {
           // ⚠️ OpenRelay free TURN servers - TESTING ONLY, not for production
           iceServers = [
             { urls: 'stun:stun.l.google.com:19302' },

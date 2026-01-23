@@ -308,36 +308,32 @@ export default function CallPage() {
 
   const fetchTurnConfig = async () => {
     try {
-      const response = await fetch('/api/turn-config');
+      // Use /api/ice for coturn shared-secret auth credentials
+      const response = await fetch('/api/ice');
       if (response.ok) {
         const config = await response.json();
-        // New format: server returns iceServers array directly
+        console.log('[ICE] Fetched credentials, mode:', config.mode);
+        
+        // Server returns iceServers array with STUN and TURN servers
         if (config.iceServers && Array.isArray(config.iceServers) && config.iceServers.length > 0) {
-          // Merge default STUN servers with TURN servers from server
           const serverServers = config.iceServers as RTCIceServer[];
           // Check if there's at least one TURN server
           const hasTurn = serverServers.some((s: RTCIceServer) => {
             const urls = Array.isArray(s.urls) ? s.urls : [s.urls];
             return urls.some(u => u.startsWith('turn:') || u.startsWith('turns:'));
           });
-          setIceServers([...DEFAULT_ICE_SERVERS, ...serverServers]);
+          // Use server's ICE servers directly (already includes STUN)
+          setIceServers(serverServers);
           if (hasTurn) {
             setTurnEnabled(true);
-            console.log('TURN servers configured:', serverServers.length, 'servers');
+            console.log('[ICE] TURN servers configured:', serverServers.length, 'servers');
           }
-        } else if (config.turnUrl) {
-          // Legacy format fallback
-          const turnServer: RTCIceServer = {
-            urls: config.turnUrl,
-            username: config.turnUser,
-            credential: config.turnPass
-          };
-          setIceServers([...DEFAULT_ICE_SERVERS, turnServer]);
-          setTurnEnabled(true);
         }
+      } else {
+        console.warn('[ICE] Failed to fetch credentials, using STUN only');
       }
     } catch (error) {
-      console.log('TURN config not available, using STUN only');
+      console.log('[ICE] Config not available, using STUN only');
     }
   };
 
