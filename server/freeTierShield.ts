@@ -62,6 +62,13 @@ export class FreeTierShield {
       isPaidCall?: boolean;
     }
   ): Promise<ShieldCheckResult> {
+    // Check if database is available - if not, allow all calls (demo mode)
+    const { isDatabaseAvailable } = await import('./db');
+    if (!isDatabaseAvailable()) {
+      console.log('[FreeTierShield] No database - allowing call in demo mode');
+      return { allowed: true, maxDurationSeconds: FREE_TIER_LIMITS.MAX_CALL_DURATION_SECONDS };
+    }
+    
     const tier = await storage.getUserTier(callerAddress);
     
     // Admin and paid users bypass all limits
