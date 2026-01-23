@@ -9,9 +9,23 @@ const { Pool } = pg;
 let pool: pg.Pool | null = null;
 let db: ReturnType<typeof drizzle> | null = null;
 
+// In-memory fallback storage for when database is unavailable
+// WARNING: Data is lost on server restart - only use for development/testing
+export const inMemoryStore = {
+  identities: new Map<string, any>(),
+  contacts: new Map<string, any[]>(),
+  conversations: new Map<string, any>(),
+  messages: new Map<string, any[]>(),
+};
+
+export function isDatabaseAvailable(): boolean {
+  return db !== null;
+}
+
 try {
   if (!process.env.DATABASE_URL) {
-    console.warn("⚠️  DATABASE_URL not set - database features will be unavailable");
+    console.warn("⚠️  DATABASE_URL not set - using IN-MEMORY storage (data will be lost on restart)");
+    console.warn("   Set DATABASE_URL for production use with persistent data");
   } else {
     pool = new Pool({ connectionString: process.env.DATABASE_URL });
     db = drizzle(pool, { schema });
