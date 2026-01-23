@@ -188,21 +188,31 @@ async function startServer() {
     const NONCE_CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 minutes
     setInterval(async () => {
       try {
+        // Skip if database is not available
+        const { isDatabaseAvailable } = await import('./db');
+        if (!isDatabaseAvailable()) return;
+        
         const cleaned = await storage.cleanupExpiredNonces();
         if (cleaned > 0) {
           console.log(`[Nonce Cleanup] Removed ${cleaned} expired nonces`);
         }
       } catch (err) {
-        console.error('[Nonce Cleanup] Error:', err);
+        // Only log if DB is configured
+        if (process.env.DATABASE_URL) {
+          console.error('[Nonce Cleanup] Error:', err);
+        }
       }
     }, NONCE_CLEANUP_INTERVAL);
     
-    // Run initial cleanup on startup
-    storage.cleanupExpiredNonces().then(cleaned => {
-      if (cleaned > 0) {
-        console.log(`[Nonce Cleanup] Initial cleanup: removed ${cleaned} expired nonces`);
-      }
-    }).catch(err => console.error('[Nonce Cleanup] Initial cleanup error:', err));
+    // Run initial cleanup on startup (only if DB available)
+    const { isDatabaseAvailable } = await import('./db');
+    if (isDatabaseAvailable()) {
+      storage.cleanupExpiredNonces().then(cleaned => {
+        if (cleaned > 0) {
+          console.log(`[Nonce Cleanup] Initial cleanup: removed ${cleaned} expired nonces`);
+        }
+      }).catch(err => console.error('[Nonce Cleanup] Initial cleanup error:', err));
+    }
   });
 }
 
