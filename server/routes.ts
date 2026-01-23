@@ -1640,7 +1640,18 @@ export async function registerRoutes(
   app.get('/api/contacts/:ownerAddress', async (req, res) => {
     try {
       const { ownerAddress } = req.params;
-      const contactsList = await storage.getContacts(ownerAddress);
+      const { isDatabaseAvailable, inMemoryStore } = await import('./db');
+      
+      let contactsList: any[] = [];
+      try {
+        contactsList = await storage.getContacts(ownerAddress);
+      } catch (dbError) {
+        if (!isDatabaseAvailable()) {
+          contactsList = inMemoryStore.contacts.get(ownerAddress) || [];
+        } else {
+          throw dbError;
+        }
+      }
       res.json(contactsList);
     } catch (error) {
       console.error('Error getting contacts:', error);
@@ -1650,7 +1661,26 @@ export async function registerRoutes(
 
   app.post('/api/contacts', async (req, res) => {
     try {
-      const contact = await storage.createContact(req.body);
+      const { isDatabaseAvailable, inMemoryStore } = await import('./db');
+      let contact;
+      
+      try {
+        contact = await storage.createContact(req.body);
+      } catch (dbError) {
+        if (!isDatabaseAvailable()) {
+          // Create contact in-memory
+          contact = {
+            id: Date.now(),
+            ...req.body,
+            createdAt: new Date(),
+          };
+          const contacts = inMemoryStore.contacts.get(req.body.ownerAddress) || [];
+          contacts.push(contact);
+          inMemoryStore.contacts.set(req.body.ownerAddress, contacts);
+        } else {
+          throw dbError;
+        }
+      }
       
       // Notify the contact person that they've been added (if online)
       const contactAddress = req.body.contactAddress;
@@ -1659,9 +1689,20 @@ export async function registerRoutes(
       
       if (contactAddress) {
         // Get the adder's identity to show their name
-        const adderIdentity = await storage.getIdentity(ownerAddress);
+        let adderIdentity;
+        try {
+          adderIdentity = await storage.getIdentity(ownerAddress);
+        } catch (e) {
+          adderIdentity = inMemoryStore.identities.get(ownerAddress);
+        }
         // Also check if the recipient has the adder saved as a contact
-        const existingContact = await storage.getContact(contactAddress, ownerAddress);
+        let existingContact;
+        try {
+          existingContact = await storage.getContact(contactAddress, ownerAddress);
+        } catch (e) {
+          const recipientContacts = inMemoryStore.contacts.get(contactAddress) || [];
+          existingContact = recipientContacts.find((c: any) => c.contactAddress === ownerAddress);
+        }
         const adderName = existingContact?.name || adderIdentity?.displayName || ownerAddress.slice(5, 17) + '...';
         
         broadcastToAddress(contactAddress, {
@@ -1675,9 +1716,10 @@ export async function registerRoutes(
           });
           
         // Also send push notification if they're offline
-        await sendPushNotification(contactAddress, {
-          type: 'contact_added',
-          title: 'New Contact',
+        try {
+          await sendPushNotification(contactAddress, {
+            type: 'contact_added',
+            title: 'New Contact',
           body: `${adderName} saved you as "${savedAsName}"`,
           tag: 'contact-added',
           from_address: ownerAddress
