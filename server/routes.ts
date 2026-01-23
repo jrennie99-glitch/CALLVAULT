@@ -1724,6 +1724,9 @@ export async function registerRoutes(
           tag: 'contact-added',
           from_address: ownerAddress
         });
+        } catch (pushError) {
+          // Ignore push notification errors
+        }
         
         console.log(`[contact:added_by] Notified ${contactAddress} that ${adderName} saved them as "${savedAsName}"`);
       }
