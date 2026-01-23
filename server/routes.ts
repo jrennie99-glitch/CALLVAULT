@@ -6685,12 +6685,28 @@ export async function registerRoutes(
             // Free Tier Shield enforcement (async)
             (async () => {
               try {
-                // Record call attempt for free tier tracking
-                await FreeTierShield.recordCallAttempt(callerAddress);
+                const { isDatabaseAvailable, inMemoryStore } = await import('./db');
+                
+                // Record call attempt for free tier tracking (skip if no DB)
+                if (isDatabaseAvailable()) {
+                  await FreeTierShield.recordCallAttempt(callerAddress);
+                }
                 
                 // Check if caller and callee have contact relationship (either direction)
-                const callerContact = await storage.getContact(callerAddress, recipientAddress);
-                const calleeContact = await storage.getContact(recipientAddress, callerAddress);
+                let callerContact = null;
+                let calleeContact = null;
+                
+                if (isDatabaseAvailable()) {
+                  callerContact = await storage.getContact(callerAddress, recipientAddress);
+                  calleeContact = await storage.getContact(recipientAddress, callerAddress);
+                } else {
+                  // Use in-memory contacts
+                  const callerContacts = inMemoryStore.contacts.get(callerAddress) || [];
+                  const calleeContacts = inMemoryStore.contacts.get(recipientAddress) || [];
+                  callerContact = callerContacts.find((c: any) => c.contactAddress === recipientAddress);
+                  calleeContact = calleeContacts.find((c: any) => c.contactAddress === callerAddress);
+                }
+                
                 const isMutualContact = !!(callerContact && calleeContact);
                 const isEitherContact = !!(callerContact || calleeContact); // EITHER party added the other
                 const isContact = !!callerContact;
