@@ -5883,7 +5883,19 @@ export async function registerRoutes(
   app.get('/api/contacts/:ownerAddress/always-allowed', async (req, res) => {
     try {
       const { ownerAddress } = req.params;
-      const contacts = await storage.getAlwaysAllowedContacts(ownerAddress);
+      const { isDatabaseAvailable, inMemoryStore } = await import('./db');
+      
+      let contacts: any[] = [];
+      try {
+        contacts = await storage.getAlwaysAllowedContacts(ownerAddress);
+      } catch (dbError) {
+        if (!isDatabaseAvailable()) {
+          // Return empty array for in-memory mode
+          contacts = (inMemoryStore.contacts.get(ownerAddress) || []).filter((c: any) => c.alwaysAllowed);
+        } else {
+          throw dbError;
+        }
+      }
       res.json({ alwaysAllowed: contacts.map(c => c.contactAddress) });
     } catch (error) {
       console.error('Error fetching always allowed contacts:', error);
@@ -5896,8 +5908,23 @@ export async function registerRoutes(
     try {
       const { ownerAddress, contactAddress } = req.params;
       const { alwaysAllowed } = req.body;
+      const { isDatabaseAvailable, inMemoryStore } = await import('./db');
       
-      const contact = await storage.setContactAlwaysAllowed(ownerAddress, contactAddress, alwaysAllowed);
+      let contact;
+      try {
+        contact = await storage.setContactAlwaysAllowed(ownerAddress, contactAddress, alwaysAllowed);
+      } catch (dbError) {
+        if (!isDatabaseAvailable()) {
+          // Update in-memory
+          const contacts = inMemoryStore.contacts.get(ownerAddress) || [];
+          contact = contacts.find((c: any) => c.contactAddress === contactAddress);
+          if (contact) {
+            contact.alwaysAllowed = alwaysAllowed;
+          }
+        } else {
+          throw dbError;
+        }
+      }
       if (!contact) {
         return res.status(404).json({ error: 'Contact not found' });
       }
@@ -5913,7 +5940,18 @@ export async function registerRoutes(
   app.get('/api/freeze-mode/:address/always-allowed', async (req, res) => {
     try {
       const { address } = req.params;
-      const contacts = await storage.getAlwaysAllowedContacts(address);
+      const { isDatabaseAvailable, inMemoryStore } = await import('./db');
+      
+      let contacts: any[] = [];
+      try {
+        contacts = await storage.getAlwaysAllowedContacts(address);
+      } catch (dbError) {
+        if (!isDatabaseAvailable()) {
+          contacts = (inMemoryStore.contacts.get(address) || []).filter((c: any) => c.alwaysAllowed);
+        } else {
+          throw dbError;
+        }
+      }
       res.json(contacts);
     } catch (error) {
       console.error('Error fetching always allowed contacts:', error);
