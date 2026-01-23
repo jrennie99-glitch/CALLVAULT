@@ -4681,33 +4681,93 @@ export async function registerRoutes(
     try {
       const { address, publicKeyBase58, displayName } = req.body;
       
+      // Import in-memory store for fallback
+      const { inMemoryStore, isDatabaseAvailable } = await import('./db');
+      
       // Check if identity already exists
-      let identity = await storage.getIdentity(address);
+      let identity;
+      try {
+        identity = await storage.getIdentity(address);
+      } catch (dbError) {
+        // DB unavailable - check in-memory
+        if (!isDatabaseAvailable()) {
+          identity = inMemoryStore.identities.get(address);
+        } else {
+          throw dbError;
+        }
+      }
       
       if (identity) {
         // Update last login
-        await storage.updateIdentity(address, { lastLoginAt: new Date() } as any);
+        try {
+          await storage.updateIdentity(address, { lastLoginAt: new Date() } as any);
+        } catch (e) {
+          // Ignore if DB unavailable
+          if (isDatabaseAvailable()) {
+            identity.lastLoginAt = new Date();
+            inMemoryStore.identities.set(address, identity);
+          }
+        }
         
         // ALWAYS check founder status on every login using canonical pubkey
-        await checkAndPromoteFounder(address, publicKeyBase58 || identity.publicKeyBase58);
+        try {
+          await checkAndPromoteFounder(address, publicKeyBase58 || identity.publicKeyBase58);
+        } catch (e) {
+          // Ignore founder check errors
+        }
         
         // Refetch to get updated identity
-        identity = await storage.getIdentity(address) || identity;
+        try {
+          identity = await storage.getIdentity(address) || identity;
+        } catch (e) {
+          // Use cached identity
+        }
         return res.json(identity);
       }
       
       // Create new identity
-      identity = await storage.createIdentity({
-        address,
-        publicKeyBase58,
-        displayName,
-      });
+      try {
+        identity = await storage.createIdentity({
+          address,
+          publicKeyBase58,
+          displayName,
+        });
+      } catch (dbError) {
+        // DB unavailable - create in-memory
+        if (!isDatabaseAvailable()) {
+          console.warn('[Identity] Creating in-memory identity (no database)');
+          identity = {
+            id: Date.now(),
+            address,
+            publicKeyBase58,
+            displayName: displayName || null,
+            role: 'user',
+            plan: 'free',
+            status: 'active',
+            createdAt: new Date(),
+            lastLoginAt: new Date(),
+          };
+          inMemoryStore.identities.set(address, identity);
+          // Initialize empty contacts for this user
+          inMemoryStore.contacts.set(address, []);
+        } else {
+          throw dbError;
+        }
+      }
       
       // Check if this is the founder using canonical pubkey
-      await checkAndPromoteFounder(address, publicKeyBase58);
+      try {
+        await checkAndPromoteFounder(address, publicKeyBase58);
+      } catch (e) {
+        // Ignore founder check errors
+      }
       
       // Refetch to get updated identity with founder role if promoted
-      identity = await storage.getIdentity(address) || identity;
+      try {
+        identity = await storage.getIdentity(address) || identity;
+      } catch (e) {
+        // Use in-memory identity
+      }
       
       res.json(identity);
     } catch (error) {
