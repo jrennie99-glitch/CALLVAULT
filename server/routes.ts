@@ -6753,11 +6753,23 @@ export async function registerRoutes(
                   return;
                 }
                 
-                // FREEZE MODE ENFORCEMENT
-                const freezeSettings = await storage.getFreezeModeSetting(recipientAddress);
+                // FREEZE MODE ENFORCEMENT - Skip if no database
+                let freezeSettings = { enabled: false };
+                if (isDatabaseAvailable()) {
+                  try {
+                    freezeSettings = await storage.getFreezeModeSetting(recipientAddress);
+                  } catch (e) {
+                    // Ignore - freeze mode disabled by default
+                  }
+                }
                 if (freezeSettings.enabled) {
                   // Check if caller is always allowed (emergency bypass)
-                  const isAlwaysAllowed = await storage.isContactAlwaysAllowed(recipientAddress, callerAddress);
+                  let isAlwaysAllowed = false;
+                  try {
+                    isAlwaysAllowed = await storage.isContactAlwaysAllowed(recipientAddress, callerAddress);
+                  } catch (e) {
+                    // Ignore
+                  }
                   
                   // Freeze Mode allows: always-allowed contacts, paid calls, or approved contacts
                   if (!isAlwaysAllowed && !isPaidCall) {
@@ -6790,16 +6802,35 @@ export async function registerRoutes(
                   }
                 }
                 
-                // DO NOT DISTURB (DND) ENFORCEMENT
-                const callIdSettings = await storage.getCallIdSettings(recipientAddress);
+                // DO NOT DISTURB (DND) ENFORCEMENT - Skip if no database
+                let callIdSettings: any = null;
+                if (isDatabaseAvailable()) {
+                  try {
+                    callIdSettings = await storage.getCallIdSettings(recipientAddress);
+                  } catch (e) {
+                    // Ignore
+                  }
+                }
                 if (callIdSettings?.doNotDisturb) {
                   // Check if caller is emergency/always-allowed contact (bypasses DND)
-                  const isAlwaysAllowed = await storage.isContactAlwaysAllowed(recipientAddress, callerAddress);
+                  let isAlwaysAllowed = false;
+                  try {
+                    isAlwaysAllowed = await storage.isContactAlwaysAllowed(recipientAddress, callerAddress);
+                  } catch (e) {
+                    // Ignore
+                  }
                   
                   if (!isAlwaysAllowed && !isPaidCall) {
                     // DND is active - route to voicemail
-                    const callerIdentity = await storage.getIdentity(callerAddress);
-                    const callerContactInfo = await storage.getContact(recipientAddress, callerAddress);
+                    let callerIdentity: any = null;
+                    let callerContactInfo: any = null;
+                    try {
+                      callerIdentity = await storage.getIdentity(callerAddress);
+                      callerContactInfo = await storage.getContact(recipientAddress, callerAddress);
+                    } catch (e) {
+                      // Use in-memory
+                      callerIdentity = inMemoryStore.identities.get(callerAddress);
+                    }
                     const callerDisplayName = callerContactInfo?.name || callerIdentity?.displayName || callerAddress.slice(0, 12) + '...';
                     
                     // Store missed call notification
