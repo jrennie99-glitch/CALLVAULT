@@ -316,6 +316,10 @@ setInterval(cleanupDeadConnections, 30000);
 // Server-side call monitoring: check for stale calls and terminate them
 setInterval(async () => {
   try {
+    // Skip if database is not available
+    const { isDatabaseAvailable } = await import('./db');
+    if (!isDatabaseAvailable()) return;
+    
     const terminatedIds = await FreeTierShield.terminateStaleCalls();
     if (terminatedIds.length > 0) {
       console.log(`Terminated ${terminatedIds.length} stale calls:`, terminatedIds);
@@ -326,7 +330,10 @@ setInterval(async () => {
       }
     }
   } catch (error) {
-    console.error('Error in stale call monitoring:', error);
+    // Only log if it's not a database availability issue
+    if (process.env.DATABASE_URL) {
+      console.error('Error in stale call monitoring:', error);
+    }
   }
 }, FREE_TIER_LIMITS.HEARTBEAT_INTERVAL_SECONDS * 1000); // Check every heartbeat interval
 
