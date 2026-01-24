@@ -630,50 +630,35 @@ export async function registerRoutes(
     }
     
     try {
-      // Generate coturn shared-secret credentials
-      // Username format: expiry_timestamp:random_id
-      // Password: Base64(HMAC-SHA1(username, TURN_SECRET))
+      // Generate coturn shared-secret credentials (TURN REST API / RFC 5766)
+      // Username format: expiry_timestamp:user_id
+      // Credential: Base64(HMAC-SHA1(username, TURN_SECRET))
       const ttl = 86400; // 24 hours credential validity
       const expiry = Math.floor(Date.now() / 1000) + ttl;
       const username = `${expiry}:callvs`;
       
-      // Generate HMAC-SHA1 password
+      // Generate HMAC-SHA1 credential
       const crypto = await import('crypto');
       const hmac = crypto.createHmac('sha1', turnSecret);
       hmac.update(username);
       const credential = hmac.digest('base64');
       
-      // Build ICE servers array with UDP (3478) and TLS (5349) endpoints
-      const iceServers = [
-        ...stunServers,
-        // STUN on the TURN server
-        { urls: `stun:${turnServer}:3478` },
-        // TURN UDP on port 3478
-        { 
-          urls: `turn:${turnServer}:3478?transport=udp`,
-          username,
-          credential
-        },
-        // TURN TCP on port 3478
-        { 
-          urls: `turn:${turnServer}:3478?transport=tcp`,
-          username,
-          credential
-        },
-        // TURN TLS on port 5349
-        { 
-          urls: `turns:${turnServer}:5349?transport=tcp`,
-          username,
-          credential
-        }
+      // TURN URLs for UDP (3478), TCP (3478), and TLS (5349)
+      const urls = [
+        `turn:${turnServer}:3478?transport=udp`,
+        `turn:${turnServer}:3478?transport=tcp`,
+        `turns:${turnServer}:5349?transport=tcp`
       ];
       
       console.log(`[/api/ice] Generated coturn credentials for ${turnServer}, expiry: ${new Date(expiry * 1000).toISOString()}`);
+      
+      // Return flat format for direct use in RTCPeerConnection
       return res.json({ 
-        iceServers, 
-        mode: 'coturn_shared_secret',
+        urls,
+        username,
+        credential,
         ttl,
-        username // Include for debugging (credential is secret)
+        mode: 'coturn_shared_secret'
       });
     } catch (error) {
       console.error('[/api/ice] Error generating credentials:', error);

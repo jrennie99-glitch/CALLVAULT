@@ -4,6 +4,14 @@
  * Uses coturn shared-secret authentication (HMAC-SHA1)
  */
 
+export interface IceApiResponse {
+  urls: string[];
+  username: string;
+  credential: string;
+  ttl: number;
+  mode: string;
+}
+
 export interface IceConfig {
   iceServers: RTCIceServer[];
   mode: string;
@@ -32,12 +40,31 @@ export async function fetchIceConfig(): Promise<IceConfig> {
       throw new Error(`Failed to fetch ICE config: ${res.status}`);
     }
     
-    const data = await res.json();
-    cachedConfig = data;
+    const data: IceApiResponse = await res.json();
+    
+    // Convert flat API response to RTCIceServer format
+    const iceServers: RTCIceServer[] = [
+      // Add STUN servers
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      // Add TURN servers from API response
+      {
+        urls: data.urls,
+        username: data.username,
+        credential: data.credential
+      }
+    ];
+    
+    cachedConfig = {
+      iceServers,
+      mode: data.mode,
+      ttl: data.ttl,
+      username: data.username
+    };
     cacheExpiry = now + 5 * 60 * 1000; // Cache for 5 minutes
     
-    console.log('[ICE] Fetched ICE config:', data.mode, data.iceServers?.length, 'servers');
-    return data;
+    console.log('[ICE] Fetched ICE config:', data.mode, data.urls?.length, 'TURN URLs');
+    return cachedConfig;
   } catch (error) {
     console.error('[ICE] Failed to fetch ICE config:', error);
     // Fallback to basic STUN if fetch fails
