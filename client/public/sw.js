@@ -1,4 +1,4 @@
-const CACHE_NAME = 'call-vault-v3';
+const CACHE_NAME = 'call-vault-v4';
 const STATIC_ASSETS = [
   '/',
   '/favicon.png',
@@ -22,18 +22,24 @@ self.addEventListener('push', (event) => {
   try {
     const data = event.data.json();
     
+    // Check if this is a call notification (incoming_call or missed_call types)
+    const isCallNotification = data.type === 'incoming_call' || data.type === 'call';
+    
     const options = {
       body: data.body || 'Incoming call',
       icon: '/favicon.png',
       badge: '/favicon.png',
-      vibrate: [200, 100, 200, 100, 200, 100, 200],
+      vibrate: isCallNotification ? [200, 100, 200, 100, 200, 100, 200, 100, 200] : [200, 100, 200],
       tag: data.tag || 'call-notification',
-      requireInteraction: true,
-      actions: data.type === 'call' ? [
-        { action: 'answer', title: 'Answer' },
+      requireInteraction: isCallNotification, // Keep notification visible for calls
+      renotify: true, // Alert again even if same tag
+      actions: isCallNotification ? [
+        { action: 'answer', title: 'Answer', icon: '/favicon.png' },
         { action: 'decline', title: 'Decline' }
       ] : [],
-      data: data
+      data: data,
+      // High priority for calls
+      urgency: isCallNotification ? 'high' : 'normal'
     };
     
     event.waitUntil(
@@ -49,12 +55,21 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   
   const data = event.notification.data || {};
-  let url = '/';
+  const action = event.action;
+  let url = '/app';
   
-  if (data.type === 'call' && data.from_address) {
-    url = `/call/${data.from_address}`;
+  // Handle incoming call notifications
+  if (data.type === 'incoming_call' || data.type === 'call') {
+    if (action === 'decline') {
+      // User declined - just close notification, don't open app
+      return;
+    }
+    // Answer or tap notification - open app with call context
+    url = data.url || `/app?incoming=1&from=${data.from_address}`;
   } else if (data.type === 'message' && data.convo_id) {
-    url = `/chat/${data.convo_id}`;
+    url = `/app/chat/${data.convo_id}`;
+  } else if (data.url) {
+    url = data.url;
   }
   
   event.waitUntil(
