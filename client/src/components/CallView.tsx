@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import * as crypto from '@/lib/crypto';
 import { isFeatureEnabled } from '@/lib/featureFlags';
+import { fetchIceConfig } from '@/lib/ice';
 import { addCallRecord, getContactByAddress } from '@/lib/storage';
 import type { CryptoIdentity, WSMessage } from '@shared/types';
 
@@ -339,8 +340,9 @@ export function CallView({
       setConnectionStatus('Improving connection...');
       toast.info('Improving connection...', { duration: 2000 });
       
-      // Update ICE servers to include TURN
-      const turnServers = callSession.iceServers;
+      // Fetch fresh ICE configuration from /api/ice
+      const iceConfig = await fetchIceConfig();
+      const turnServers = iceConfig.iceServers;
       setCurrentIceServers(turnServers);
       
       // Must rebuild peer connection to use new ICE servers
@@ -352,13 +354,18 @@ export function CallView({
           peerConnectionRef.current = null;
         }
         
-        // Rebuild with TURN servers
+        // Rebuild with TURN servers from /api/ice
         const stream = localStreamRef.current;
         if (!stream) {
           throw new Error('No media stream available');
         }
         
-        const pc = new RTCPeerConnection({ iceServers: turnServers });
+        // Force relay mode for TURN fallback
+        const rtcConfig: RTCConfiguration = {
+          iceServers: turnServers,
+          iceTransportPolicy: 'relay'
+        };
+        const pc = new RTCPeerConnection(rtcConfig);
         peerConnectionRef.current = pc;
         
         stream.getTracks().forEach(track => {
@@ -748,18 +755,11 @@ export function CallView({
     // Fetch call session token to get plan-based permissions
     const session = await fetchCallSessionToken();
     
-    // Use TURN servers immediately when available for better reliability (international calls, restrictive NATs)
-    // Fall back to STUN-only if TURN is not allowed or not configured
-    let initialServers: RTCIceServer[];
-    if (session?.allowTurn && session.turnConfigured && session.iceServers?.length > 0) {
-      // Use the full ICE server list (STUN + TURN) from the session
-      initialServers = session.iceServers;
-      console.log('[CallView] Using TURN servers from session:', session.iceServers.length, 'servers');
-    } else {
-      // Free tier or TURN not configured - use STUN only
-      initialServers = STUN_ONLY_SERVERS;
-      console.log('[CallView] Using STUN-only servers (TURN not available)');
-    }
+    // Fetch dynamic ICE configuration from /api/ice (single source of truth)
+    const iceConfig = await fetchIceConfig();
+    const initialServers = iceConfig.iceServers;
+    console.log('[CallView] Using ICE servers from /api/ice:', iceConfig.mode, initialServers.length, 'servers');
+    setCurrentIceServers(initialServers);
     
     try {
       // Reuse existing stream if already captured (e.g., for video calls during ringing)
@@ -775,7 +775,13 @@ export function CallView({
         }
       }
 
-      const pc = new RTCPeerConnection({ iceServers: initialServers });
+      // Create RTCPeerConnection with dynamic ICE config
+      // Use relay policy when using coturn for reliable connections
+      const rtcConfig: RTCConfiguration = {
+        iceServers: initialServers,
+        iceTransportPolicy: iceConfig.mode === 'coturn_shared_secret' ? 'relay' : 'all'
+      };
+      const pc = new RTCPeerConnection(rtcConfig);
       peerConnectionRef.current = pc;
 
       stream.getTracks().forEach(track => {

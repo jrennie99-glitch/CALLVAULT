@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { GroupCallRoom, GroupCallParticipant, WSMessage } from '@shared/types';
 import { generateUUID } from '@/lib/uuid';
+import { fetchIceConfig } from '@/lib/ice';
 
 interface PeerConnection {
   peerAddress: string;
@@ -8,13 +9,8 @@ interface PeerConnection {
   remoteStream: MediaStream | null;
 }
 
-const ICE_SERVERS: RTCConfiguration = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-  ]
-};
+// ICE config cached from /api/ice
+let cachedIceConfig: RTCConfiguration | null = null;
 
 export function useGroupCall(ws: WebSocket | null, myAddress: string) {
   const [room, setRoom] = useState<GroupCallRoom | null>(null);
@@ -36,10 +32,20 @@ export function useGroupCall(ws: WebSocket | null, myAddress: string) {
     roomRef.current = room;
   }, [room]);
 
-  const createPeerConnection = useCallback((peerAddress: string, roomId: string, isInitiator: boolean) => {
+  const createPeerConnection = useCallback(async (peerAddress: string, roomId: string, isInitiator: boolean) => {
     if (!ws) return null;
 
-    const pc = new RTCPeerConnection(ICE_SERVERS);
+    // Fetch ICE config from /api/ice (single source of truth)
+    if (!cachedIceConfig) {
+      const iceConfig = await fetchIceConfig();
+      cachedIceConfig = {
+        iceServers: iceConfig.iceServers,
+        iceTransportPolicy: iceConfig.mode === 'coturn_shared_secret' ? 'relay' : 'all'
+      };
+      console.log('[GroupCall] Fetched ICE config:', iceConfig.mode);
+    }
+
+    const pc = new RTCPeerConnection(cachedIceConfig);
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
@@ -108,7 +114,7 @@ export function useGroupCall(ws: WebSocket | null, myAddress: string) {
     
     let peerData = peerConnections.current.get(from_peer);
     if (!peerData) {
-      const pc = createPeerConnection(from_peer, room_id, false);
+      const pc = await createPeerConnection(from_peer, room_id, false);
       if (!pc) return;
       peerData = peerConnections.current.get(from_peer);
     }
@@ -156,11 +162,14 @@ export function useGroupCall(ws: WebSocket | null, myAddress: string) {
         setRoom(message.room);
         setParticipants(message.participants);
         setIsInRoom(true);
-        message.participants.forEach((p: GroupCallParticipant) => {
-          if (p.user_address !== myAddress) {
-            createPeerConnection(p.user_address, message.room.id, true);
+        // Create peer connections for all existing participants
+        (async () => {
+          for (const p of message.participants) {
+            if (p.user_address !== myAddress) {
+              await createPeerConnection(p.user_address, message.room.id, true);
+            }
           }
-        });
+        })();
         break;
 
       case 'room:invite':
@@ -174,7 +183,9 @@ export function useGroupCall(ws: WebSocket | null, myAddress: string) {
       case 'room:participant_joined':
         setParticipants(prev => [...prev, message.participant]);
         if (roomRef.current) {
-          createPeerConnection(message.participant.user_address, roomRef.current.id, false);
+          (async () => {
+            await createPeerConnection(message.participant.user_address, roomRef.current!.id, false);
+          })();
         }
         break;
 
