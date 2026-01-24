@@ -1,4 +1,4 @@
-# Call Vault - Docker Compose Configuration
+# CallVS - Docker Compose Configuration
 # Usage: docker-compose up -d
 
 version: '3.8'

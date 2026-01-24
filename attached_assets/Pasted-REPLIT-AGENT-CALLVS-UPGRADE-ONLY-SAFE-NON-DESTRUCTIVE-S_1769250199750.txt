@@ -1,0 +1,119 @@
+REPLIT AGENT — CALLVS UPGRADE ONLY (SAFE + NON-DESTRUCTIVE)
+
+SYSTEM CONTEXT:
+This app is ALREADY fully built and running in production.
+It was previously branded as CallVault and MUST now be branded as CallVS.
+
+DO NOT delete, refactor, or break any existing functionality.
+
+YOU ARE ALLOWED TO:
+- Rename branding text from CallVault → CallVS
+- Update APP_NAME, labels, titles, meta tags, UI copy
+- Update comments/docs mentioning CallVault
+- Update display names shown to users/admins
+
+YOU ARE NOT ALLOWED TO:
+- Rename database tables
+- Rename core variables, keys, or identifiers that would break data
+- Remove or rewrite existing logic
+- Change API routes unless ADDING new ones
+- Change existing auth, signaling, or identity behavior
+
+All changes must be BACKWARD COMPATIBLE.
+
+========================================
+PRIMARY GOAL
+========================================
+Make CallVS work like WhatsApp-level reliability over DATA ONLY:
+- Immediate ringing (no “preparing secure session” delay)
+- Reliable voice, video, voice notes, and text
+- Strong TURN relay usage in production
+- No phone numbers
+- No Twilio / no SMS provider
+
+========================================
+A) FIX: RELAY / TURN / WEBRTC RELIABILITY
+========================================
+A1) Ensure TURN is actually used when needed:
+- Caller AND receiver must fetch ICE config dynamically at runtime
+- ICE config must include:
+  - UDP TURN
+  - TCP TURN
+  - TURNS fallback
+- Automatically force relay when:
+  - NAT is strict
+  - ICE stalls
+  - P2P fails
+
+A2) Remove “Preparing secure session” delay:
+- Incoming calls must RING IMMEDIATELY
+- Do crypto/session verification AFTER ring UI appears
+- If verification fails, cancel the call gracefully
+
+A3) Add failover logic:
+- Detect ICE states: failed / disconnected / checking timeout
+- Auto ICE restart
+- Escalate to TURN relay automatically
+- Log clear error reasons (ice_failed, no_relay_candidates, etc.)
+
+========================================
+E3) RELAY ENFORCEMENT (MANDATORY)
+========================================
+- When TURN is available, RELAY MUST BE USED
+- Prevent fallback to host/srflx when relay is required
+- Enforce:
+  iceTransportPolicy = "relay"
+  when NAT traversal or connectivity is unstable
+- Ensure both caller AND receiver respect this rule
+- No silent downgrade to P2P
+
+========================================
+B) ADD: CALL ID MANAGEMENT (NO PHONE #)
+========================================
+CallVS uses cryptographic identity (public/private key).
+KEEP current system — ADD features only.
+
+B1) Rotate Call ID
+- Button: “Generate New Call ID”
+- Instant rotation without breaking current session
+
+B2) Lock Call ID
+- Toggle to prevent accidental rotation
+- Require unlock + confirm to rotate
+
+B3) Recover Call ID
+- Store previous Call IDs securely
+- UI option to recover unless permanently discarded
+
+B4) Permanently Discard
+- Once discarded, cannot be recovered
+
+B5) Admin / Founder Tools (ADD ONLY)
+- View Call ID history metadata (NOT private keys)
+- Assist recovery when allowed
+
+========================================
+C) MESSAGING (DATA ONLY)
+========================================
+- Keep WebSocket/WebRTC data messaging
+- No SMS
+- No Twilio
+- Push notifications optional only
+
+========================================
+D) FINAL RULES
+========================================
+- DO NOT remove any feature
+- DO NOT break existing users
+- DO NOT change DB schemas destructively
+- DO NOT rename core identifiers
+- Branding rename ONLY where safe
+
+After completion, output:
+1) What branding was renamed
+2) What features were added/fixed
+3) Any new env vars
+4) How to deploy on Coolify
+5) How to test relay works
+
+START NOW. DO NOT ASK QUESTIONS. IMPLEMENT SAFELY.

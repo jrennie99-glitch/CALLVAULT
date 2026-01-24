@@ -37,7 +37,7 @@ async function sendWithResend(options: EmailOptions, apiKey: string): Promise<Em
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: process.env.EMAIL_FROM || 'Call Vault <noreply@callvault.app>',
+        from: process.env.EMAIL_FROM || 'CallVS <noreply@callvault.app>',
         to: [options.to],
         subject: options.subject,
         html: options.html,
@@ -90,7 +90,7 @@ async function sendWithSendGrid(options: EmailOptions, apiKey: string): Promise<
 }
 
 export function generateWelcomeEmail(appUrl: string, plan: string): { subject: string; html: string; text: string } {
-  const subject = 'Your Call Vault app is ready!';
+  const subject = 'Your CallVS app is ready!';
   
   const html = `
 <!DOCTYPE html>
@@ -98,7 +98,7 @@ export function generateWelcomeEmail(appUrl: string, plan: string): { subject: s
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Welcome to Call Vault</title>
+  <title>Welcome to CallVS</title>
 </head>
 <body style="margin: 0; padding: 0; background-color: #0f172a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
   <div style="max-width: 600px; margin: 0 auto; padding: 40px 20px;">
@@ -107,11 +107,11 @@ export function generateWelcomeEmail(appUrl: string, plan: string): { subject: s
         <span style="font-size: 32px;">✓</span>
       </div>
       
-      <h1 style="color: #ffffff; font-size: 24px; margin: 0 0 8px;">Welcome to Call Vault!</h1>
+      <h1 style="color: #ffffff; font-size: 24px; margin: 0 0 8px;">Welcome to CallVS!</h1>
       <p style="color: #94a3b8; font-size: 16px; margin: 0 0 24px;">Your ${plan} subscription is now active</p>
       
       <a href="${appUrl}" style="display: inline-block; background-color: #10b981; color: #ffffff; text-decoration: none; padding: 14px 28px; border-radius: 8px; font-weight: 600; font-size: 16px; margin-bottom: 24px;">
-        Open Call Vault
+        Open CallVS
       </a>
       
       <div style="background-color: #334155; border-radius: 8px; padding: 20px; text-align: left; margin-top: 24px;">
@@ -142,11 +142,11 @@ export function generateWelcomeEmail(appUrl: string, plan: string): { subject: s
   `;
   
   const text = `
-Welcome to Call Vault!
+Welcome to CallVS!
 
 Your ${plan} subscription is now active.
 
-Open Call Vault: ${appUrl}
+Open CallVS: ${appUrl}
 
 INSTALL ON YOUR PHONE
 
@@ -168,7 +168,7 @@ Need help? Reply to this email.
 
 export function generateTrialInviteEmail(appUrl: string, inviteCode: string, trialDays: number): { subject: string; html: string; text: string } {
   const inviteUrl = `${appUrl}/invite/${inviteCode}`;
-  const subject = `You're invited to try Call Vault Pro for ${trialDays} days!`;
+  const subject = `You're invited to try CallVS Pro for ${trialDays} days!`;
   
   const html = `
 <!DOCTYPE html>
@@ -181,14 +181,14 @@ export function generateTrialInviteEmail(appUrl: string, inviteCode: string, tri
   <div style="max-width: 600px; margin: 0 auto; padding: 40px 20px;">
     <div style="background-color: #1e293b; border-radius: 12px; padding: 32px; text-align: center;">
       <h1 style="color: #ffffff; font-size: 24px; margin: 0 0 8px;">You're Invited!</h1>
-      <p style="color: #94a3b8; font-size: 16px; margin: 0 0 24px;">Try Call Vault Pro free for ${trialDays} days</p>
+      <p style="color: #94a3b8; font-size: 16px; margin: 0 0 24px;">Try CallVS Pro free for ${trialDays} days</p>
       
       <a href="${inviteUrl}" style="display: inline-block; background-color: #10b981; color: #ffffff; text-decoration: none; padding: 14px 28px; border-radius: 8px; font-weight: 600; font-size: 16px;">
         Accept Invitation
       </a>
       
       <p style="color: #64748b; font-size: 12px; margin-top: 24px;">
-        This invitation gives you full access to Call Vault Pro features.
+        This invitation gives you full access to CallVS Pro features.
       </p>
     </div>
   </div>
@@ -196,13 +196,13 @@ export function generateTrialInviteEmail(appUrl: string, inviteCode: string, tri
 </html>
   `;
   
-  const text = `You're Invited to Call Vault!
+  const text = `You're Invited to CallVS!
 
-Try Call Vault Pro free for ${trialDays} days.
+Try CallVS Pro free for ${trialDays} days.
 
 Accept your invitation: ${inviteUrl}
 
-This invitation gives you full access to Call Vault Pro features.`;
+This invitation gives you full access to CallVS Pro features.`;
   
   return { subject, html, text };
 }

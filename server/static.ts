@@ -19,7 +19,7 @@ const FALLBACK_HTML = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Call Vault - Build Missing</title>
+  <title>CallVS - Build Missing</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -58,7 +58,7 @@ const FALLBACK_HTML = `<!DOCTYPE html>
 <body>
   <div class="container">
     <h1>🚧 Frontend Build Missing</h1>
-    <p>The Call Vault frontend has not been built yet.</p>
+    <p>The CallVS frontend has not been built yet.</p>
     <p>The server is running, but the client application needs to be compiled.</p>
     <div class="code">
       To build the frontend, run:<br>

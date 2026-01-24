@@ -8,7 +8,7 @@ interface TopBarProps {
   wsConnected?: boolean;
 }
 
-export function TopBar({ title = 'Call Vault', isFounder = false, isAdmin = false, wsConnected }: TopBarProps) {
+export function TopBar({ title = 'CallVS', isFounder = false, isAdmin = false, wsConnected }: TopBarProps) {
   const profile = getUserProfile();
 
   return (

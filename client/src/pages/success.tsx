@@ -123,7 +123,7 @@ export default function SuccessPage() {
           <div className="bg-slate-700/50 rounded-lg p-4">
             <h3 className="font-semibold text-white flex items-center gap-2 mb-3">
               <Smartphone className="h-5 w-5 text-emerald-400" />
-              Install Call Vault on Your Device
+              Install CallVS on Your Device
             </h3>
             
             {platform === 'ios' && (
@@ -175,7 +175,7 @@ export default function SuccessPage() {
                 <p className="font-medium text-white">Desktop:</p>
                 <ol className="list-decimal list-inside space-y-2 ml-2">
                   <li>Look for the install icon <Download className="inline h-4 w-4" /> in your browser's address bar</li>
-                  <li>Or use the menu to "Install Call Vault"</li>
+                  <li>Or use the menu to "Install CallVS"</li>
                   <li>For mobile, open this link on your phone</li>
                 </ol>
               </div>
@@ -189,7 +189,7 @@ export default function SuccessPage() {
               data-testid="button-open-call-vault"
             >
               <ExternalLink className="h-5 w-5 mr-2" />
-              Open Call Vault
+              Open CallVS
             </Button>
             
             <p className="text-center text-xs text-slate-400">

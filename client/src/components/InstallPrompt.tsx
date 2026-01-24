@@ -124,7 +124,7 @@ export function InstallPrompt() {
             <div className="bg-emerald-500/20 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <Smartphone className="h-8 w-8 text-emerald-400" />
             </div>
-            <h2 className="text-xl font-bold text-white">Install Call Vault</h2>
+            <h2 className="text-xl font-bold text-white">Install CallVS</h2>
             <p className="text-slate-400 text-sm mt-2">
               Get the full app experience with notifications for calls and messages
             </p>
@@ -157,7 +157,7 @@ export function InstallPrompt() {
               </div>
               <div>
                 <p className="text-white text-sm font-medium">3. Tap "Add"</p>
-                <p className="text-slate-400 text-xs">Call Vault will be on your home screen</p>
+                <p className="text-slate-400 text-xs">CallVS will be on your home screen</p>
               </div>
             </div>
           </div>
@@ -208,7 +208,7 @@ export function InstallPrompt() {
           <div className="bg-emerald-500/20 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4">
             <Smartphone className="h-8 w-8 text-emerald-400" />
           </div>
-          <h2 className="text-xl font-bold text-white">Install Call Vault</h2>
+          <h2 className="text-xl font-bold text-white">Install CallVS</h2>
           <p className="text-slate-400 text-sm mt-2">
             Add to your home screen for quick access and push notifications for calls & messages
           </p>

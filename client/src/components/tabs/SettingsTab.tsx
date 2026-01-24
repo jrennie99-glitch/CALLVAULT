@@ -1041,14 +1041,14 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
               <div className="flex items-start gap-3">
                 <Smartphone className="w-5 h-5 text-amber-400 mt-0.5" />
                 <div>
-                  <p className="text-white font-medium">Install Call Vault on iOS</p>
+                  <p className="text-white font-medium">Install CallVS on iOS</p>
                   <p className="text-amber-200/80 text-sm mt-1">
                     To receive call notifications when the app is closed:
                   </p>
                   <ol className="text-amber-200/80 text-sm mt-2 space-y-1 list-decimal list-inside">
                     <li>Tap the <span className="font-semibold">Share</span> button (square with arrow)</li>
                     <li>Scroll and tap <span className="font-semibold">"Add to Home Screen"</span></li>
-                    <li>Open Call Vault from your home screen</li>
+                    <li>Open CallVS from your home screen</li>
                     <li>Enable notifications in Settings</li>
                   </ol>
                 </div>
@@ -1065,7 +1065,7 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
               <div className="flex items-center gap-3">
                 <Smartphone className="w-5 h-5 text-blue-400" />
                 <div className="text-left">
-                  <p className="text-white font-medium">Install Call Vault</p>
+                  <p className="text-white font-medium">Install CallVS</p>
                   <p className="text-slate-400 text-sm">Get the app for better notifications</p>
                 </div>
               </div>
@@ -1589,7 +1589,7 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
             "Calls only happen with your permission."
           </p>
           <p className="text-slate-500 text-xs mt-2">
-            Call Vault uses end-to-end encryption for secure peer-to-peer calling.
+            CallVS uses end-to-end encryption for secure peer-to-peer calling.
           </p>
         </CardContent>
       </Card>

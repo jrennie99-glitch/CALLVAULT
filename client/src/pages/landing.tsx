@@ -18,7 +18,7 @@ export default function LandingPage() {
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
             <Shield className="w-6 h-6 text-white" />
           </div>
-          <span className="text-xl font-bold">Call Vault</span>
+          <span className="text-xl font-bold">CallVS</span>
         </div>
         <div className="flex gap-2 sm:gap-3">
           <Button variant="ghost" size="sm" onClick={() => setLocation('/how-it-works')} className="hidden sm:flex" data-testid="link-how-it-works">
@@ -160,7 +160,7 @@ export default function LandingPage() {
 
         <section className="px-4 py-16 max-w-4xl mx-auto">
           <div className="text-center mb-12">
-            <h2 className="text-3xl font-bold mb-4">Why Call Vault?</h2>
+            <h2 className="text-3xl font-bold mb-4">Why CallVS?</h2>
             <p className="text-slate-400">Built for privacy-conscious individuals and creators</p>
           </div>
           
@@ -267,7 +267,7 @@ export default function LandingPage() {
           <div className="flex flex-col md:flex-row items-center justify-between gap-4 mb-4">
             <div className="flex items-center gap-2">
               <Shield className="w-5 h-5 text-blue-400" />
-              <span className="text-slate-400">Call Vault</span>
+              <span className="text-slate-400">CallVS</span>
             </div>
             <div className="flex gap-6 text-sm text-slate-500">
               <button onClick={() => setLocation('/how-it-works')} className="hover:text-slate-300">How It Works</button>

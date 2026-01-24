@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.callvault.cv',
-  appName: 'Call Vault',
+  appName: 'CallVS',
   webDir: 'dist/public',
   server: {
     androidScheme: 'https',

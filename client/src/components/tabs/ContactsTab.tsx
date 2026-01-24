@@ -174,7 +174,7 @@ export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR, onOpenCha
         body: JSON.stringify({
           creatorAddress: ownerAddress,
           contactName: inviteContactName.trim(),
-          creatorDisplayName: userProfile.displayName || 'Call Vault User',
+          creatorDisplayName: userProfile.displayName || 'CallVS User',
         }),
       });
       
@@ -196,12 +196,12 @@ export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR, onOpenCha
   const handleShareInvite = async () => {
     if (!inviteUrl) return;
     
-    const shareText = `Hey ${inviteContactName}! Join me on Call Vault for secure video calls. ${inviteUrl}`;
+    const shareText = `Hey ${inviteContactName}! Join me on CallVS for secure video calls. ${inviteUrl}`;
     
     if (navigator.share) {
       try {
         await navigator.share({
-          title: 'Call Vault Invite',
+          title: 'CallVS Invite',
           text: shareText,
         });
         toast.success('Invite shared!');
@@ -218,7 +218,7 @@ export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR, onOpenCha
 
   const handleCopyInvite = async () => {
     if (!inviteUrl) return;
-    const shareText = `Hey ${inviteContactName}! Join me on Call Vault for secure video calls. ${inviteUrl}`;
+    const shareText = `Hey ${inviteContactName}! Join me on CallVS for secure video calls. ${inviteUrl}`;
     await copyToClipboard(shareText, 'Invite copied!');
   };
 
@@ -611,7 +611,7 @@ export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR, onOpenCha
           onClick={() => setShowInviteDialog(true)}
           className="fixed bottom-24 right-4 w-14 h-14 rounded-full bg-gradient-to-r from-emerald-500 to-teal-600 shadow-lg shadow-emerald-500/30 flex items-center justify-center text-white hover:from-emerald-600 hover:to-teal-700 transition-all z-40"
           data-testid="button-invite-fab"
-          title="Invite someone to Call Vault"
+          title="Invite someone to CallVS"
         >
           <Send className="w-6 h-6" />
         </button>
@@ -620,7 +620,7 @@ export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR, onOpenCha
       <Dialog open={showInviteDialog} onOpenChange={handleCloseInviteDialog}>
         <DialogContent className="bg-slate-800 border-slate-700 text-white">
           <DialogHeader>
-            <DialogTitle>Invite Someone to Call Vault</DialogTitle>
+            <DialogTitle>Invite Someone to CallVS</DialogTitle>
             <DialogDescription className="text-slate-400">
               Enter their name and send them an invite. They'll be automatically saved as your contact when they join.
             </DialogDescription>
@@ -658,7 +658,7 @@ export function ContactsTab({ onStartCall, onNavigateToAdd, onShareQR, onOpenCha
               <div className="bg-slate-700/50 rounded-lg p-4">
                 <p className="text-sm text-slate-300 mb-2">Invite message for {inviteContactName}:</p>
                 <p className="text-sm text-slate-400 break-all">
-                  Hey {inviteContactName}! Join me on Call Vault for secure video calls. {inviteUrl}
+                  Hey {inviteContactName}! Join me on CallVS for secure video calls. {inviteUrl}
                 </p>
               </div>
               <div className="flex gap-2">

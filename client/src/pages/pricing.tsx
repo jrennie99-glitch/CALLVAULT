@@ -141,7 +141,7 @@ export default function PricingPage() {
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
             <Shield className="w-4 h-4 text-white" />
           </div>
-          <span className="font-bold">Call Vault</span>
+          <span className="font-bold">CallVS</span>
         </div>
         <Button onClick={() => setLocation('/app')} data-testid="button-open-app-pricing">
           Open App

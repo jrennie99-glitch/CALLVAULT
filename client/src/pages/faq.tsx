@@ -86,7 +86,7 @@ export default function FAQPage() {
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
             <Shield className="w-6 h-6 text-white" />
           </div>
-          <span className="text-xl font-bold">Call Vault</span>
+          <span className="text-xl font-bold">CallVS</span>
         </div>
         <Button onClick={() => setLocation('/onboarding')} data-testid="button-get-started">
           Get Started

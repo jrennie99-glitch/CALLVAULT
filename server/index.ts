@@ -165,7 +165,7 @@ async function startServer() {
   // Start the server
   httpServer.listen(PORT, "0.0.0.0", () => {
     console.log("\n============================================================");
-    console.log("Call Vault Server Started");
+    console.log("CallVS Server Started");
     console.log("============================================================");
     console.log(`NODE_ENV: ${process.env.NODE_ENV || "development"}`);
     console.log(`PORT: ${PORT}`);

@@ -139,7 +139,7 @@ export function ModeSettings({ myAddress, onModeChange }: ModeSettingsProps) {
           <div>
             <CardTitle className="text-white">Mode</CardTitle>
             <CardDescription className="text-slate-400">
-              Choose how you want to use Call Vault
+              Choose how you want to use CallVS
             </CardDescription>
           </div>
           {currentModeInfo && (

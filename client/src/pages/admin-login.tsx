@@ -56,7 +56,7 @@ export default function AdminLoginPage() {
           </div>
           <CardTitle className="text-2xl text-white">Admin Console</CardTitle>
           <CardDescription className="text-slate-400">
-            Sign in to access the Call Vault admin dashboard
+            Sign in to access the CallVS admin dashboard
           </CardDescription>
         </CardHeader>
         

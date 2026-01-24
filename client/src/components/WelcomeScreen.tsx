@@ -269,7 +269,7 @@ export function WelcomeScreen({ onIdentityCreated }: WelcomeScreenProps) {
           <div className="w-20 h-20 mx-auto bg-gradient-to-br from-emerald-400 to-cyan-500 rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-emerald-500/20">
             <Shield className="w-10 h-10 text-white" />
           </div>
-          <h1 className="text-3xl font-bold text-white mb-2">Call Vault</h1>
+          <h1 className="text-3xl font-bold text-white mb-2">CallVS</h1>
           <p className="text-slate-400">Secure peer-to-peer calling</p>
         </div>
 

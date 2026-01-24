@@ -1,4 +1,4 @@
-const CACHE_NAME = 'call-vault-v5';
+const CACHE_NAME = 'callvs-v6';
 const STATIC_ASSETS = [
   '/',
   '/favicon.png',
@@ -45,7 +45,7 @@ self.addEventListener('push', (event) => {
     };
     
     event.waitUntil(
-      self.registration.showNotification(data.title || 'Call Vault', options)
+      self.registration.showNotification(data.title || 'CallVS', options)
     );
   } catch (e) {
     console.error('Push notification error:', e);

@@ -1,6 +1,6 @@
 {
-  "name": "Call Vault",
-  "short_name": "CV",
+  "name": "CallVS",
+  "short_name": "CallVS",
   "description": "Secure peer-to-peer video calls with crypto addresses",
   "start_url": "/",
   "display": "standalone",

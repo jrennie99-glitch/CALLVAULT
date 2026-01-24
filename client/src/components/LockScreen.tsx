@@ -107,7 +107,7 @@ export function LockScreen({ onUnlock }: LockScreenProps) {
           <Lock className="w-12 h-12 text-white" />
         </div>
 
-        <h1 className="text-2xl font-bold text-white mb-2">Call Vault</h1>
+        <h1 className="text-2xl font-bold text-white mb-2">CallVS</h1>
         <p className="text-slate-400 mb-8">Use Face ID or Touch ID to unlock</p>
 
         {error && (

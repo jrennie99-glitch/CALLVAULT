@@ -41,7 +41,7 @@ export function AddTab({ myAddress, onContactAdded, onStartCall, onNavigateToInv
         setScannerError(null);
         toast.success('QR code scanned! Enter a name for this contact.');
       } else {
-        setScannerError('Invalid QR code - must be a Call Vault address');
+        setScannerError('Invalid QR code - must be a CallVS address');
       }
     }
   };
@@ -314,7 +314,7 @@ export function AddTab({ myAddress, onContactAdded, onStartCall, onNavigateToInv
                   </div>
                   <div>
                     <h3 className="text-white font-semibold">Scan QR Code</h3>
-                    <p className="text-slate-400 text-xs">Point camera at a Call Vault code</p>
+                    <p className="text-slate-400 text-xs">Point camera at a CallVS code</p>
                   </div>
                 </div>
                 <Button

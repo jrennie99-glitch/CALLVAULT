@@ -1,4 +1,4 @@
-# Call Vault - Production Dockerfile
+# CallVS - Production Dockerfile
 # Multi-stage build for smaller image size
 
 # Stage 1: Build

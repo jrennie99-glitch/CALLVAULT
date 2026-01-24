@@ -69,13 +69,13 @@ export async function enrollBiometric(): Promise<boolean> {
       publicKey: {
         challenge,
         rp: {
-          name: 'Call Vault',
+          name: 'CallVS',
           id: window.location.hostname
         },
         user: {
           id: userId,
-          name: 'call-vault-user',
-          displayName: 'Call Vault User'
+          name: 'callvs-user',
+          displayName: 'CallVS User'
         },
         pubKeyCredParams: [
           { alg: -7, type: 'public-key' },
