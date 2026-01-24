@@ -1,4 +1,4 @@
-const CACHE_NAME = 'call-vault-v4';
+const CACHE_NAME = 'call-vault-v5';
 const STATIC_ASSETS = [
   '/',
   '/favicon.png',
@@ -22,24 +22,26 @@ self.addEventListener('push', (event) => {
   try {
     const data = event.data.json();
     
-    // Check if this is a call notification (incoming_call or missed_call types)
-    const isCallNotification = data.type === 'incoming_call' || data.type === 'call';
+    // Check if this is an incoming call notification 
+    const isIncomingCall = data.type === 'incoming_call' || data.type === 'call';
+    // Check if this is a missed call notification
+    const isMissedCall = data.type === 'missed_call';
+    // Any call-related notification should get priority treatment
+    const isCallRelated = isIncomingCall || isMissedCall;
     
     const options = {
       body: data.body || 'Incoming call',
       icon: '/favicon.png',
       badge: '/favicon.png',
-      vibrate: isCallNotification ? [200, 100, 200, 100, 200, 100, 200, 100, 200] : [200, 100, 200],
-      tag: data.tag || 'call-notification',
-      requireInteraction: isCallNotification, // Keep notification visible for calls
+      vibrate: isCallRelated ? [200, 100, 200, 100, 200, 100, 200, 100, 200] : [200, 100, 200],
+      tag: data.tag || (isCallRelated ? 'call-notification' : 'message-notification'),
+      requireInteraction: isIncomingCall, // Only keep visible for incoming calls (not missed)
       renotify: true, // Alert again even if same tag
-      actions: isCallNotification ? [
-        { action: 'answer', title: 'Answer', icon: '/favicon.png' },
+      actions: isIncomingCall ? [
+        { action: 'answer', title: 'Answer' },
         { action: 'decline', title: 'Decline' }
       ] : [],
-      data: data,
-      // High priority for calls
-      urgency: isCallNotification ? 'high' : 'normal'
+      data: data
     };
     
     event.waitUntil(
@@ -59,15 +61,24 @@ self.addEventListener('notificationclick', (event) => {
   let url = '/app';
   
   // Handle incoming call notifications
-  if (data.type === 'incoming_call' || data.type === 'call') {
+  const isIncomingCall = data.type === 'incoming_call' || data.type === 'call';
+  if (isIncomingCall) {
     if (action === 'decline') {
       // User declined - just close notification, don't open app
       return;
     }
-    // Answer or tap notification - open app with call context
-    url = data.url || `/app?incoming=1&from=${data.from_address}`;
+    // Answer or tap notification - open call screen directly
+    // Server sends url in payload, or use from_address to construct path
+    if (data.url) {
+      url = data.url;
+    } else if (data.from_address) {
+      url = `/call/${data.from_address}`;
+    }
+  } else if (data.type === 'missed_call' && data.from_address) {
+    // Missed call - open call history or contact
+    url = `/call/${data.from_address}`;
   } else if (data.type === 'message' && data.convo_id) {
-    url = `/app/chat/${data.convo_id}`;
+    url = `/chat/${data.convo_id}`;
   } else if (data.url) {
     url = data.url;
   }
