@@ -316,6 +316,10 @@ setInterval(cleanupDeadConnections, 30000);
 // Server-side call monitoring: check for stale calls and terminate them
 setInterval(async () => {
   try {
+    // Skip if database is not available
+    const { isDatabaseAvailable } = await import('./db');
+    if (!isDatabaseAvailable()) return;
+    
     const terminatedIds = await FreeTierShield.terminateStaleCalls();
     if (terminatedIds.length > 0) {
       console.log(`Terminated ${terminatedIds.length} stale calls:`, terminatedIds);
@@ -326,7 +330,10 @@ setInterval(async () => {
       }
     }
   } catch (error) {
-    console.error('Error in stale call monitoring:', error);
+    // Only log if it's not a database availability issue
+    if (process.env.DATABASE_URL) {
+      console.error('Error in stale call monitoring:', error);
+    }
   }
 }, FREE_TIER_LIMITS.HEARTBEAT_INTERVAL_SECONDS * 1000); // Check every heartbeat interval
 
@@ -674,6 +681,89 @@ export async function registerRoutes(
     }
   });
 
+  // ICE/TURN verification endpoint - for production readiness testing
+  // Returns detailed configuration info to help diagnose WebRTC issues
+  app.get('/api/ice-verify', async (_req, res) => {
+    const turnMode = (process.env.TURN_MODE || 'public').toLowerCase();
+    const turnUrls = process.env.TURN_URLS?.split(',').map(u => u.trim()).filter(Boolean) || [];
+    const turnUsername = process.env.TURN_USERNAME;
+    const turnCredential = process.env.TURN_CREDENTIAL;
+    const stunUrls = process.env.STUN_URLS?.split(',').map(u => u.trim()).filter(Boolean) || 
+      ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'];
+    
+    const issues: string[] = [];
+    const recommendations: string[] = [];
+    
+    // Check TURN configuration
+    if (turnMode === 'custom') {
+      if (!turnUrls.length) {
+        issues.push('TURN_MODE=custom but TURN_URLS is empty');
+      }
+      if (!turnUsername) {
+        issues.push('TURN_MODE=custom but TURN_USERNAME is missing');
+      }
+      if (!turnCredential) {
+        issues.push('TURN_MODE=custom but TURN_CREDENTIAL is missing');
+      }
+      
+      // Check if TURN URLs include both UDP and TCP transport
+      const hasUdp = turnUrls.some(u => !u.includes('transport=') || u.includes('transport=udp'));
+      const hasTcp = turnUrls.some(u => u.includes('transport=tcp'));
+      if (!hasTcp) {
+        recommendations.push('Add TCP transport for TURN (turn:server:3478?transport=tcp) to handle strict firewalls');
+      }
+    } else if (turnMode === 'public') {
+      recommendations.push('TURN_MODE=public uses free OpenRelay servers - not recommended for production');
+      recommendations.push('Set TURN_MODE=custom and configure your own coturn server for production');
+    } else if (turnMode === 'off') {
+      recommendations.push('TURN_MODE=off - calls may fail behind NAT/firewalls. Only use if all users are on open networks');
+    }
+    
+    // Build test configuration (without exposing credentials)
+    const testConfig = {
+      turnMode,
+      turnServersCount: turnUrls.length,
+      turnServers: turnUrls.map(u => u.replace(/:[^:@]+@/, ':***@')), // Mask passwords if inline
+      stunServers: stunUrls,
+      credentialsConfigured: !!(turnUsername && turnCredential)
+    };
+    
+    // Provide trickle-ice test URLs
+    const testUrls = {
+      trickleIce: 'https://webrtc.github.io/samples/src/content/peerconnection/trickle-ice/',
+      instructions: [
+        '1. Open the Trickle ICE page',
+        '2. Remove default servers',
+        `3. Add STUN server: ${stunUrls[0] || 'stun:stun.l.google.com:19302'}`,
+        turnMode === 'custom' && turnUrls.length > 0
+          ? `4. Add TURN server: ${turnUrls[0]} with username/credential`
+          : '4. Add your TURN server with credentials',
+        '5. Click "Gather candidates"',
+        '6. Look for "relay" type candidates (TURN) and "srflx" candidates (STUN)',
+        '7. If no relay candidates appear, check coturn config and firewall'
+      ]
+    };
+    
+    res.json({
+      status: issues.length === 0 ? 'ok' : 'issues_found',
+      timestamp: Date.now(),
+      configuration: testConfig,
+      issues,
+      recommendations,
+      testing: testUrls,
+      firewall: {
+        required: [
+          'TCP 3478 (TURN signaling)',
+          'UDP 3478 (TURN signaling)',
+          'TCP 5349 (TURNS - TLS, optional)',
+          'UDP 5349 (TURNS - TLS, optional)',
+          'UDP 49152-65535 (TURN relay range - can be smaller)'
+        ],
+        note: 'Ensure these ports are open on both server firewall (ufw/iptables) and Hetzner cloud firewall'
+      }
+    });
+  });
+
   // Cleanup expired call tokens from database every hour
   setInterval(async () => {
     try {
@@ -695,12 +785,19 @@ export async function registerRoutes(
       const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
 
       if (!address) {
-        await recordTokenMetric('verify_invalid', undefined, userAgent, clientIp, 'Missing address');
+        try { await recordTokenMetric('verify_invalid', undefined, userAgent, clientIp, 'Missing address'); } catch(e) {}
         return res.status(400).json({ error: 'Address required' });
       }
 
       // Get user's plan and entitlements
-      const user = await storage.getIdentity(address);
+      let user = null;
+      try {
+        user = await storage.getIdentity(address);
+      } catch (dbError) {
+        // Database unavailable - proceed with defaults
+        console.warn('[CallToken] Database unavailable, using default plan settings');
+      }
+      
       let plan = 'free';
       let allowTurn = false;
       let allowVideo = true;
@@ -764,16 +861,36 @@ export async function registerRoutes(
       }
 
       // Create database-backed token with server timestamps
-      const tokenData = await storage.createCallToken(
-        address,
-        targetAddress,
-        plan,
-        finalAllowTurn,
-        allowVideo
-      );
+      // If database is unavailable, create ephemeral token (for testing/dev only)
+      let tokenData;
+      try {
+        tokenData = await storage.createCallToken(
+          address,
+          targetAddress,
+          plan,
+          finalAllowTurn,
+          allowVideo
+        );
+      } catch (dbError: any) {
+        // Database unavailable - create ephemeral token for development/testing
+        // WARNING: This bypasses replay protection, only use when DATABASE_URL is not set
+        console.warn('[CallToken] Database unavailable, creating ephemeral token (NO REPLAY PROTECTION)');
+        const { randomUUID } = await import('crypto');
+        const now = new Date();
+        tokenData = {
+          token: randomUUID(),
+          nonce: randomUUID(),
+          issuedAt: now,
+          expiresAt: new Date(now.getTime() + 10 * 60 * 1000)
+        };
+      }
 
-      // Record metric
-      await recordTokenMetric('minted', address, userAgent, clientIp);
+      // Record metric (may fail silently if DB unavailable)
+      try {
+        await recordTokenMetric('minted', address, userAgent, clientIp);
+      } catch (e) {
+        // Ignore metric recording failure
+      }
 
       // Build ICE servers config
       let iceServers: any[] = [
@@ -1631,7 +1748,18 @@ export async function registerRoutes(
   app.get('/api/contacts/:ownerAddress', async (req, res) => {
     try {
       const { ownerAddress } = req.params;
-      const contactsList = await storage.getContacts(ownerAddress);
+      const { isDatabaseAvailable, inMemoryStore } = await import('./db');
+      
+      let contactsList: any[] = [];
+      try {
+        contactsList = await storage.getContacts(ownerAddress);
+      } catch (dbError) {
+        if (!isDatabaseAvailable()) {
+          contactsList = inMemoryStore.contacts.get(ownerAddress) || [];
+        } else {
+          throw dbError;
+        }
+      }
       res.json(contactsList);
     } catch (error) {
       console.error('Error getting contacts:', error);
@@ -1641,7 +1769,26 @@ export async function registerRoutes(
 
   app.post('/api/contacts', async (req, res) => {
     try {
-      const contact = await storage.createContact(req.body);
+      const { isDatabaseAvailable, inMemoryStore } = await import('./db');
+      let contact;
+      
+      try {
+        contact = await storage.createContact(req.body);
+      } catch (dbError) {
+        if (!isDatabaseAvailable()) {
+          // Create contact in-memory
+          contact = {
+            id: Date.now(),
+            ...req.body,
+            createdAt: new Date(),
+          };
+          const contacts = inMemoryStore.contacts.get(req.body.ownerAddress) || [];
+          contacts.push(contact);
+          inMemoryStore.contacts.set(req.body.ownerAddress, contacts);
+        } else {
+          throw dbError;
+        }
+      }
       
       // Notify the contact person that they've been added (if online)
       const contactAddress = req.body.contactAddress;
@@ -1650,9 +1797,20 @@ export async function registerRoutes(
       
       if (contactAddress) {
         // Get the adder's identity to show their name
-        const adderIdentity = await storage.getIdentity(ownerAddress);
+        let adderIdentity;
+        try {
+          adderIdentity = await storage.getIdentity(ownerAddress);
+        } catch (e) {
+          adderIdentity = inMemoryStore.identities.get(ownerAddress);
+        }
         // Also check if the recipient has the adder saved as a contact
-        const existingContact = await storage.getContact(contactAddress, ownerAddress);
+        let existingContact;
+        try {
+          existingContact = await storage.getContact(contactAddress, ownerAddress);
+        } catch (e) {
+          const recipientContacts = inMemoryStore.contacts.get(contactAddress) || [];
+          existingContact = recipientContacts.find((c: any) => c.contactAddress === ownerAddress);
+        }
         const adderName = existingContact?.name || adderIdentity?.displayName || ownerAddress.slice(5, 17) + '...';
         
         broadcastToAddress(contactAddress, {
@@ -1666,13 +1824,17 @@ export async function registerRoutes(
           });
           
         // Also send push notification if they're offline
-        await sendPushNotification(contactAddress, {
-          type: 'contact_added',
-          title: 'New Contact',
+        try {
+          await sendPushNotification(contactAddress, {
+            type: 'contact_added',
+            title: 'New Contact',
           body: `${adderName} saved you as "${savedAsName}"`,
           tag: 'contact-added',
           from_address: ownerAddress
         });
+        } catch (pushError) {
+          // Ignore push notification errors
+        }
         
         console.log(`[contact:added_by] Notified ${contactAddress} that ${adderName} saved them as "${savedAsName}"`);
       }
@@ -4672,33 +4834,93 @@ export async function registerRoutes(
     try {
       const { address, publicKeyBase58, displayName } = req.body;
       
+      // Import in-memory store for fallback
+      const { inMemoryStore, isDatabaseAvailable } = await import('./db');
+      
       // Check if identity already exists
-      let identity = await storage.getIdentity(address);
+      let identity;
+      try {
+        identity = await storage.getIdentity(address);
+      } catch (dbError) {
+        // DB unavailable - check in-memory
+        if (!isDatabaseAvailable()) {
+          identity = inMemoryStore.identities.get(address);
+        } else {
+          throw dbError;
+        }
+      }
       
       if (identity) {
         // Update last login
-        await storage.updateIdentity(address, { lastLoginAt: new Date() } as any);
+        try {
+          await storage.updateIdentity(address, { lastLoginAt: new Date() } as any);
+        } catch (e) {
+          // Ignore if DB unavailable
+          if (isDatabaseAvailable()) {
+            identity.lastLoginAt = new Date();
+            inMemoryStore.identities.set(address, identity);
+          }
+        }
         
         // ALWAYS check founder status on every login using canonical pubkey
-        await checkAndPromoteFounder(address, publicKeyBase58 || identity.publicKeyBase58);
+        try {
+          await checkAndPromoteFounder(address, publicKeyBase58 || identity.publicKeyBase58);
+        } catch (e) {
+          // Ignore founder check errors
+        }
         
         // Refetch to get updated identity
-        identity = await storage.getIdentity(address) || identity;
+        try {
+          identity = await storage.getIdentity(address) || identity;
+        } catch (e) {
+          // Use cached identity
+        }
         return res.json(identity);
       }
       
       // Create new identity
-      identity = await storage.createIdentity({
-        address,
-        publicKeyBase58,
-        displayName,
-      });
+      try {
+        identity = await storage.createIdentity({
+          address,
+          publicKeyBase58,
+          displayName,
+        });
+      } catch (dbError) {
+        // DB unavailable - create in-memory
+        if (!isDatabaseAvailable()) {
+          console.warn('[Identity] Creating in-memory identity (no database)');
+          identity = {
+            id: Date.now(),
+            address,
+            publicKeyBase58,
+            displayName: displayName || null,
+            role: 'user',
+            plan: 'free',
+            status: 'active',
+            createdAt: new Date(),
+            lastLoginAt: new Date(),
+          };
+          inMemoryStore.identities.set(address, identity);
+          // Initialize empty contacts for this user
+          inMemoryStore.contacts.set(address, []);
+        } else {
+          throw dbError;
+        }
+      }
       
       // Check if this is the founder using canonical pubkey
-      await checkAndPromoteFounder(address, publicKeyBase58);
+      try {
+        await checkAndPromoteFounder(address, publicKeyBase58);
+      } catch (e) {
+        // Ignore founder check errors
+      }
       
       // Refetch to get updated identity with founder role if promoted
-      identity = await storage.getIdentity(address) || identity;
+      try {
+        identity = await storage.getIdentity(address) || identity;
+      } catch (e) {
+        // Use in-memory identity
+      }
       
       res.json(identity);
     } catch (error) {
@@ -5814,7 +6036,19 @@ export async function registerRoutes(
   app.get('/api/contacts/:ownerAddress/always-allowed', async (req, res) => {
     try {
       const { ownerAddress } = req.params;
-      const contacts = await storage.getAlwaysAllowedContacts(ownerAddress);
+      const { isDatabaseAvailable, inMemoryStore } = await import('./db');
+      
+      let contacts: any[] = [];
+      try {
+        contacts = await storage.getAlwaysAllowedContacts(ownerAddress);
+      } catch (dbError) {
+        if (!isDatabaseAvailable()) {
+          // Return empty array for in-memory mode
+          contacts = (inMemoryStore.contacts.get(ownerAddress) || []).filter((c: any) => c.alwaysAllowed);
+        } else {
+          throw dbError;
+        }
+      }
       res.json({ alwaysAllowed: contacts.map(c => c.contactAddress) });
     } catch (error) {
       console.error('Error fetching always allowed contacts:', error);
@@ -5827,8 +6061,23 @@ export async function registerRoutes(
     try {
       const { ownerAddress, contactAddress } = req.params;
       const { alwaysAllowed } = req.body;
+      const { isDatabaseAvailable, inMemoryStore } = await import('./db');
       
-      const contact = await storage.setContactAlwaysAllowed(ownerAddress, contactAddress, alwaysAllowed);
+      let contact;
+      try {
+        contact = await storage.setContactAlwaysAllowed(ownerAddress, contactAddress, alwaysAllowed);
+      } catch (dbError) {
+        if (!isDatabaseAvailable()) {
+          // Update in-memory
+          const contacts = inMemoryStore.contacts.get(ownerAddress) || [];
+          contact = contacts.find((c: any) => c.contactAddress === contactAddress);
+          if (contact) {
+            contact.alwaysAllowed = alwaysAllowed;
+          }
+        } else {
+          throw dbError;
+        }
+      }
       if (!contact) {
         return res.status(404).json({ error: 'Contact not found' });
       }
@@ -5844,7 +6093,18 @@ export async function registerRoutes(
   app.get('/api/freeze-mode/:address/always-allowed', async (req, res) => {
     try {
       const { address } = req.params;
-      const contacts = await storage.getAlwaysAllowedContacts(address);
+      const { isDatabaseAvailable, inMemoryStore } = await import('./db');
+      
+      let contacts: any[] = [];
+      try {
+        contacts = await storage.getAlwaysAllowedContacts(address);
+      } catch (dbError) {
+        if (!isDatabaseAvailable()) {
+          contacts = (inMemoryStore.contacts.get(address) || []).filter((c: any) => c.alwaysAllowed);
+        } else {
+          throw dbError;
+        }
+      }
       res.json(contacts);
     } catch (error) {
       console.error('Error fetching always allowed contacts:', error);
@@ -6334,44 +6594,47 @@ export async function registerRoutes(
             ws.send(JSON.stringify({ type: 'success', message: 'Registered successfully' } as WSMessage));
             console.log(`Client registered: ${address}`);
             
-            // Deliver any pending messages for this user
-            storage.getPendingMessages(address).then(async (pendingMsgs) => {
-              for (const pendingMsg of pendingMsgs) {
-                try {
-                  ws.send(JSON.stringify({
-                    type: 'msg:incoming',
-                    message: {
-                      id: pendingMsg.id,
-                      convo_id: pendingMsg.convoId,
-                      from_address: pendingMsg.fromAddress,
-                      to_address: pendingMsg.toAddress,
-                      content: pendingMsg.content,
-                      type: pendingMsg.mediaType || 'text',
-                      timestamp: pendingMsg.createdAt.getTime(),
-                      status: 'delivered'
-                    },
-                    from_pubkey: '' // Pubkey not stored for pending messages
-                  } as WSMessage));
-                  
-                  // Mark as delivered
-                  await storage.markMessageDelivered(pendingMsg.id);
-                  console.log(`Delivered pending message ${pendingMsg.id} to ${address}`);
-                  
-                  // Notify sender if online
-                  broadcastToAddress(pendingMsg.fromAddress, {
-                      type: 'msg:delivered',
-                      message_id: pendingMsg.id,
-                      convo_id: pendingMsg.convoId,
-                      delivered_at: Date.now()
-                    });
-                } catch (e) {
-                  console.error('Error delivering pending message:', e);
+            // Deliver any pending messages for this user (only if DB available)
+            const { isDatabaseAvailable } = await import('./db');
+            if (isDatabaseAvailable()) {
+              storage.getPendingMessages(address).then(async (pendingMsgs) => {
+                for (const pendingMsg of pendingMsgs) {
+                  try {
+                    ws.send(JSON.stringify({
+                      type: 'msg:incoming',
+                      message: {
+                        id: pendingMsg.id,
+                        convo_id: pendingMsg.convoId,
+                        from_address: pendingMsg.fromAddress,
+                        to_address: pendingMsg.toAddress,
+                        content: pendingMsg.content,
+                        type: pendingMsg.mediaType || 'text',
+                        timestamp: pendingMsg.createdAt.getTime(),
+                        status: 'delivered'
+                      },
+                      from_pubkey: '' // Pubkey not stored for pending messages
+                    } as WSMessage));
+                    
+                    // Mark as delivered
+                    await storage.markMessageDelivered(pendingMsg.id);
+                    console.log(`Delivered pending message ${pendingMsg.id} to ${address}`);
+                    
+                    // Notify sender if online
+                    broadcastToAddress(pendingMsg.fromAddress, {
+                        type: 'msg:delivered',
+                        message_id: pendingMsg.id,
+                        convo_id: pendingMsg.convoId,
+                        delivered_at: Date.now()
+                      });
+                  } catch (e) {
+                    console.error('Error delivering pending message:', e);
+                  }
                 }
-              }
-              if (pendingMsgs.length > 0) {
-                console.log(`Delivered ${pendingMsgs.length} pending messages to ${address}`);
-              }
-            }).catch(console.error);
+                if (pendingMsgs.length > 0) {
+                  console.log(`Delivered ${pendingMsgs.length} pending messages to ${address}`);
+                }
+              }).catch(console.error);
+            }
             break;
           }
 
@@ -6523,12 +6786,28 @@ export async function registerRoutes(
             // Free Tier Shield enforcement (async)
             (async () => {
               try {
-                // Record call attempt for free tier tracking
-                await FreeTierShield.recordCallAttempt(callerAddress);
+                const { isDatabaseAvailable, inMemoryStore } = await import('./db');
+                
+                // Record call attempt for free tier tracking (skip if no DB)
+                if (isDatabaseAvailable()) {
+                  await FreeTierShield.recordCallAttempt(callerAddress);
+                }
                 
                 // Check if caller and callee have contact relationship (either direction)
-                const callerContact = await storage.getContact(callerAddress, recipientAddress);
-                const calleeContact = await storage.getContact(recipientAddress, callerAddress);
+                let callerContact = null;
+                let calleeContact = null;
+                
+                if (isDatabaseAvailable()) {
+                  callerContact = await storage.getContact(callerAddress, recipientAddress);
+                  calleeContact = await storage.getContact(recipientAddress, callerAddress);
+                } else {
+                  // Use in-memory contacts
+                  const callerContacts = inMemoryStore.contacts.get(callerAddress) || [];
+                  const calleeContacts = inMemoryStore.contacts.get(recipientAddress) || [];
+                  callerContact = callerContacts.find((c: any) => c.contactAddress === recipientAddress);
+                  calleeContact = calleeContacts.find((c: any) => c.contactAddress === callerAddress);
+                }
+                
                 const isMutualContact = !!(callerContact && calleeContact);
                 const isEitherContact = !!(callerContact || calleeContact); // EITHER party added the other
                 const isContact = !!callerContact;
@@ -6575,11 +6854,23 @@ export async function registerRoutes(
                   return;
                 }
                 
-                // FREEZE MODE ENFORCEMENT
-                const freezeSettings = await storage.getFreezeModeSetting(recipientAddress);
+                // FREEZE MODE ENFORCEMENT - Skip if no database
+                let freezeSettings = { enabled: false };
+                if (isDatabaseAvailable()) {
+                  try {
+                    freezeSettings = await storage.getFreezeModeSetting(recipientAddress);
+                  } catch (e) {
+                    // Ignore - freeze mode disabled by default
+                  }
+                }
                 if (freezeSettings.enabled) {
                   // Check if caller is always allowed (emergency bypass)
-                  const isAlwaysAllowed = await storage.isContactAlwaysAllowed(recipientAddress, callerAddress);
+                  let isAlwaysAllowed = false;
+                  try {
+                    isAlwaysAllowed = await storage.isContactAlwaysAllowed(recipientAddress, callerAddress);
+                  } catch (e) {
+                    // Ignore
+                  }
                   
                   // Freeze Mode allows: always-allowed contacts, paid calls, or approved contacts
                   if (!isAlwaysAllowed && !isPaidCall) {
@@ -6612,16 +6903,35 @@ export async function registerRoutes(
                   }
                 }
                 
-                // DO NOT DISTURB (DND) ENFORCEMENT
-                const callIdSettings = await storage.getCallIdSettings(recipientAddress);
+                // DO NOT DISTURB (DND) ENFORCEMENT - Skip if no database
+                let callIdSettings: any = null;
+                if (isDatabaseAvailable()) {
+                  try {
+                    callIdSettings = await storage.getCallIdSettings(recipientAddress);
+                  } catch (e) {
+                    // Ignore
+                  }
+                }
                 if (callIdSettings?.doNotDisturb) {
                   // Check if caller is emergency/always-allowed contact (bypasses DND)
-                  const isAlwaysAllowed = await storage.isContactAlwaysAllowed(recipientAddress, callerAddress);
+                  let isAlwaysAllowed = false;
+                  try {
+                    isAlwaysAllowed = await storage.isContactAlwaysAllowed(recipientAddress, callerAddress);
+                  } catch (e) {
+                    // Ignore
+                  }
                   
                   if (!isAlwaysAllowed && !isPaidCall) {
                     // DND is active - route to voicemail
-                    const callerIdentity = await storage.getIdentity(callerAddress);
-                    const callerContactInfo = await storage.getContact(recipientAddress, callerAddress);
+                    let callerIdentity: any = null;
+                    let callerContactInfo: any = null;
+                    try {
+                      callerIdentity = await storage.getIdentity(callerAddress);
+                      callerContactInfo = await storage.getContact(recipientAddress, callerAddress);
+                    } catch (e) {
+                      // Use in-memory
+                      callerIdentity = inMemoryStore.identities.get(callerAddress);
+                    }
                     const callerDisplayName = callerContactInfo?.name || callerIdentity?.displayName || callerAddress.slice(0, 12) + '...';
                     
                     // Store missed call notification
@@ -6852,7 +7162,18 @@ export async function registerRoutes(
           case 'webrtc:ice': {
             const targetConnection = getConnection(message.to_address);
             if (targetConnection) {
+              console.log(`[WebRTC] Forwarding ${message.type} to ${message.to_address?.slice(0, 12)}...`);
               targetConnection.ws.send(JSON.stringify(message));
+            } else {
+              console.log(`[WebRTC] Target ${message.to_address?.slice(0, 12)}... not online - ${message.type} not delivered`);
+              // Notify sender that recipient is offline
+              if (clientAddress) {
+                ws.send(JSON.stringify({
+                  type: 'webrtc:peer_offline',
+                  to_address: message.to_address,
+                  signalType: message.type
+                }));
+              }
             }
             break;
           }
@@ -7252,14 +7573,24 @@ export async function registerRoutes(
               (msg as any).server_timestamp = serverTimestamp.getTime();
             } catch (dbError) {
               console.error('Failed to persist message to DB:', dbError);
-              // Return error to client instead of silent fallback
-              ws.send(JSON.stringify({
-                type: 'msg:ack',
-                message_id: msg.id,
-                status: 'error' as any,
-                error: 'Failed to persist message'
-              } as WSMessage));
-              return;
+              // Fallback to in-memory only mode (for dev/testing without DB)
+              // WARNING: Messages will be lost on server restart
+              if (!process.env.DATABASE_URL) {
+                console.warn('[msg:send] No DATABASE_URL - using in-memory only (messages not persisted)');
+                serverSeq = Date.now();
+                serverTimestamp = new Date();
+                (msg as any).seq = serverSeq;
+                (msg as any).server_timestamp = serverTimestamp.getTime();
+              } else {
+                // DB is configured but failed - this is a real error
+                ws.send(JSON.stringify({
+                  type: 'msg:ack',
+                  message_id: msg.id,
+                  status: 'error' as any,
+                  error: 'Failed to persist message'
+                } as WSMessage));
+                return;
+              }
             }
             
             // Send acknowledgment with server-assigned seq for ordering

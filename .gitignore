@@ -7,4 +7,11 @@ vite.config.ts.*
 
 # Capacitor native platforms (regenerate locally with npx cap add)
 android/
-ios/
+ios/-e 
+# Environment files
+*.env
+*.env.*
+-e 
+# Environment files
+*.env
+*.env.*

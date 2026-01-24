@@ -444,6 +444,16 @@ export function CallView({
         await handleIceCandidate(message.candidate);
         break;
 
+      case 'webrtc:peer_offline':
+        // Peer went offline during signaling
+        console.log(`[CallView] Peer offline during ${(message as any).signalType}`);
+        if (callState === 'connecting' || callState === 'calling') {
+          toast.error('Connection lost - peer went offline');
+          recordCall('outgoing', 0);
+          handleEndCall();
+        }
+        break;
+
       case 'call:unavailable':
         // Recipient is offline - they'll see the missed call when they come online
         toast('Recipient is currently unavailable. They will see your missed call.', { duration: 4000 });
