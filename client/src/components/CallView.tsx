@@ -553,7 +553,9 @@ export function CallView({
 
     // Reset handshake error state on new attempt
     setShowHandshakeError(false);
-    setConnectionStatus('Preparing secure session...');
+    // Go straight to "Calling..." like WhatsApp - no intermediate states
+    setCallState('calling');
+    setConnectionStatus('Calling...');
 
     // Capture camera immediately for video calls so user sees themselves while ringing
     if (isVideoCall && !localStreamRef.current) {
@@ -574,7 +576,7 @@ export function CallView({
         const delay = RETRY_DELAYS[callRetryCountRef.current] || 1200;
         callRetryCountRef.current++;
         console.log(`[CallToken] Token fetch failed, retrying (attempt ${callRetryCountRef.current}/${MAX_CALL_RETRIES}) after ${delay}ms...`);
-        setConnectionStatus('Reconnecting...');
+        // Keep showing "Calling..." during retries - no state changes visible to user
         await new Promise(resolve => setTimeout(resolve, delay));
         return initiateCall();
       }
@@ -621,9 +623,7 @@ export function CallView({
       callToken: tokenData.token // Include token for server-side validation
     }));
 
-    console.log('[CallView] Setting callState to "calling" - ringback should start');
-    setCallState('calling');
-    setConnectionStatus('Ringing...');
+    console.log('[CallView] call:init sent - waiting for recipient response');
   };
   
   // Handle call errors with silent retry logic (3 retries with exponential backoff)
@@ -639,7 +639,7 @@ export function CallView({
       const delay = RETRY_DELAYS[callRetryCountRef.current] || 1200;
       callRetryCountRef.current++;
       console.log(`[CallToken] Retryable error "${reason || errorMessage}", silently retrying (attempt ${callRetryCountRef.current}/${MAX_CALL_RETRIES}) after ${delay}ms...`);
-      setConnectionStatus('Reconnecting...');
+      // Keep showing "Calling..." - no visible state changes during retries
       
       // Wait with exponential backoff
       await new Promise(resolve => setTimeout(resolve, delay));
