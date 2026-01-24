@@ -635,7 +635,7 @@ export async function registerRoutes(
       // Password: Base64(HMAC-SHA1(username, TURN_SECRET))
       const ttl = 86400; // 24 hours credential validity
       const expiry = Math.floor(Date.now() / 1000) + ttl;
-      const username = `${expiry}:callvault`;
+      const username = `${expiry}:callvs`;
       
       // Generate HMAC-SHA1 password
       const crypto = await import('crypto');
@@ -909,7 +909,7 @@ export async function registerRoutes(
           const crypto = await import('crypto');
           const ttl = 86400; // 24 hours
           const expiry = Math.floor(Date.now() / 1000) + ttl;
-          const username = `${expiry}:callvault`;
+          const username = `${expiry}:callvs`;
           const hmac = crypto.createHmac('sha1', turnSecret);
           hmac.update(username);
           const credential = hmac.digest('base64');
