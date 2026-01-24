@@ -620,8 +620,8 @@ export const insertActiveCallSchema = createInsertSchema(activeCalls).omit({
 export type InsertActiveCall = z.infer<typeof insertActiveCallSchema>;
 export type ActiveCall = typeof activeCalls.$inferSelect;
 
-// Role hierarchy: ultra_god_admin > super_admin > admin > support > user
-export const ROLE_HIERARCHY = ['user', 'support', 'admin', 'super_admin', 'ultra_god_admin'] as const;
+// Role hierarchy: founder > ultra_god_admin > super_admin > admin > support > user
+export const ROLE_HIERARCHY = ['user', 'support', 'admin', 'super_admin', 'ultra_god_admin', 'founder'] as const;
 export type AdminRole = typeof ROLE_HIERARCHY[number];
 
 // Admin Permissions (granular RBAC)

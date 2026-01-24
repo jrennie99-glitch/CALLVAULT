@@ -213,6 +213,7 @@ export type WSMessage =
   | { type: 'webrtc:offer'; to_address: string; offer: RTCSessionDescriptionInit }
   | { type: 'webrtc:answer'; to_address: string; answer: RTCSessionDescriptionInit }
   | { type: 'webrtc:ice'; to_address: string; candidate: RTCIceCandidateInit }
+  | { type: 'webrtc:peer_offline'; signalType: string; to_address: string }
   // Messaging
   | { type: 'msg:send'; data: SignedMessage; idempotency_key?: string }
   | { type: 'msg:incoming'; message: Message; from_pubkey: string }

@@ -27,6 +27,7 @@ const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'rate_limits.manage', 'blocklist.manage',
   ],
   ultra_god_admin: ALL_PERMISSIONS as unknown as Permission[],
+  founder: ALL_PERMISSIONS as unknown as Permission[],
 };
 
 export class RBAC {
