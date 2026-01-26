@@ -290,8 +290,17 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
       status: 'sending'
     };
 
-    saveLocalMessage(message);
-    setMessages(prev => [...prev, message]);
+    try {
+      saveLocalMessage(message);
+      setMessages(prev => [...prev, message]);
+    } catch (error: any) {
+      if (error.message === 'STORAGE_QUOTA_EXCEEDED') {
+        toast.error('Storage is full. Please clear some old messages and try again.', { duration: 6000 });
+        return;
+      }
+      toast.error('Failed to save message locally.');
+      return;
+    }
 
     try {
       const signedMessage = await signMessage(identity, message);
@@ -305,8 +314,12 @@ export function ChatPage({ identity, ws, onBack, convo, onStartCall, isFounder =
       console.error('Failed to send message:', error);
       // Mark as failed so user can retry
       const failedMessage = { ...message, status: 'failed' as const };
-      saveLocalMessage(failedMessage);
-      setMessages(prev => prev.map(m => m.id === message.id ? failedMessage : m));
+      try {
+        saveLocalMessage(failedMessage);
+        setMessages(prev => prev.map(m => m.id === message.id ? failedMessage : m));
+      } catch (storageError) {
+        toast.error('Failed to update message status. Storage may be full.');
+      }
     }
   };
 

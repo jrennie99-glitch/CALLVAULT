@@ -41,11 +41,21 @@ export interface ConnectionStats {
 
 let cachedConfig: IceConfig | null = null;
 let cacheExpiry = 0;
+let fetchAttempts = 0;
+const MAX_FETCH_ATTEMPTS = 3;
+const FETCH_RETRY_DELAY = 1000; // 1 second between retries
+
+// Fallback ICE servers (STUN only) for emergencies
+const FALLBACK_ICE_SERVERS: RTCIceServer[] = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun2.l.google.com:19302' }
+];
 
 /**
  * Fetch ICE configuration from /api/ice endpoint
- * NO FALLBACK - must always use /api/ice as single source of truth
- * Throws error if fetch fails to ensure proper error handling upstream
+ * Includes retry logic and fallback to STUN-only configuration
+ * Throws error if all attempts fail to ensure proper error handling upstream
  */
 export async function fetchIceConfig(): Promise<IceConfig> {
   const now = Date.now();
@@ -55,50 +65,66 @@ export async function fetchIceConfig(): Promise<IceConfig> {
     return cachedConfig;
   }
   
-  try {
-    const res = await fetch('/api/ice');
-    if (!res.ok) {
-      throw new Error(`Failed to fetch ICE config: ${res.status} ${res.statusText}`);
+  // Try to fetch from server with retries
+  for (let attempt = 1; attempt <= MAX_FETCH_ATTEMPTS; attempt++) {
+    try {
+      console.log(`[ICE] Fetching ICE config (attempt ${attempt}/${MAX_FETCH_ATTEMPTS})...`);
+      const res = await fetch('/api/ice');
+      if (!res.ok) {
+        throw new Error(`Failed to fetch ICE config: ${res.status} ${res.statusText}`);
+      }
+      
+      const data: IceApiResponse = await res.json();
+      
+      // Build ICE servers from API response
+      const iceServers: RTCIceServer[] = [];
+      
+      // Use iceServers array if provided by server
+      if (data.iceServers && Array.isArray(data.iceServers)) {
+        iceServers.push(...data.iceServers);
+      } else if (data.urls && data.urls.length > 0) {
+        // Build from flat format (urls, username, credential)
+        iceServers.push({
+          urls: data.urls,
+          username: data.username,
+          credential: data.credential
+        });
+      }
+      
+      if (iceServers.length === 0) {
+        throw new Error('No ICE servers returned from /api/ice');
+      }
+      
+      cachedConfig = {
+        iceServers,
+        mode: data.mode,
+        ttl: data.ttl,
+        username: data.username
+      };
+      cacheExpiry = now + 5 * 60 * 1000; // Cache for 5 minutes
+      fetchAttempts = 0; // Reset attempts on success
+      
+      console.log('[ICE] Fetched ICE config:', data.mode, iceServers.length, 'server(s)');
+      return cachedConfig;
+    } catch (error) {
+      console.error(`[ICE] Fetch attempt ${attempt} failed:`, error);
+      
+      // If this isn't the last attempt, wait before retrying
+      if (attempt < MAX_FETCH_ATTEMPTS) {
+        await new Promise(resolve => setTimeout(resolve, FETCH_RETRY_DELAY * attempt));
+      }
     }
-    
-    const data: IceApiResponse = await res.json();
-    
-    // Build ICE servers from API response
-    const iceServers: RTCIceServer[] = [];
-    
-    // Use iceServers array if provided by server
-    if (data.iceServers && Array.isArray(data.iceServers)) {
-      iceServers.push(...data.iceServers);
-    } else if (data.urls && data.urls.length > 0) {
-      // Build from flat format (urls, username, credential)
-      iceServers.push({
-        urls: data.urls,
-        username: data.username,
-        credential: data.credential
-      });
-    }
-    
-    if (iceServers.length === 0) {
-      throw new Error('No ICE servers returned from /api/ice');
-    }
-    
-    cachedConfig = {
-      iceServers,
-      mode: data.mode,
-      ttl: data.ttl,
-      username: data.username
-    };
-    cacheExpiry = now + 5 * 60 * 1000; // Cache for 5 minutes
-    
-    console.log('[ICE] Fetched ICE config:', data.mode, iceServers.length, 'server(s)');
-    return cachedConfig;
-  } catch (error) {
-    console.error('[ICE] Failed to fetch ICE config:', error);
-    // Clear any stale cache on error
-    cachedConfig = null;
-    cacheExpiry = 0;
-    throw error; // Propagate error to caller for proper handling
   }
+  
+  // All attempts failed - use fallback STUN servers
+  console.warn('[ICE] All fetch attempts failed, using fallback STUN servers');
+  cachedConfig = {
+    iceServers: FALLBACK_ICE_SERVERS,
+    mode: 'fallback'
+  };
+  cacheExpiry = now + 60 * 1000; // Cache fallback for only 1 minute
+  
+  return cachedConfig;
 }
 
 /**

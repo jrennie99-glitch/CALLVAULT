@@ -6898,7 +6898,7 @@ export async function registerRoutes(
                   }
                 }
                 if (callIdSettings?.doNotDisturb) {
-                  // Check if caller is emergency/always-allowed contact (bypasses DND)
+                  // Check if caller is always-allowed (emergency bypass)
                   let isAlwaysAllowed = false;
                   try {
                     isAlwaysAllowed = await storage.isContactAlwaysAllowed(recipientAddress, callerAddress);
@@ -6929,7 +6929,7 @@ export async function registerRoutes(
                       undefined
                     ).catch(console.error);
                     
-                    // Send silent push notification about missed call
+                    // Send silent push notification about missed call to recipient
                     sendPushNotification(recipientAddress, {
                       type: 'missed_call_dnd',
                       title: 'Missed Call (DND)',
@@ -6938,10 +6938,11 @@ export async function registerRoutes(
                       tag: 'missed-call-dnd'
                     }).catch(console.error);
                     
-                    // Tell caller about DND - offer voicemail
+                    // Tell caller about DND - offer voicemail with clear error code
                     ws.send(JSON.stringify({
-                      type: 'call:dnd',
-                      reason: 'User is in Do Not Disturb mode. Please leave a voicemail.',
+                      type: 'call:blocked',
+                      reason: 'Recipient has Do Not Disturb enabled. Your call has been sent to voicemail.',
+                      errorCode: 'DND_ACTIVE',
                       to_address: recipientAddress,
                       voicemail_enabled: callIdSettings.voicemailEnabled !== false
                     } as WSMessage));
