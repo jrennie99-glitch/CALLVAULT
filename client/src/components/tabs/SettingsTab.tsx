@@ -674,9 +674,19 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
     try {
       const recovered = recoverLastCallId(identity);
       if (recovered) {
-        // Update parent component
-        window.location.reload(); // Simple refresh to update identity
-        toast.success('Call ID recovered successfully!');
+        // Recovery saved the address to storage - reload from storage and notify parent
+        // We can't use onRotateAddress as it generates a NEW address
+        // Instead, trigger a reload by calling ws register with the recovered address
+        if (ws) {
+          ws.send(JSON.stringify({ type: 'register', address: recovered.address }));
+        }
+        toast.success('Call ID recovered! Refresh the page to see changes.', {
+          duration: 5000,
+          action: {
+            label: 'Refresh',
+            onClick: () => window.location.reload()
+          }
+        });
       }
     } catch (error: any) {
       toast.error(error.message || 'Failed to recover Call ID');

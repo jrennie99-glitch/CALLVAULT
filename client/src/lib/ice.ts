@@ -45,6 +45,7 @@ let cacheExpiry = 0;
 /**
  * Fetch ICE configuration from /api/ice endpoint
  * NO FALLBACK - must always use /api/ice as single source of truth
+ * Throws error if fetch fails to ensure proper error handling upstream
  */
 export async function fetchIceConfig(): Promise<IceConfig> {
   const now = Date.now();
@@ -54,38 +55,50 @@ export async function fetchIceConfig(): Promise<IceConfig> {
     return cachedConfig;
   }
   
-  const res = await fetch('/api/ice');
-  if (!res.ok) {
-    throw new Error(`Failed to fetch ICE config: ${res.status}`);
+  try {
+    const res = await fetch('/api/ice');
+    if (!res.ok) {
+      throw new Error(`Failed to fetch ICE config: ${res.status} ${res.statusText}`);
+    }
+    
+    const data: IceApiResponse = await res.json();
+    
+    // Build ICE servers from API response
+    const iceServers: RTCIceServer[] = [];
+    
+    // Use iceServers array if provided by server
+    if (data.iceServers && Array.isArray(data.iceServers)) {
+      iceServers.push(...data.iceServers);
+    } else if (data.urls && data.urls.length > 0) {
+      // Build from flat format (urls, username, credential)
+      iceServers.push({
+        urls: data.urls,
+        username: data.username,
+        credential: data.credential
+      });
+    }
+    
+    if (iceServers.length === 0) {
+      throw new Error('No ICE servers returned from /api/ice');
+    }
+    
+    cachedConfig = {
+      iceServers,
+      mode: data.mode,
+      ttl: data.ttl,
+      username: data.username
+    };
+    cacheExpiry = now + 5 * 60 * 1000; // Cache for 5 minutes
+    
+    console.log('[ICE] Fetched ICE config:', data.mode, iceServers.length, 'server(s)');
+    return cachedConfig;
+  } catch (error) {
+    console.error('[ICE] Failed to fetch ICE config:', error);
+    // Clear any stale cache on error
+    cachedConfig = null;
+    cacheExpiry = 0;
+    throw error; // Propagate error to caller for proper handling
   }
-  
-  const data: IceApiResponse = await res.json();
-  
-  // Build ICE servers from API response
-  const iceServers: RTCIceServer[] = [];
-  
-  // Use iceServers array if provided by server
-  if (data.iceServers && Array.isArray(data.iceServers)) {
-    iceServers.push(...data.iceServers);
-  } else if (data.urls && data.urls.length > 0) {
-    // Build from flat format (urls, username, credential)
-    iceServers.push({
-      urls: data.urls,
-      username: data.username,
-      credential: data.credential
-    });
-  }
-  
-  cachedConfig = {
-    iceServers,
-    mode: data.mode,
-    ttl: data.ttl,
-    username: data.username
-  };
-  cacheExpiry = now + 5 * 60 * 1000; // Cache for 5 minutes
-  
-  console.log('[ICE] Fetched ICE config:', data.mode, iceServers.length, 'server(s)');
-  return cachedConfig;
 }
 
 /**
@@ -201,9 +214,10 @@ export async function validateTurnRelay(pc: RTCPeerConnection): Promise<Connecti
 /**
  * Verify security of the connection
  * Ensures DTLS-SRTP is active and connection is encrypted
+ * Logs warnings but does not fail if relay is not used (for monitoring)
  * 
  * @param pc - Active RTCPeerConnection
- * @returns Promise<boolean> - true if connection is secure
+ * @returns Promise<boolean> - true if DTLS is connected (encrypted)
  */
 export async function verifyConnectionSecurity(pc: RTCPeerConnection): Promise<boolean> {
   const stats = await validateTurnRelay(pc);
@@ -214,11 +228,13 @@ export async function verifyConnectionSecurity(pc: RTCPeerConnection): Promise<b
     return false;
   }
   
-  // For production, we require relay usage
+  // Log warning if not using relay (monitoring only, doesn't fail verification)
   if (!stats.usingRelay) {
-    console.warn('[Security] Not using TURN relay - connection may not work in restrictive NAT');
+    console.warn('[Security] ⚠ Not using TURN relay - connection may fail in restrictive NAT');
+  } else {
+    console.log('[Security] ✓ Using TURN relay - optimal for NAT traversal');
   }
   
-  console.log('[Security] Connection is secure - DTLS-SRTP active, ephemeral keys established');
+  console.log('[Security] ✓ Connection is encrypted - DTLS-SRTP active, ephemeral keys established');
   return true;
 }

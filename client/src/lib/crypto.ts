@@ -6,6 +6,7 @@ const STORAGE_KEY = "crypto_identity";
 const CALL_ID_HISTORY_KEY = "call_id_history";
 const CALL_ID_LOCK_KEY = "call_id_lock";
 const DISCARDED_CALL_IDS_KEY = "discarded_call_ids";
+const MAX_CALL_ID_HISTORY = 10; // Keep last N Call IDs in history
 
 // Call ID History Management
 interface CallIdHistoryEntry {
@@ -25,8 +26,8 @@ export function getCallIdHistory(): CallIdHistoryEntry[] {
 }
 
 function saveCallIdHistory(history: CallIdHistoryEntry[]): void {
-  // Keep only last 10 entries
-  const trimmed = history.slice(-10);
+  // Keep only last MAX_CALL_ID_HISTORY entries
+  const trimmed = history.slice(-MAX_CALL_ID_HISTORY);
   localStorage.setItem(CALL_ID_HISTORY_KEY, JSON.stringify(trimmed));
 }
 
