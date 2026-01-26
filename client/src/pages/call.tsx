@@ -826,12 +826,16 @@ export default function CallPage() {
 
   const handleRotateAddress = () => {
     if (identity) {
-      const updated = cryptoLib.rotateAddress(identity);
-      setIdentity(updated);
-      if (ws) {
-        ws.send(JSON.stringify({ type: 'register', address: updated.address }));
+      try {
+        const updated = cryptoLib.rotateAddress(identity);
+        setIdentity(updated);
+        if (ws) {
+          ws.send(JSON.stringify({ type: 'register', address: updated.address }));
+        }
+        toast.success('New Call ID generated');
+      } catch (error: any) {
+        toast.error(error.message || 'Failed to rotate address');
       }
-      toast.success('New address generated');
     }
   };
 

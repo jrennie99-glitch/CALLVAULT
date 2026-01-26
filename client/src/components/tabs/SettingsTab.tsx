@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { User, Shield, Wifi, ChevronDown, ChevronUp, Copy, RefreshCw, Fingerprint, Eye, EyeOff, MessageSquare, CheckCheck, Clock, Phone, Ban, Bot, Wallet, ChevronRight, Ticket, Briefcase, BarChart3, Crown, Lock, Sparkles, CreditCard, ExternalLink, Snowflake, Download, Upload, Cloud, CloudOff, Check, LogOut, AlertTriangle, BellOff, Video, Mic, Bell, Smartphone, Key } from 'lucide-react';
+import { User, Shield, Wifi, ChevronDown, ChevronUp, Copy, RefreshCw, Fingerprint, Eye, EyeOff, MessageSquare, CheckCheck, Clock, Phone, Ban, Bot, Wallet, ChevronRight, Ticket, Briefcase, BarChart3, Crown, Lock, Sparkles, CreditCard, ExternalLink, Snowflake, Download, Upload, Cloud, CloudOff, Check, LogOut, AlertTriangle, BellOff, Video, Mic, Bell, Smartphone, Key, Unlock, RotateCcw, Trash2 } from 'lucide-react';
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
 import { FreezeModeSetupModal } from '@/components/FreezeModeSetupModal';
@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { getUserProfile, saveUserProfile, getAppSettings, saveAppSettings } from '@/lib/storage';
-import { exportIdentity, importIdentity, encryptIdentityForVault, decryptIdentityFromVault, saveIdentity, signPayload, generateNonce, getPrivateKeyBase58 } from '@/lib/crypto';
+import { exportIdentity, importIdentity, encryptIdentityForVault, decryptIdentityFromVault, saveIdentity, signPayload, generateNonce, getPrivateKeyBase58, isCallIdLocked, setCallIdLocked, getLastCallId, recoverLastCallId, discardCallId } from '@/lib/crypto';
 import { copyToClipboard } from '@/lib/clipboard';
 import { getPrivacySettings, savePrivacySettings, type PrivacySettings } from '@/lib/messageStorage';
 import { enrollBiometric, disableBiometric, isPlatformAuthenticatorAvailable, isInIframe, isIOS } from '@/lib/biometric';
@@ -88,6 +88,10 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isIOSBrowser, setIsIOSBrowser] = useState(false);
   const [isPwaInstalled, setIsPwaInstalled] = useState(false);
+  
+  // Call ID management state
+  const [callIdLocked, setCallIdLockedState] = useState(() => isCallIdLocked());
+  const [showDiscardDialog, setShowDiscardDialog] = useState(false);
 
   useEffect(() => {
     isPlatformAuthenticatorAvailable().then(setBiometricAvailable);
@@ -648,6 +652,50 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
     if (identity) {
       copyToClipboard(identity.publicKeyBase58, 'Public key copied!');
     }
+  };
+  
+  // Call ID Management Handlers
+  const toggleCallIdLock = () => {
+    const newState = !callIdLocked;
+    setCallIdLocked(newState);
+    setCallIdLockedState(newState);
+    toast.success(newState ? 'Call ID locked' : 'Call ID unlocked');
+  };
+  
+  const handleRecoverLastCallId = () => {
+    if (!identity) return;
+    
+    const lastId = getLastCallId();
+    if (!lastId) {
+      toast.error('No previous Call ID found');
+      return;
+    }
+    
+    try {
+      const recovered = recoverLastCallId(identity);
+      if (recovered) {
+        // Update parent component
+        window.location.reload(); // Simple refresh to update identity
+        toast.success('Call ID recovered successfully!');
+      }
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to recover Call ID');
+    }
+  };
+  
+  const handleDiscardCallId = () => {
+    setShowDiscardDialog(true);
+  };
+  
+  const confirmDiscardCallId = () => {
+    if (!identity) return;
+    
+    discardCallId(identity.address);
+    setShowDiscardDialog(false);
+    toast.success('Call ID permanently discarded. Generate a new one to continue.');
+    
+    // Force generate new address
+    onRotateAddress();
   };
 
   const hasFullAccess = isFounder || isPro || isBusiness;
@@ -1421,14 +1469,31 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
               </Button>
             </div>
             <div>
-              <Label className="text-slate-400 text-sm">Call ID (Your Unique Address)</Label>
+              <div className="flex items-center justify-between mb-2">
+                <Label className="text-slate-400 text-sm">Call ID (Your Unique Address)</Label>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-500">
+                    {callIdLocked ? 'Locked' : 'Unlocked'}
+                  </span>
+                  <Button
+                    onClick={toggleCallIdLock}
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-slate-400 hover:text-white"
+                    title={callIdLocked ? 'Unlock Call ID' : 'Lock Call ID'}
+                  >
+                    {callIdLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+                  </Button>
+                </div>
+              </div>
               <div className="mt-1 p-3 bg-slate-900/50 rounded-lg font-mono text-xs text-emerald-400 break-all" data-testid="text-call-address">
                 {identity.address}
               </div>
               <p className="text-slate-500 text-xs mt-2">
                 This is your unique cryptographic address. Share it with others so they can call you.
+                {callIdLocked && ' (Regeneration is locked - unlock to change)'}
               </p>
-              <div className="flex gap-2 mt-2">
+              <div className="flex gap-2 mt-2 flex-wrap">
                 <Button
                   onClick={copyAddress}
                   variant="ghost"
@@ -1445,9 +1510,33 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
                   size="sm"
                   className="text-slate-400 hover:text-white"
                   data-testid="button-rotate-address"
+                  disabled={callIdLocked}
+                  title={callIdLocked ? 'Unlock Call ID first' : 'Generate new Call ID'}
                 >
                   <RefreshCw className="w-4 h-4 mr-2" />
-                  New Address
+                  New ID
+                </Button>
+                {getLastCallId() && (
+                  <Button
+                    onClick={handleRecoverLastCallId}
+                    variant="ghost"
+                    size="sm"
+                    className="text-blue-400 hover:text-blue-300"
+                    title="Recover your previous Call ID"
+                  >
+                    <RotateCcw className="w-4 h-4 mr-2" />
+                    Recover Last
+                  </Button>
+                )}
+                <Button
+                  onClick={handleDiscardCallId}
+                  variant="ghost"
+                  size="sm"
+                  className="text-red-400 hover:text-red-300"
+                  title="Permanently discard this Call ID"
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Discard
                 </Button>
               </div>
             </div>
@@ -2027,6 +2116,39 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
                 Sign Out
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Discard Call ID Confirmation Dialog */}
+      <Dialog open={showDiscardDialog} onOpenChange={setShowDiscardDialog}>
+        <DialogContent className="bg-slate-800 border-slate-700 max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-red-500" />
+              Permanently Discard Call ID?
+            </DialogTitle>
+            <DialogDescription className="text-slate-400">
+              This action cannot be undone. Your current Call ID will be permanently discarded
+              and cannot be recovered. You will need to generate a new Call ID to continue using the app.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-3 mt-4">
+            <Button
+              onClick={() => setShowDiscardDialog(false)}
+              variant="outline"
+              className="flex-1"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={confirmDiscardCallId}
+              variant="destructive"
+              className="flex-1 bg-red-600 hover:bg-red-700"
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Discard Forever
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
