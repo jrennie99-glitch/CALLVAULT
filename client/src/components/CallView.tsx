@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import * as crypto from '@/lib/crypto';
 import { isFeatureEnabled } from '@/lib/featureFlags';
-import { createPeerConnection as createPeerConnectionWithICE } from '@/lib/ice';
+import { createPeerConnection as createPeerConnectionWithICE, validateTurnRelay, verifyConnectionSecurity } from '@/lib/ice';
 import { addCallRecord, getContactByAddress } from '@/lib/storage';
 import type { CryptoIdentity, WSMessage } from '@shared/types';
 
@@ -728,6 +728,26 @@ export function CallView({
         startStunFailureTimer();
       } else if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
         clearStunFailureTimer();
+        
+        // Validate TURN relay usage and security when connection is established
+        (async () => {
+          try {
+            const stats = await validateTurnRelay(pc);
+            if (stats.usingRelay) {
+              console.log('[Security] ✓ TURN relay active - NAT traversal working');
+            } else {
+              console.warn('[Security] ⚠ Not using TURN relay - may fail in restrictive NAT');
+            }
+            
+            // Verify DTLS-SRTP encryption
+            const isSecure = await verifyConnectionSecurity(pc);
+            if (isSecure) {
+              console.log('[Security] ✓ Connection encrypted with DTLS-SRTP');
+            }
+          } catch (error) {
+            console.error('[Security] Failed to validate connection:', error);
+          }
+        })();
       }
     };
     

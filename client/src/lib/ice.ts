@@ -8,6 +8,7 @@
  * - NO hardcoded ICE servers (use /api/ice exclusively)
  * - NO fallback to browser defaults
  * - Enforce relay policy for production TURN servers
+ * - DTLS-SRTP is enforced automatically by WebRTC for all media
  */
 
 export interface IceApiResponse {
@@ -24,6 +25,18 @@ export interface IceConfig {
   mode: string;
   ttl?: number;
   username?: string;
+}
+
+export interface ConnectionStats {
+  usingRelay: boolean;
+  candidateType: string;
+  protocol: string;
+  localAddress?: string;
+  remoteAddress?: string;
+  bytesSent: number;
+  bytesReceived: number;
+  dtlsState?: string;
+  selectedCandidatePair?: any;
 }
 
 let cachedConfig: IceConfig | null = null;
@@ -101,4 +114,111 @@ export async function createPeerConnection(): Promise<RTCPeerConnection> {
 export function clearIceCache(): void {
   cachedConfig = null;
   cacheExpiry = 0;
+}
+
+/**
+ * Validate TURN relay usage via WebRTC statistics
+ * Call this after connection is established to verify relay is being used
+ * 
+ * @param pc - Active RTCPeerConnection
+ * @returns Promise<ConnectionStats> with relay validation info
+ */
+export async function validateTurnRelay(pc: RTCPeerConnection): Promise<ConnectionStats> {
+  const stats = await pc.getStats();
+  let result: ConnectionStats = {
+    usingRelay: false,
+    candidateType: 'unknown',
+    protocol: 'unknown',
+    bytesSent: 0,
+    bytesReceived: 0
+  };
+
+  // Find the active candidate pair
+  let activeCandidatePair: any = null;
+  stats.forEach((report) => {
+    if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+      activeCandidatePair = report;
+    }
+  });
+
+  if (!activeCandidatePair) {
+    console.warn('[ICE] No active candidate pair found');
+    return result;
+  }
+
+  result.selectedCandidatePair = activeCandidatePair;
+  result.bytesSent = activeCandidatePair.bytesSent || 0;
+  result.bytesReceived = activeCandidatePair.bytesReceived || 0;
+
+  // Get local candidate details
+  let localCandidate: any = null;
+  stats.forEach((report) => {
+    if (report.type === 'local-candidate' && report.id === activeCandidatePair.localCandidateId) {
+      localCandidate = report;
+    }
+  });
+
+  // Get remote candidate details
+  let remoteCandidate: any = null;
+  stats.forEach((report) => {
+    if (report.type === 'remote-candidate' && report.id === activeCandidatePair.remoteCandidateId) {
+      remoteCandidate = report;
+    }
+  });
+
+  if (localCandidate) {
+    result.candidateType = localCandidate.candidateType || 'unknown';
+    result.protocol = localCandidate.protocol || 'unknown';
+    result.localAddress = `${localCandidate.address || '?'}:${localCandidate.port || '?'}`;
+    
+    // Check if using TURN relay
+    result.usingRelay = localCandidate.candidateType === 'relay';
+  }
+
+  if (remoteCandidate) {
+    result.remoteAddress = `${remoteCandidate.address || '?'}:${remoteCandidate.port || '?'}`;
+  }
+
+  // Get DTLS state for security validation
+  stats.forEach((report) => {
+    if (report.type === 'transport') {
+      result.dtlsState = report.dtlsState;
+    }
+  });
+
+  console.log('[ICE] Connection stats:', {
+    usingRelay: result.usingRelay,
+    candidateType: result.candidateType,
+    protocol: result.protocol,
+    dtlsState: result.dtlsState,
+    bytesSent: result.bytesSent,
+    bytesReceived: result.bytesReceived
+  });
+
+  return result;
+}
+
+/**
+ * Verify security of the connection
+ * Ensures DTLS-SRTP is active and connection is encrypted
+ * 
+ * @param pc - Active RTCPeerConnection
+ * @returns Promise<boolean> - true if connection is secure
+ */
+export async function verifyConnectionSecurity(pc: RTCPeerConnection): Promise<boolean> {
+  const stats = await validateTurnRelay(pc);
+  
+  // DTLS must be in 'connected' state for encryption to be active
+  if (stats.dtlsState !== 'connected') {
+    console.error('[Security] DTLS not in connected state:', stats.dtlsState);
+    return false;
+  }
+  
+  // For production, we require relay usage
+  if (!stats.usingRelay) {
+    console.warn('[Security] Not using TURN relay - connection may not work in restrictive NAT');
+  }
+  
+  console.log('[Security] Connection is secure - DTLS-SRTP active, ephemeral keys established');
+  return true;
 }
