@@ -271,7 +271,7 @@ const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 
 const NONCE_EXPIRY = 15 * 60 * 1000; // 15 minutes - nonce expiry (longer than token TTL for cleanup)
 const TIMESTAMP_FRESHNESS = 10 * 60 * 1000; // 10 minutes - token lifetime for signature freshness
-const MAX_CLOCK_SKEW = 2 * 60 * 1000; // 2 minutes - bidirectional tolerance for device clock drift
+const MAX_CLOCK_SKEW = 5 * 60 * 1000; // 5 minutes - bidirectional tolerance for device clock drift (increased for better compatibility)
 const CALL_TOKEN_TTL = 10 * 60 * 1000; // 10 minutes - server-issued token lifetime
 const RATE_LIMIT_WINDOW = 60 * 1000;
 const RATE_LIMIT_MAX_CALLS = 60; // Allow more attempts to accommodate retries
@@ -389,12 +389,12 @@ function verifySignatureWithDetails(signedIntent: SignedCallIntent): VerifyResul
     
     const now = Date.now();
     
-    // Clock skew check: intent timestamp must be within ±MAX_CLOCK_SKEW (2 minutes) of server time
+    // Clock skew check: intent timestamp must be within ±MAX_CLOCK_SKEW (5 minutes) of server time
     // This prevents timing attacks while allowing for reasonable clock drift
     const timeDiff = Math.abs(now - intent.timestamp);
     if (timeDiff > MAX_CLOCK_SKEW) {
       console.log(`[verify] Clock skew exceeded: timeDiff=${timeDiff}ms, max=${MAX_CLOCK_SKEW}ms, serverNow=${now}, intentTs=${intent.timestamp}`);
-      return { valid: false, reason: 'clock_skew_exceeded' };
+      return { valid: false, reason: 'clock_skew_exceeded', serverTime: now };
     }
     
     if (recentNonces.has(intent.nonce)) {
@@ -1043,6 +1043,15 @@ export async function registerRoutes(
   });
 
   // Legacy GET endpoint for backwards compatibility (read-only check)
+  // Server time endpoint for clock synchronization
+  app.get('/api/server-time', (req, res) => {
+    res.json({ 
+      serverTime: Date.now(),
+      maxClockSkew: MAX_CLOCK_SKEW,
+      timestamp: Date.now() // Alias for compatibility
+    });
+  });
+
   app.get('/api/call-session-token/:token', async (req, res) => {
     const { token } = req.params;
     const result = await storage.verifyCallToken(token, false); // Don't mark as used
@@ -6898,7 +6907,7 @@ export async function registerRoutes(
                   }
                 }
                 if (callIdSettings?.doNotDisturb) {
-                  // Check if caller is emergency/always-allowed contact (bypasses DND)
+                  // Check if caller is always-allowed (emergency bypass)
                   let isAlwaysAllowed = false;
                   try {
                     isAlwaysAllowed = await storage.isContactAlwaysAllowed(recipientAddress, callerAddress);
@@ -6929,7 +6938,7 @@ export async function registerRoutes(
                       undefined
                     ).catch(console.error);
                     
-                    // Send silent push notification about missed call
+                    // Send silent push notification about missed call to recipient
                     sendPushNotification(recipientAddress, {
                       type: 'missed_call_dnd',
                       title: 'Missed Call (DND)',
@@ -6938,10 +6947,11 @@ export async function registerRoutes(
                       tag: 'missed-call-dnd'
                     }).catch(console.error);
                     
-                    // Tell caller about DND - offer voicemail
+                    // Tell caller about DND - offer voicemail with clear error code
                     ws.send(JSON.stringify({
-                      type: 'call:dnd',
-                      reason: 'User is in Do Not Disturb mode. Please leave a voicemail.',
+                      type: 'call:blocked',
+                      reason: 'Recipient has Do Not Disturb enabled. Your call has been sent to voicemail.',
+                      errorCode: 'DND_ACTIVE',
                       to_address: recipientAddress,
                       voicemail_enabled: callIdSettings.voicemailEnabled !== false
                     } as WSMessage));

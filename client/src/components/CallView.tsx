@@ -25,6 +25,7 @@ import * as crypto from '@/lib/crypto';
 import { isFeatureEnabled } from '@/lib/featureFlags';
 import { createPeerConnection as createPeerConnectionWithICE, validateTurnRelay, verifyConnectionSecurity } from '@/lib/ice';
 import { addCallRecord, getContactByAddress } from '@/lib/storage';
+import { getErrorMessage, getToastMessage, isRetryableError } from '@/lib/errorMessages';
 import type { CryptoIdentity, WSMessage } from '@shared/types';
 
 type CallState = 'idle' | 'calling' | 'ringing' | 'connecting' | 'connected' | 'reconnecting' | 'ended';
@@ -459,6 +460,32 @@ export function CallView({
         handleEndCall();
         break;
 
+      case 'call:blocked': {
+        // Handle call blocked errors with user-friendly messages
+        const errorCode = (message as any).errorCode;
+        const reason = (message as any).reason;
+        
+        if (errorCode) {
+          const errorDetails = getErrorMessage(errorCode);
+          toast.error(getToastMessage(errorCode), { 
+            duration: errorDetails.duration 
+          });
+          
+          // If it's a limit error, show upgrade modal
+          if (errorCode.startsWith('LIMIT_') || errorCode === 'NOT_APPROVED_CONTACT' || 
+              errorCode === 'GROUP_CALLS_NOT_ALLOWED' || errorCode === 'EXTERNAL_LINKS_NOT_ALLOWED') {
+            setShowUpgradeModal(true);
+          }
+        } else {
+          // Fallback to generic reason message
+          toast.error(reason || 'Call blocked. Please try again later.', { duration: 5000 });
+        }
+        
+        recordCall('outgoing', 0);
+        handleEndCall();
+        break;
+      }
+
       case 'error':
         // Check if this is a signature/timestamp error that can be retried
         const errorMsg = message.message || '';
@@ -520,20 +547,58 @@ export function CallView({
   };
 
   // Capture local media stream (for showing self-view during ringing)
-  const captureLocalMedia = async () => {
+  const captureLocalMedia = async (videoOnly: boolean = false) => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: isVideoCall ? { facingMode } : false,
-        audio: true
-      });
+      const constraints: MediaStreamConstraints = {
+        audio: !videoOnly,
+        video: isVideoCall ? { facingMode } : false
+      };
+      
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       localStreamRef.current = stream;
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
       }
       return stream;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to get media devices:', error);
-      toast.error('Failed to access camera/microphone');
+      
+      // Handle specific permission errors with helpful messages
+      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+        if (isVideoCall) {
+          // Video call permission denied - offer audio-only fallback
+          toast.error(getToastMessage('CAMERA_PERMISSION_DENIED'), { duration: 7000 });
+          
+          // Try fallback to audio-only (only if this wasn't already a video-only attempt)
+          if (!videoOnly) {
+            console.log('[CallView] Camera denied, attempting audio-only fallback...');
+            try {
+              const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+              localStreamRef.current = audioStream;
+              setIsVideoCall(false);
+              setIsVideoEnabled(false);
+              toast.success('Switched to audio-only call', { duration: 3000 });
+              return audioStream;
+            } catch (audioError: any) {
+              // Audio-only also failed
+              console.error('[CallView] Audio-only fallback failed:', audioError);
+              if (audioError.name === 'NotAllowedError' || audioError.name === 'PermissionDeniedError') {
+                toast.error(getToastMessage('MICROPHONE_PERMISSION_DENIED'), { duration: 7000 });
+              } else {
+                toast.error('Failed to access microphone. Please check your device.', { duration: 6000 });
+              }
+            }
+          }
+        } else {
+          toast.error(getToastMessage('MICROPHONE_PERMISSION_DENIED'), { duration: 7000 });
+        }
+      } else if (error.name === 'NotFoundError') {
+        toast.error('No camera or microphone found. Please connect a device.', { duration: 6000 });
+      } else if (error.name === 'NotReadableError') {
+        toast.error('Camera or microphone is already in use by another application.', { duration: 6000 });
+      } else {
+        toast.error('Failed to access camera/microphone. Please check your device settings.', { duration: 6000 });
+      }
       return null;
     }
   };

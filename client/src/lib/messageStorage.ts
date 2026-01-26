@@ -34,9 +34,10 @@ export function getLocalMessages(convoId: string): Message[] {
   return allMessages[convoId] || [];
 }
 
-export function saveLocalMessage(message: Message): void {
-  const stored = localStorage.getItem(MESSAGES_KEY);
-  const allMessages: Record<string, Message[]> = stored ? JSON.parse(stored) : {};
+/**
+ * Helper function to save or update a message in storage
+ */
+function saveMessageToStorage(message: Message, allMessages: Record<string, Message[]>): void {
   if (!allMessages[message.convo_id]) {
     allMessages[message.convo_id] = [];
   }
@@ -46,7 +47,66 @@ export function saveLocalMessage(message: Message): void {
   } else {
     allMessages[message.convo_id].push(message);
   }
-  localStorage.setItem(MESSAGES_KEY, JSON.stringify(allMessages));
+}
+
+export function saveLocalMessage(message: Message): void {
+  try {
+    const stored = localStorage.getItem(MESSAGES_KEY);
+    const allMessages: Record<string, Message[]> = stored ? JSON.parse(stored) : {};
+    saveMessageToStorage(message, allMessages);
+    localStorage.setItem(MESSAGES_KEY, JSON.stringify(allMessages));
+  } catch (error: any) {
+    // Handle quota exceeded errors
+    if (error.name === 'QuotaExceededError' || error.code === 22) {
+      console.error('[MessageStorage] LocalStorage quota exceeded');
+      // Try to free up space by removing old messages
+      cleanupOldMessages();
+      // Try saving again
+      try {
+        const stored = localStorage.getItem(MESSAGES_KEY);
+        const allMessages: Record<string, Message[]> = stored ? JSON.parse(stored) : {};
+        saveMessageToStorage(message, allMessages);
+        localStorage.setItem(MESSAGES_KEY, JSON.stringify(allMessages));
+        console.log('[MessageStorage] Message saved after cleanup');
+      } catch (retryError) {
+        console.error('[MessageStorage] Failed to save message after cleanup:', retryError);
+        throw new Error('STORAGE_QUOTA_EXCEEDED');
+      }
+    } else {
+      console.error('[MessageStorage] Error saving message:', error);
+      throw error;
+    }
+  }
+}
+
+/**
+ * Clean up old messages to free up localStorage space
+ * Keeps only the most recent 100 messages per conversation
+ */
+function cleanupOldMessages(): void {
+  try {
+    const stored = localStorage.getItem(MESSAGES_KEY);
+    if (!stored) return;
+    
+    const allMessages: Record<string, Message[]> = JSON.parse(stored);
+    const MAX_MESSAGES_PER_CONVO = 100;
+    
+    // Sort messages by timestamp and keep only recent ones
+    for (const convoId in allMessages) {
+      const messages = allMessages[convoId];
+      if (messages.length > MAX_MESSAGES_PER_CONVO) {
+        // Sort by timestamp (newest first)
+        messages.sort((a, b) => b.timestamp - a.timestamp);
+        // Keep only the most recent messages
+        allMessages[convoId] = messages.slice(0, MAX_MESSAGES_PER_CONVO);
+      }
+    }
+    
+    localStorage.setItem(MESSAGES_KEY, JSON.stringify(allMessages));
+    console.log('[MessageStorage] Cleaned up old messages');
+  } catch (error) {
+    console.error('[MessageStorage] Error during cleanup:', error);
+  }
 }
 
 export function updateLocalMessageStatus(messageId: string, status: MessageStatus): void {
