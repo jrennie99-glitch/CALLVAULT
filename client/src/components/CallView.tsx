@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import * as crypto from '@/lib/crypto';
 import { isFeatureEnabled } from '@/lib/featureFlags';
-import { fetchIceConfig } from '@/lib/ice';
+import { createPeerConnection as createPeerConnectionWithICE, validateTurnRelay, verifyConnectionSecurity } from '@/lib/ice';
 import { addCallRecord, getContactByAddress } from '@/lib/storage';
 import type { CryptoIdentity, WSMessage } from '@shared/types';
 
@@ -340,12 +340,7 @@ export function CallView({
       setConnectionStatus('Improving connection...');
       toast.info('Improving connection...', { duration: 2000 });
       
-      // Fetch fresh ICE configuration from /api/ice
-      const iceConfig = await fetchIceConfig();
-      const turnServers = iceConfig.iceServers;
-      setCurrentIceServers(turnServers);
-      
-      // Must rebuild peer connection to use new ICE servers
+      // Must rebuild peer connection to use fresh ICE servers
       // (ICE servers cannot be changed after RTCPeerConnection is created)
       try {
         // Close old connection but keep media stream
@@ -354,18 +349,14 @@ export function CallView({
           peerConnectionRef.current = null;
         }
         
-        // Rebuild with TURN servers from /api/ice
+        // Rebuild with fresh configuration from /api/ice
         const stream = localStreamRef.current;
         if (!stream) {
           throw new Error('No media stream available');
         }
         
-        // Force relay mode for TURN fallback
-        const rtcConfig: RTCConfiguration = {
-          iceServers: turnServers,
-          iceTransportPolicy: 'relay'
-        };
-        const pc = new RTCPeerConnection(rtcConfig);
+        // Create new peer connection with relay-only policy
+        const pc = await createPeerConnectionWithICE();
         peerConnectionRef.current = pc;
         
         stream.getTracks().forEach(track => {
@@ -374,10 +365,10 @@ export function CallView({
         
         setupPeerConnectionHandlers(pc, isInitiator);
         
-        // Re-initiate the call
+        // Re-initiate the call immediately (instant call setup)
         if (isInitiator) {
           const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
+          await pc.setLocalDescription(offer); // Set immediately, ICE trickling happens after
           if (ws && remoteAddressRef.current) {
             ws.send(JSON.stringify({
               type: 'webrtc:offer',
@@ -737,6 +728,26 @@ export function CallView({
         startStunFailureTimer();
       } else if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
         clearStunFailureTimer();
+        
+        // Validate TURN relay usage and security when connection is established
+        (async () => {
+          try {
+            const stats = await validateTurnRelay(pc);
+            if (stats.usingRelay) {
+              console.log('[Security] ✓ TURN relay active - NAT traversal working');
+            } else {
+              console.warn('[Security] ⚠ Not using TURN relay - may fail in restrictive NAT');
+            }
+            
+            // Verify DTLS-SRTP encryption
+            const isSecure = await verifyConnectionSecurity(pc);
+            if (isSecure) {
+              console.log('[Security] ✓ Connection encrypted with DTLS-SRTP');
+            }
+          } catch (error) {
+            console.error('[Security] Failed to validate connection:', error);
+          }
+        })();
       }
     };
     
@@ -755,11 +766,7 @@ export function CallView({
     // Fetch call session token to get plan-based permissions
     const session = await fetchCallSessionToken();
     
-    // Fetch dynamic ICE configuration from /api/ice (single source of truth)
-    const iceConfig = await fetchIceConfig();
-    const initialServers = iceConfig.iceServers;
-    console.log('[CallView] Using ICE servers from /api/ice:', iceConfig.mode, initialServers.length, 'servers');
-    setCurrentIceServers(initialServers);
+    console.log('[CallView] Creating RTCPeerConnection with production config');
     
     try {
       // Reuse existing stream if already captured (e.g., for video calls during ringing)
@@ -775,13 +782,9 @@ export function CallView({
         }
       }
 
-      // Create RTCPeerConnection with dynamic ICE config
-      // Use relay policy when using coturn for reliable connections
-      const rtcConfig: RTCConfiguration = {
-        iceServers: initialServers,
-        iceTransportPolicy: iceConfig.mode === 'coturn_shared_secret' ? 'relay' : 'all'
-      };
-      const pc = new RTCPeerConnection(rtcConfig);
+      // Create RTCPeerConnection with production-ready configuration
+      // WAIT for /api/ice before creating connection (mandatory for production)
+      const pc = await createPeerConnectionWithICE();
       peerConnectionRef.current = pc;
 
       stream.getTracks().forEach(track => {
@@ -803,9 +806,10 @@ export function CallView({
         }
       }
 
+      // Instant call setup: Create offer immediately if initiator
       if (isInitiator) {
         const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
+        await pc.setLocalDescription(offer); // Set immediately, ICE trickling happens after
         if (ws && remoteAddressRef.current) {
           ws.send(JSON.stringify({
             type: 'webrtc:offer',

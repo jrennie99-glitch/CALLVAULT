@@ -1,16 +1,13 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { GroupCallRoom, GroupCallParticipant, WSMessage } from '@shared/types';
 import { generateUUID } from '@/lib/uuid';
-import { fetchIceConfig } from '@/lib/ice';
+import { createPeerConnection as createPeerConnectionWithICE } from '@/lib/ice';
 
 interface PeerConnection {
   peerAddress: string;
   connection: RTCPeerConnection;
   remoteStream: MediaStream | null;
 }
-
-// ICE config cached from /api/ice
-let cachedIceConfig: RTCConfiguration | null = null;
 
 export function useGroupCall(ws: WebSocket | null, myAddress: string) {
   const [room, setRoom] = useState<GroupCallRoom | null>(null);
@@ -35,17 +32,9 @@ export function useGroupCall(ws: WebSocket | null, myAddress: string) {
   const createPeerConnection = useCallback(async (peerAddress: string, roomId: string, isInitiator: boolean) => {
     if (!ws) return null;
 
-    // Fetch ICE config from /api/ice (single source of truth)
-    if (!cachedIceConfig) {
-      const iceConfig = await fetchIceConfig();
-      cachedIceConfig = {
-        iceServers: iceConfig.iceServers,
-        iceTransportPolicy: iceConfig.mode === 'coturn_shared_secret' ? 'relay' : 'all'
-      };
-      console.log('[GroupCall] Fetched ICE config:', iceConfig.mode);
-    }
-
-    const pc = new RTCPeerConnection(cachedIceConfig);
+    // Create RTCPeerConnection with proper ICE configuration from /api/ice
+    // WAIT for configuration before creating connection (production requirement)
+    const pc = await createPeerConnectionWithICE();
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
@@ -89,21 +78,24 @@ export function useGroupCall(ws: WebSocket | null, myAddress: string) {
       remoteStream: null
     });
 
+    // Instant call setup: Create and send offer immediately if initiator
     if (isInitiator) {
-      pc.createOffer()
-        .then(offer => pc.setLocalDescription(offer))
-        .then(() => {
-          if (pc.localDescription) {
-            ws.send(JSON.stringify({
-              type: 'mesh:offer',
-              room_id: roomId,
-              to_peer: peerAddress,
-              from_peer: myAddress,
-              offer: pc.localDescription
-            } as WSMessage));
-          }
-        })
-        .catch(console.error);
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer); // Set immediately, ICE trickling happens after
+        
+        if (pc.localDescription) {
+          ws.send(JSON.stringify({
+            type: 'mesh:offer',
+            room_id: roomId,
+            to_peer: peerAddress,
+            from_peer: myAddress,
+            offer: pc.localDescription
+          } as WSMessage));
+        }
+      } catch (error) {
+        console.error('[GroupCall] Failed to create offer:', error);
+      }
     }
 
     return pc;

@@ -3,6 +3,89 @@ import bs58 from "bs58";
 import type { CryptoIdentity, CallIntent, SignedCallIntent, Message, SignedMessage } from "@shared/types";
 
 const STORAGE_KEY = "crypto_identity";
+const CALL_ID_HISTORY_KEY = "call_id_history";
+const CALL_ID_LOCK_KEY = "call_id_lock";
+const DISCARDED_CALL_IDS_KEY = "discarded_call_ids";
+const MAX_CALL_ID_HISTORY = 10; // Keep last N Call IDs in history
+
+// Call ID History Management
+interface CallIdHistoryEntry {
+  address: string;
+  timestamp: number;
+  active: boolean;
+}
+
+export function getCallIdHistory(): CallIdHistoryEntry[] {
+  const stored = localStorage.getItem(CALL_ID_HISTORY_KEY);
+  if (!stored) return [];
+  try {
+    return JSON.parse(stored);
+  } catch {
+    return [];
+  }
+}
+
+function saveCallIdHistory(history: CallIdHistoryEntry[]): void {
+  // Keep only last MAX_CALL_ID_HISTORY entries
+  const trimmed = history.slice(-MAX_CALL_ID_HISTORY);
+  localStorage.setItem(CALL_ID_HISTORY_KEY, JSON.stringify(trimmed));
+}
+
+function addCallIdToHistory(address: string, active: boolean = true): void {
+  const history = getCallIdHistory();
+  // Mark all previous as inactive
+  history.forEach(entry => entry.active = false);
+  // Add new entry
+  history.push({
+    address,
+    timestamp: Date.now(),
+    active
+  });
+  saveCallIdHistory(history);
+}
+
+export function getLastCallId(): string | null {
+  const history = getCallIdHistory();
+  if (history.length < 2) return null;
+  // Get the second-to-last entry (the previous one)
+  return history[history.length - 2]?.address || null;
+}
+
+// Call ID Locking
+export function isCallIdLocked(): boolean {
+  return localStorage.getItem(CALL_ID_LOCK_KEY) === 'true';
+}
+
+export function setCallIdLocked(locked: boolean): void {
+  if (locked) {
+    localStorage.setItem(CALL_ID_LOCK_KEY, 'true');
+  } else {
+    localStorage.removeItem(CALL_ID_LOCK_KEY);
+  }
+}
+
+// Discarded Call IDs
+export function getDiscardedCallIds(): string[] {
+  const stored = localStorage.getItem(DISCARDED_CALL_IDS_KEY);
+  if (!stored) return [];
+  try {
+    return JSON.parse(stored);
+  } catch {
+    return [];
+  }
+}
+
+export function discardCallId(address: string): void {
+  const discarded = getDiscardedCallIds();
+  if (!discarded.includes(address)) {
+    discarded.push(address);
+    localStorage.setItem(DISCARDED_CALL_IDS_KEY, JSON.stringify(discarded));
+  }
+}
+
+export function isCallIdDiscarded(address: string): boolean {
+  return getDiscardedCallIds().includes(address);
+}
 
 export function generateIdentity(): CryptoIdentity {
   const keypair = nacl.sign.keyPair();
@@ -32,6 +115,9 @@ export function saveIdentity(identity: CryptoIdentity): void {
     publicKeyBase58: identity.publicKeyBase58
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(serialized));
+  
+  // Track in history
+  addCallIdToHistory(identity.address, true);
 }
 
 export function loadIdentity(): CryptoIdentity | null {
@@ -52,8 +138,29 @@ export function loadIdentity(): CryptoIdentity | null {
 }
 
 export function rotateAddress(identity: CryptoIdentity): CryptoIdentity {
+  // Check if Call ID is locked
+  if (isCallIdLocked()) {
+    throw new Error('Call ID is locked. Unlock it before regenerating.');
+  }
+  
   const newAddress = generateCallAddress(identity.publicKey);
   const updated = { ...identity, address: newAddress };
+  saveIdentity(updated);
+  return updated;
+}
+
+export function recoverLastCallId(identity: CryptoIdentity): CryptoIdentity | null {
+  const lastAddress = getLastCallId();
+  if (!lastAddress) {
+    return null;
+  }
+  
+  // Check if the address is discarded
+  if (isCallIdDiscarded(lastAddress)) {
+    throw new Error('This Call ID has been permanently discarded and cannot be recovered.');
+  }
+  
+  const updated = { ...identity, address: lastAddress };
   saveIdentity(updated);
   return updated;
 }
