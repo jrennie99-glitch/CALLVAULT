@@ -109,9 +109,10 @@ export async function fetchIceConfig(): Promise<IceConfig> {
     } catch (error) {
       console.error(`[ICE] Fetch attempt ${attempt} failed:`, error);
       
-      // If this isn't the last attempt, wait before retrying
+      // If this isn't the last attempt, wait before retrying with exponential backoff
       if (attempt < MAX_FETCH_ATTEMPTS) {
-        await new Promise(resolve => setTimeout(resolve, FETCH_RETRY_DELAY * attempt));
+        const delay = Math.pow(2, attempt - 1) * FETCH_RETRY_DELAY; // Exponential backoff: 1s, 2s, 4s
+        await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
   }

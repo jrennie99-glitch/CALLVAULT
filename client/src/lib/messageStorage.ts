@@ -34,19 +34,26 @@ export function getLocalMessages(convoId: string): Message[] {
   return allMessages[convoId] || [];
 }
 
+/**
+ * Helper function to save or update a message in storage
+ */
+function saveMessageToStorage(message: Message, allMessages: Record<string, Message[]>): void {
+  if (!allMessages[message.convo_id]) {
+    allMessages[message.convo_id] = [];
+  }
+  const existing = allMessages[message.convo_id].findIndex(m => m.id === message.id);
+  if (existing >= 0) {
+    allMessages[message.convo_id][existing] = message;
+  } else {
+    allMessages[message.convo_id].push(message);
+  }
+}
+
 export function saveLocalMessage(message: Message): void {
   try {
     const stored = localStorage.getItem(MESSAGES_KEY);
     const allMessages: Record<string, Message[]> = stored ? JSON.parse(stored) : {};
-    if (!allMessages[message.convo_id]) {
-      allMessages[message.convo_id] = [];
-    }
-    const existing = allMessages[message.convo_id].findIndex(m => m.id === message.id);
-    if (existing >= 0) {
-      allMessages[message.convo_id][existing] = message;
-    } else {
-      allMessages[message.convo_id].push(message);
-    }
+    saveMessageToStorage(message, allMessages);
     localStorage.setItem(MESSAGES_KEY, JSON.stringify(allMessages));
   } catch (error: any) {
     // Handle quota exceeded errors
@@ -58,15 +65,7 @@ export function saveLocalMessage(message: Message): void {
       try {
         const stored = localStorage.getItem(MESSAGES_KEY);
         const allMessages: Record<string, Message[]> = stored ? JSON.parse(stored) : {};
-        if (!allMessages[message.convo_id]) {
-          allMessages[message.convo_id] = [];
-        }
-        const existing = allMessages[message.convo_id].findIndex(m => m.id === message.id);
-        if (existing >= 0) {
-          allMessages[message.convo_id][existing] = message;
-        } else {
-          allMessages[message.convo_id].push(message);
-        }
+        saveMessageToStorage(message, allMessages);
         localStorage.setItem(MESSAGES_KEY, JSON.stringify(allMessages));
         console.log('[MessageStorage] Message saved after cleanup');
       } catch (retryError) {

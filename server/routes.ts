@@ -393,7 +393,7 @@ function verifySignatureWithDetails(signedIntent: SignedCallIntent): VerifyResul
     // This prevents timing attacks while allowing for reasonable clock drift
     const timeDiff = Math.abs(now - intent.timestamp);
     if (timeDiff > MAX_CLOCK_SKEW) {
-      console.log(`[verify] Clock skew exceeded: timeDiff=${timeDiff}ms, max=${MAX_CLOCK_SKEW}ms, serverNow=${now}, intentTs=${intent.timestamp}, serverTimeProvided=${now}`);
+      console.log(`[verify] Clock skew exceeded: timeDiff=${timeDiff}ms, max=${MAX_CLOCK_SKEW}ms, serverNow=${now}, intentTs=${intent.timestamp}`);
       return { valid: false, reason: 'clock_skew_exceeded', serverTime: now };
     }
     

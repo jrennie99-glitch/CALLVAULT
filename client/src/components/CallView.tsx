@@ -569,7 +569,7 @@ export function CallView({
           // Video call permission denied - offer audio-only fallback
           toast.error(getToastMessage('CAMERA_PERMISSION_DENIED'), { duration: 7000 });
           
-          // Try fallback to audio-only
+          // Try fallback to audio-only (only if this wasn't already a video-only attempt)
           if (!videoOnly) {
             console.log('[CallView] Camera denied, attempting audio-only fallback...');
             try {
@@ -579,8 +579,14 @@ export function CallView({
               setIsVideoEnabled(false);
               toast.success('Switched to audio-only call', { duration: 3000 });
               return audioStream;
-            } catch (audioError) {
-              toast.error(getToastMessage('MICROPHONE_PERMISSION_DENIED'), { duration: 7000 });
+            } catch (audioError: any) {
+              // Audio-only also failed
+              console.error('[CallView] Audio-only fallback failed:', audioError);
+              if (audioError.name === 'NotAllowedError' || audioError.name === 'PermissionDeniedError') {
+                toast.error(getToastMessage('MICROPHONE_PERMISSION_DENIED'), { duration: 7000 });
+              } else {
+                toast.error('Failed to access microphone. Please check your device.', { duration: 6000 });
+              }
             }
           }
         } else {
