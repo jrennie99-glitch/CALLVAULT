@@ -19,7 +19,9 @@ import {
   Wifi,
   Radio,
   Zap,
-  Lock
+  Lock,
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
 import * as crypto from '@/lib/crypto';
 import { isFeatureEnabled } from '@/lib/featureFlags';
@@ -1031,16 +1033,36 @@ export function CallView({
   };
 
   const toggleMute = () => {
-    if (localStreamRef.current) {
-      localStreamRef.current.getAudioTracks().forEach(track => {
-        track.enabled = !track.enabled;
-      });
-      setIsMuted(!isMuted);
+    if (!localStreamRef.current) {
+      toast.error('Microphone not available');
+      return;
+    }
+    
+    const audioTracks = localStreamRef.current.getAudioTracks();
+    if (audioTracks.length === 0) {
+      toast.error('No microphone found');
+      return;
+    }
+    
+    const newMutedState = !isMuted;
+    audioTracks.forEach(track => {
+      track.enabled = !newMutedState;
+    });
+    setIsMuted(newMutedState);
+    
+    // Verify state change
+    const allEnabled = audioTracks.every(track => track.enabled);
+    if (allEnabled === newMutedState) {
+      console.warn('[CallView] Mute state mismatch, correcting...');
+      setIsMuted(!allEnabled);
     }
   };
 
   const toggleVideo = async () => {
-    if (!localStreamRef.current) return;
+    if (!localStreamRef.current) {
+      toast.error('Camera not available');
+      return;
+    }
     
     const videoTracks = localStreamRef.current.getVideoTracks();
     
@@ -1051,10 +1073,18 @@ export function CallView({
     }
     
     // Toggle existing video tracks
+    const newVideoEnabled = !isVideoEnabled;
     videoTracks.forEach(track => {
-      track.enabled = !track.enabled;
+      track.enabled = newVideoEnabled;
     });
-    setIsVideoEnabled(!isVideoEnabled);
+    setIsVideoEnabled(newVideoEnabled);
+    
+    // Verify state change took effect
+    const anyEnabled = videoTracks.some(track => track.enabled);
+    if (anyEnabled !== newVideoEnabled) {
+      console.warn('[CallView] Video state mismatch, correcting...');
+      setIsVideoEnabled(anyEnabled);
+    }
   };
 
   const enableVideoTrack = async () => {
@@ -1240,6 +1270,10 @@ export function CallView({
 
   const contact = getContactByAddress(destinationAddress);
   const displayName = contact?.name || destinationAddress.slice(0, 20) + '...';
+  
+  // State for video element errors
+  const [localVideoError, setLocalVideoError] = useState<string | null>(null);
+  const [remoteVideoError, setRemoteVideoError] = useState<string | null>(null);
 
   return (
     <div className="fixed inset-0 bg-slate-900 z-50 flex flex-col">
@@ -1250,21 +1284,65 @@ export function CallView({
               ref={remoteVideoRef}
               autoPlay
               playsInline
-              className="w-full h-full object-cover"
+              className="w-full h-full object-cover bg-slate-950"
               data-testid="video-remote"
+              onError={(e) => {
+                console.error('[CallView] Remote video error:', e);
+                setRemoteVideoError('Remote video stream error');
+              }}
+              onWaiting={() => setConnectionStatus('Buffering...')}
+              onPlaying={() => {
+                setRemoteVideoError(null);
+                if (callState === 'connected') {
+                  setConnectionStatus('Connected');
+                }
+              }}
             />
-            <video
-              ref={localVideoRef}
-              autoPlay
-              playsInline
-              muted
-              className="absolute top-4 right-4 w-28 h-20 sm:w-40 sm:h-28 object-cover rounded-xl border-2 border-slate-700 shadow-2xl"
-              data-testid="video-local"
-            />
+            {remoteVideoError && (
+              <div className="absolute inset-0 flex items-center justify-center bg-slate-950/80">
+                <div className="text-center text-amber-400">
+                  <AlertCircle className="w-12 h-12 mx-auto mb-2" />
+                  <p className="text-sm">{remoteVideoError}</p>
+                </div>
+              </div>
+            )}
+            <div className="absolute top-4 right-4">
+              <video
+                ref={localVideoRef}
+                autoPlay
+                playsInline
+                muted
+                className={`w-28 h-20 sm:w-40 sm:h-28 object-cover rounded-xl border-2 shadow-2xl transition-all duration-300 ${
+                  isVideoEnabled 
+                    ? 'border-slate-700 opacity-100' 
+                    : 'border-slate-600 opacity-50 grayscale'
+                }`}
+                data-testid="video-local"
+                onError={(e) => {
+                  console.error('[CallView] Local video error:', e);
+                  setLocalVideoError('Camera error');
+                }}
+              />
+              {!isVideoEnabled && (
+                <div className="absolute inset-0 flex items-center justify-center bg-slate-900/60 rounded-xl">
+                  <VideoOff className="w-8 h-8 text-slate-400" />
+                </div>
+              )}
+              {localVideoError && (
+                <div className="absolute inset-0 flex items-center justify-center bg-red-900/60 rounded-xl">
+                  <AlertCircle className="w-8 h-8 text-red-400" />
+                </div>
+              )}
+            </div>
           </>
         ) : (
           <>
-            <audio ref={remoteVideoRef} autoPlay data-testid="audio-remote" />
+            <audio 
+              ref={remoteVideoRef as any} 
+              autoPlay 
+              data-testid="audio-remote"
+              onError={(e) => console.error('[CallView] Audio element error:', e)}
+            />
             <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-800 to-slate-900">
               <div className="text-center">
                 <div className="w-32 h-32 mx-auto rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center mb-6 animate-pulse">

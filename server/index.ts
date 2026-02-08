@@ -3,8 +3,12 @@ import { createServer } from "http";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { storage } from "./storage";
+import { performStartupValidation } from "./config";
 import path from "path";
 import fs from "fs";
+
+// Perform startup validation before anything else
+const validationResult = performStartupValidation(false);
 
 const app: Express = express();
 const isDevelopment = process.env.NODE_ENV !== "production";

@@ -24,12 +24,56 @@ const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || '';
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@callvault.app';
 
+// Push notification metrics for monitoring
+const pushMetrics = {
+  totalAttempts: 0,
+  successful: 0,
+  failed: 0,
+  removedSubscriptions: 0,
+  lastError: null as { message: string; timestamp: number } | null,
+  errorsByType: new Map<string, number>()
+};
+
+// Validate VAPID key format (base64url)
+function isValidVapidKey(key: string): boolean {
+  if (!key || key.length < 20) return false;
+  // Base64url regex: alphanumeric, hyphen, underscore
+  return /^[A-Za-z0-9_-]+$/.test(key);
+}
+
 // Initialize web-push if VAPID keys are configured
+let webPushConfigured = false;
 if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
-  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
-  console.log('Web Push configured with VAPID keys');
+  if (!isValidVapidKey(VAPID_PUBLIC_KEY)) {
+    console.error('❌ Invalid VAPID_PUBLIC_KEY format. Expected base64url string.');
+  } else if (!isValidVapidKey(VAPID_PRIVATE_KEY)) {
+    console.error('❌ Invalid VAPID_PRIVATE_KEY format. Expected base64url string.');
+  } else {
+    try {
+      webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+      webPushConfigured = true;
+      console.log('✅ Web Push configured with VAPID keys');
+      console.log(`   Subject: ${VAPID_SUBJECT}`);
+      console.log(`   Public Key: ${VAPID_PUBLIC_KEY.substring(0, 20)}...`);
+    } catch (err: any) {
+      console.error('❌ Failed to configure Web Push:', err.message);
+      pushMetrics.lastError = { message: err.message, timestamp: Date.now() };
+    }
+  }
 } else {
-  console.log('Web Push not configured - set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY to enable push notifications');
+  console.warn('⚠️  Web Push not configured - set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY to enable push notifications');
+  console.log('   Generate keys with: npx web-push generate-vapid-keys');
+}
+
+// Get push metrics for health checks
+function getPushMetrics() {
+  return {
+    ...pushMetrics,
+    errorsByType: Object.fromEntries(pushMetrics.errorsByType),
+    configured: webPushConfigured,
+    hasPublicKey: !!VAPID_PUBLIC_KEY,
+    hasPrivateKey: !!VAPID_PRIVATE_KEY
+  };
 }
 
 // FCM Server Key for native push (set via environment variable)
@@ -109,6 +153,67 @@ async function sendFcmPushNotification(
   }
 }
 
+// Helper to send push notification with retry logic
+async function sendPushNotificationWithRetry(
+  subscription: { endpoint: string; p256dhKey: string; authKey: string },
+  payload: string,
+  maxRetries: number = 2
+): Promise<{ success: boolean; shouldRemove: boolean; error?: string }> {
+  let lastError: any;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      await webpush.sendNotification(
+        {
+          endpoint: subscription.endpoint,
+          keys: {
+            p256dh: subscription.p256dhKey,
+            auth: subscription.authKey
+          }
+        },
+        payload
+      );
+      return { success: true, shouldRemove: false };
+    } catch (err: any) {
+      lastError = err;
+      
+      // Don't retry on authentication errors (invalid VAPID keys)
+      if (err.statusCode === 401 || err.statusCode === 403) {
+        return { success: false, shouldRemove: false, error: `Auth error: ${err.message}` };
+      }
+      
+      // Subscription is invalid/expired - remove it
+      if (err.statusCode === 404 || err.statusCode === 410) {
+        return { success: false, shouldRemove: true, error: `Subscription expired (${err.statusCode})` };
+      }
+      
+      // Rate limited - wait and retry
+      if (err.statusCode === 429) {
+        const delay = Math.pow(2, attempt) * 1000; // Exponential backoff
+        console.log(`Push rate limited, waiting ${delay}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      
+      // Server errors (5xx) - retry with backoff
+      if (err.statusCode >= 500 && err.statusCode < 600 && attempt < maxRetries) {
+        const delay = Math.pow(2, attempt) * 500;
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      
+      // Other errors - don't retry
+      break;
+    }
+  }
+  
+  return { 
+    success: false, 
+    shouldRemove: false, 
+    error: lastError?.message || 'Unknown error' 
+  };
+}
+
 // Helper to send push notification (web + native)
 async function sendPushNotification(
   userAddress: string, 
@@ -117,50 +222,74 @@ async function sendPushNotification(
   let webPushSent = false;
   let nativePushSent = false;
   
+  pushMetrics.totalAttempts++;
+  
   // Try web push
-  if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
+  if (webPushConfigured) {
     try {
       const subscriptions = await storage.getPushSubscriptions(userAddress);
+      const payloadStr = JSON.stringify(payload);
+      
+      if (subscriptions.length === 0) {
+        console.log(`No push subscriptions found for ${userAddress.slice(0, 20)}...`);
+      }
+      
       for (const sub of subscriptions) {
-        try {
-          await webpush.sendNotification(
-            {
-              endpoint: sub.endpoint,
-              keys: {
-                p256dh: sub.p256dhKey,
-                auth: sub.authKey
-              }
-            },
-            JSON.stringify(payload)
-          );
+        const result = await sendPushNotificationWithRetry(sub, payloadStr);
+        
+        if (result.success) {
           webPushSent = true;
-          console.log(`Web push notification sent to ${userAddress}`);
-        } catch (err: any) {
-          if (err.statusCode === 404 || err.statusCode === 410) {
+          pushMetrics.successful++;
+          console.log(`✅ Web push sent to ${userAddress.slice(0, 20)}... (${sub.endpoint.substring(0, 40)}...)`);
+        } else {
+          pushMetrics.failed++;
+          
+          if (result.shouldRemove) {
             await storage.deletePushSubscription(userAddress, sub.endpoint);
-            console.log(`Removed invalid push subscription for ${userAddress}`);
+            pushMetrics.removedSubscriptions++;
+            console.log(`🗑️  Removed invalid push subscription for ${userAddress.slice(0, 20)}... (${result.error})`);
           } else {
-            console.error('Web push notification error:', err.message);
+            // Track error type
+            const errorType = result.error?.includes('auth') ? 'auth_error' : 
+                             result.error?.includes('timeout') ? 'timeout' : 'other';
+            const current = pushMetrics.errorsByType.get(errorType) || 0;
+            pushMetrics.errorsByType.set(errorType, current + 1);
+            
+            console.error(`❌ Web push failed for ${userAddress.slice(0, 20)}...: ${result.error}`);
+            pushMetrics.lastError = { message: result.error, timestamp: Date.now() };
           }
         }
       }
-    } catch (error) {
-      console.error('Error sending web push notification:', error);
+    } catch (error: any) {
+      pushMetrics.failed++;
+      console.error('Error sending web push notification:', error.message);
+      pushMetrics.lastError = { message: error.message, timestamp: Date.now() };
     }
+  } else {
+    console.log(`Web push not configured, skipping web push for ${userAddress.slice(0, 20)}...`);
   }
   
   // Try native FCM push
-  nativePushSent = await sendFcmPushNotification(userAddress, {
-    type: payload.type,
-    title: payload.title,
-    body: payload.body,
-    from_address: payload.from_address,
-    sessionId: payload.sessionId,
-    callType: payload.callType,
-    url: payload.url,
-  });
+  try {
+    nativePushSent = await sendFcmPushNotification(userAddress, {
+      type: payload.type,
+      title: payload.title,
+      body: payload.body,
+      from_address: payload.from_address,
+      sessionId: payload.sessionId,
+      callType: payload.callType,
+      url: payload.url,
+    });
+  } catch (error: any) {
+    console.error('Error sending FCM push notification:', error.message);
+  }
   
-  return webPushSent || nativePushSent;
+  const delivered = webPushSent || nativePushSent;
+  if (!delivered) {
+    console.warn(`⚠️  No push notification delivered to ${userAddress.slice(0, 20)}... (web: ${webPushSent}, native: ${nativePushSent})`);
+  }
+  
+  return delivered;
 }
 
 const BCRYPT_SALT_ROUNDS = 12;
@@ -616,12 +745,14 @@ export async function registerRoutes(
     return res.json({ iceServers: openRelayServers, mode: 'public_openrelay' });
   });
 
-  // ICE credentials endpoint with coturn shared-secret authentication
-  // Uses HMAC-SHA1 to generate time-limited TURN credentials
-  // Required env vars: TURN_SECRET, TURN_SERVER (e.g., turn.example.com)
+  // ICE credentials endpoint with TURN_MODE support
+  // TURN_MODE: "public" (default) | "custom" | "off"
+  // - "custom": Uses TURN_URLS, TURN_USERNAME, TURN_CREDENTIAL env vars
+  // - "public": Uses free OpenRelay TURN servers (TESTING ONLY)
+  // - "off": STUN only, no TURN
+  // Also supports coturn shared-secret auth via TURN_SECRET + TURN_SERVER
   app.get('/api/ice', async (_req, res) => {
-    const turnSecret = process.env.TURN_SECRET;
-    const turnServer = process.env.TURN_SERVER || process.env.TURN_HOST;
+    const turnMode = (process.env.TURN_MODE || 'public').toLowerCase();
     
     // Base STUN servers
     const stunUrls = process.env.STUN_URLS
@@ -629,54 +760,84 @@ export async function registerRoutes(
       : ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'];
     const stunServers = stunUrls.map(url => ({ urls: url }));
     
-    // If TURN_SECRET is not configured, fall back to OpenRelay for testing
-    if (!turnSecret || !turnServer) {
-      console.log('[/api/ice] TURN_SECRET or TURN_SERVER not set, using OpenRelay fallback');
-      const fallbackServers = [
-        ...stunServers,
-        { urls: 'stun:stun.relay.metered.ca:80' },
-        { urls: 'turn:openrelay.metered.ca:80?transport=udp', username: 'openrelayproject', credential: 'openrelayproject' },
-        { urls: 'turn:openrelay.metered.ca:443?transport=udp', username: 'openrelayproject', credential: 'openrelayproject' },
-        { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
-      ];
-      return res.json({ iceServers: fallbackServers, mode: 'openrelay_fallback' });
+    // TURN_MODE = "off" - STUN only
+    if (turnMode === 'off') {
+      console.log('[/api/ice] TURN_MODE=off: Using STUN only');
+      return res.json({ iceServers: stunServers, mode: 'stun_only' });
     }
     
-    try {
-      // Generate coturn shared-secret credentials (TURN REST API / RFC 5766)
-      // Username format: expiry_timestamp:user_id
-      // Credential: Base64(HMAC-SHA1(username, TURN_SECRET))
-      const ttl = 86400; // 24 hours credential validity
-      const expiry = Math.floor(Date.now() / 1000) + ttl;
-      const username = `${expiry}:callvs`;
+    // TURN_MODE = "custom" - Use custom TURN servers from env vars
+    if (turnMode === 'custom') {
+      const turnUrls = process.env.TURN_URLS?.split(',').map(u => u.trim()).filter(Boolean);
+      const turnUsername = process.env.TURN_USERNAME;
+      const turnCredential = process.env.TURN_CREDENTIAL;
       
-      // Generate HMAC-SHA1 credential
-      const crypto = await import('crypto');
-      const hmac = crypto.createHmac('sha1', turnSecret);
-      hmac.update(username);
-      const credential = hmac.digest('base64');
-      
-      // TURN URLs for UDP (3478), TCP (3478), and TLS (5349)
-      const urls = [
-        `turn:${turnServer}:3478?transport=udp`,
-        `turn:${turnServer}:3478?transport=tcp`,
-        `turns:${turnServer}:5349?transport=tcp`
-      ];
-      
-      console.log(`[/api/ice] Generated coturn credentials for ${turnServer}, expiry: ${new Date(expiry * 1000).toISOString()}`);
-      
-      // Return flat format for direct use in RTCPeerConnection
-      return res.json({ 
-        urls,
-        username,
-        credential,
-        ttl,
-        mode: 'coturn_shared_secret'
-      });
-    } catch (error) {
-      console.error('[/api/ice] Error generating credentials:', error);
-      return res.status(500).json({ error: 'Failed to generate ICE credentials' });
+      if (turnUrls && turnUrls.length > 0 && turnUsername && turnCredential) {
+        const customServers: RTCIceServer[] = [
+          ...stunServers,
+          { urls: turnUrls, username: turnUsername, credential: turnCredential }
+        ];
+        console.log('[/api/ice] TURN_MODE=custom: Using custom TURN servers');
+        return res.json({ iceServers: customServers, mode: 'custom' });
+      } else {
+        console.warn('[/api/ice] TURN_MODE=custom but missing TURN_URLS, TURN_USERNAME, or TURN_CREDENTIAL - falling back to public');
+      }
     }
+    
+    // Check for coturn shared-secret auth (TURN_SECRET + TURN_SERVER)
+    // This takes priority over OpenRelay for non-custom modes
+    const turnSecret = process.env.TURN_SECRET;
+    const turnServer = process.env.TURN_SERVER || process.env.TURN_HOST;
+    
+    if (turnSecret && turnServer) {
+      try {
+        // Generate coturn shared-secret credentials (TURN REST API / RFC 5766)
+        // Username format: expiry_timestamp:user_id
+        // Credential: Base64(HMAC-SHA1(username, TURN_SECRET))
+        const ttl = 86400; // 24 hours credential validity
+        const expiry = Math.floor(Date.now() / 1000) + ttl;
+        const username = `${expiry}:callvs`;
+        
+        // Generate HMAC-SHA1 credential
+        const crypto = await import('crypto');
+        const hmac = crypto.createHmac('sha1', turnSecret);
+        hmac.update(username);
+        const credential = hmac.digest('base64');
+        
+        // TURN URLs for UDP (3478), TCP (3478), and TLS (5349)
+        const urls = [
+          `turn:${turnServer}:3478?transport=udp`,
+          `turn:${turnServer}:3478?transport=tcp`,
+          `turns:${turnServer}:5349?transport=tcp`
+        ];
+        
+        console.log(`[/api/ice] Generated coturn credentials for ${turnServer}, expiry: ${new Date(expiry * 1000).toISOString()}`);
+        
+        // Return in iceServers format for consistency
+        const iceServers: RTCIceServer[] = [
+          ...stunServers,
+          { urls, username, credential }
+        ];
+        
+        return res.json({ iceServers, mode: 'coturn_shared_secret' });
+      } catch (error) {
+        console.error('[/api/ice] Error generating coturn credentials:', error);
+        // Fall through to OpenRelay fallback
+      }
+    }
+    
+    // TURN_MODE = "public" (default) - Use free OpenRelay TURN servers
+    // ⚠️ OpenRelay public TURN is TESTING ONLY — not for production customers
+    console.log('[/api/ice] TURN_MODE=public: Using OpenRelay free TURN (TESTING ONLY)');
+    const openRelayServers: RTCIceServer[] = [
+      ...stunServers,
+      { urls: 'stun:stun.relay.metered.ca:80' },
+      { urls: 'turn:openrelay.metered.ca:80?transport=udp', username: 'openrelayproject', credential: 'openrelayproject' },
+      { urls: 'turn:openrelay.metered.ca:443?transport=udp', username: 'openrelayproject', credential: 'openrelayproject' },
+      { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+    ];
+    
+    return res.json({ iceServers: openRelayServers, mode: 'public_openrelay' });
   });
 
   // Comprehensive health check endpoint - checks all critical services
@@ -949,102 +1110,88 @@ export async function registerRoutes(
         // Ignore metric recording failure
       }
 
-      // Build ICE servers config
-      let iceServers: any[] = [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
-      ];
-
-      // Add TURN servers based on TURN_MODE and user entitlements
-      if (finalAllowTurn) {
-        // Check for coturn shared-secret auth first (TURN_SECRET + TURN_SERVER)
-        const turnSecret = process.env.TURN_SECRET;
-        const turnServer = process.env.TURN_SERVER || process.env.TURN_HOST;
+      // Build ICE servers config based on TURN_MODE
+      let iceServers: RTCIceServer[] = [];
+      
+      // Base STUN servers
+      const stunUrls = process.env.STUN_URLS
+        ? process.env.STUN_URLS.split(',').map(u => u.trim()).filter(Boolean)
+        : ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'];
+      
+      if (turnMode === 'off') {
+        // TURN_MODE=off: STUN only
+        iceServers = stunUrls.map(url => ({ urls: url }));
+        console.log('[TURN] TURN_MODE=off: Using STUN only');
+      } else if (turnMode === 'custom' && customTurnConfigured && finalAllowTurn) {
+        // TURN_MODE=custom: Use custom TURN servers
+        const turnUrls = process.env.TURN_URLS!.split(',').map(u => u.trim());
+        iceServers = [
+          ...stunUrls.map(url => ({ urls: url })),
+          {
+            urls: turnUrls,
+            username: process.env.TURN_USERNAME!,
+            credential: process.env.TURN_CREDENTIAL!
+          }
+        ];
+        console.log('[TURN] TURN_MODE=custom: Using custom TURN servers');
+      } else if (turnSecret && turnServer && finalAllowTurn) {
+        // Coturn shared-secret auth
+        const crypto = await import('crypto');
+        const ttl = 86400; // 24 hours
+        const expiry = Math.floor(Date.now() / 1000) + ttl;
+        const username = `${expiry}:callvs`;
+        const hmac = crypto.createHmac('sha1', turnSecret);
+        hmac.update(username);
+        const credential = hmac.digest('base64');
         
-        if (turnSecret && turnServer) {
-          // Generate coturn shared-secret credentials
-          const crypto = await import('crypto');
-          const ttl = 86400; // 24 hours
-          const expiry = Math.floor(Date.now() / 1000) + ttl;
-          const username = `${expiry}:callvs`;
-          const hmac = crypto.createHmac('sha1', turnSecret);
-          hmac.update(username);
-          const credential = hmac.digest('base64');
-          
+        iceServers = [
+          ...stunUrls.map(url => ({ urls: url })),
+          { urls: `stun:${turnServer}:3478` },
+          { urls: `turn:${turnServer}:3478?transport=udp`, username, credential },
+          { urls: `turn:${turnServer}:3478?transport=tcp`, username, credential },
+          { urls: `turns:${turnServer}:5349?transport=tcp`, username, credential }
+        ];
+        console.log(`[TURN] Using coturn shared-secret auth for ${turnServer}`);
+      } else if (meteredConfigured && finalAllowTurn) {
+        // Fetch from Metered.ca API
+        try {
+          const appName = (process.env.METERED_APP_NAME || '').replace(/\.metered\.live$/i, '');
+          const meteredResponse = await fetch(
+            `https://${appName}.metered.live/api/v1/turn/credentials?apiKey=${process.env.METERED_SECRET_KEY}`
+          );
+          if (meteredResponse.ok) {
+            const meteredServers = await meteredResponse.json();
+            iceServers = meteredServers;
+            console.log('[TURN] Using Metered.ca TURN servers');
+          } else {
+            throw new Error(`Metered API error: ${meteredResponse.status}`);
+          }
+        } catch (error) {
+          console.error('[TURN] Metered API failed:', error);
+          // Fallback to OpenRelay
           iceServers = [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: `stun:${turnServer}:3478` },
-            { urls: `turn:${turnServer}:3478?transport=udp`, username, credential },
-            { urls: `turn:${turnServer}:3478?transport=tcp`, username, credential },
-            { urls: `turns:${turnServer}:5349?transport=tcp`, username, credential }
-          ];
-          console.log(`[TURN] Using coturn shared-secret auth for ${turnServer}`);
-        } else if (turnMode === 'public') {
-          // ⚠️ OpenRelay free TURN servers - TESTING ONLY, not for production
-          iceServers = [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
+            ...stunUrls.map(url => ({ urls: url })),
             { urls: 'stun:stun.relay.metered.ca:80' },
             { urls: 'turn:openrelay.metered.ca:80?transport=udp', username: 'openrelayproject', credential: 'openrelayproject' },
             { urls: 'turn:openrelay.metered.ca:443?transport=udp', username: 'openrelayproject', credential: 'openrelayproject' },
             { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
           ];
-          console.log('[TURN] Using public OpenRelay servers (TESTING MODE)');
-        } else if (meteredConfigured) {
-          // Fetch from Metered.ca API
-          try {
-            // Strip ".metered.live" suffix if user included it
-            const appName = (process.env.METERED_APP_NAME || '').replace(/\.metered\.live$/i, '');
-            const meteredResponse = await fetch(
-              `https://${appName}.metered.live/api/v1/turn/credentials?apiKey=${process.env.METERED_SECRET_KEY}`
-            );
-            if (meteredResponse.ok) {
-              const meteredServers = await meteredResponse.json();
-              iceServers = meteredServers; // Metered provides complete ICE server list
-              console.log('[TURN] Using Metered.ca TURN servers');
-            } else {
-              // Fallback to OpenRelay free TURN servers
-              iceServers = [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun.relay.metered.ca:80' },
-                { urls: 'turn:openrelay.metered.ca:80?transport=udp', username: 'openrelayproject', credential: 'openrelayproject' },
-                { urls: 'turn:openrelay.metered.ca:443?transport=udp', username: 'openrelayproject', credential: 'openrelayproject' },
-                { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
-              ];
-              console.log('[TURN] Metered API failed, falling back to OpenRelay');
-            }
-          } catch (error) {
-            console.error('Failed to fetch Metered TURN credentials:', error);
-            // Fallback to OpenRelay free TURN servers
-            iceServers = [
-              { urls: 'stun:stun.l.google.com:19302' },
-              { urls: 'stun:stun1.l.google.com:19302' },
-              { urls: 'stun:stun.relay.metered.ca:80' },
-              { urls: 'turn:openrelay.metered.ca:80?transport=udp', username: 'openrelayproject', credential: 'openrelayproject' },
-              { urls: 'turn:openrelay.metered.ca:443?transport=udp', username: 'openrelayproject', credential: 'openrelayproject' },
-              { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
-            ];
-          }
-        } else if (customTurnConfigured) {
-          // Use custom TURN config from env vars
-          const turnUrls = process.env.TURN_URLS!.split(',').map(u => u.trim());
-          iceServers.push({
-            urls: turnUrls,
-            username: process.env.TURN_USERNAME,
-            credential: process.env.TURN_CREDENTIAL
-          });
-          console.log('[TURN] Using custom TURN servers');
-        } else if (legacyTurnConfigured && turnMode !== 'custom') {
-          // Use legacy TURN config (only if not in custom mode - no fallback to legacy in custom mode)
-          iceServers.push({
-            urls: [process.env.TURN_URL!],
-            username: process.env.TURN_USER,
-            credential: process.env.TURN_PASS
-          });
-          console.log('[TURN] Using legacy TURN config');
+          console.log('[TURN] Falling back to OpenRelay servers');
         }
+      } else if (turnMode === 'public' || finalAllowTurn) {
+        // TURN_MODE=public or fallback: Use OpenRelay
+        iceServers = [
+          ...stunUrls.map(url => ({ urls: url })),
+          { urls: 'stun:stun.relay.metered.ca:80' },
+          { urls: 'turn:openrelay.metered.ca:80?transport=udp', username: 'openrelayproject', credential: 'openrelayproject' },
+          { urls: 'turn:openrelay.metered.ca:443?transport=udp', username: 'openrelayproject', credential: 'openrelayproject' },
+          { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+        ];
+        console.log('[TURN] Using public OpenRelay servers (TESTING MODE)');
+      } else {
+        // Default: STUN only
+        iceServers = stunUrls.map(url => ({ urls: url }));
+        console.log('[TURN] No TURN configured: Using STUN only');
       }
 
       // Return with server timestamps
@@ -6610,43 +6757,112 @@ export async function registerRoutes(
 
   const wss = new WebSocketServer({ 
     server: httpServer,
-    path: '/ws'
+    path: '/ws',
+    // Add per-message deflate compression for better performance
+    perMessageDeflate: {
+      zlibDeflateOptions: {
+        chunkSize: 1024,
+        memLevel: 7,
+        level: 3
+      },
+      zlibInflateOptions: {
+        chunkSize: 10 * 1024
+      },
+      // Don't compress small messages (overhead not worth it)
+      threshold: 1024
+    }
   });
 
   // Keep-alive ping interval (every 30 seconds)
   const PING_INTERVAL = 30000;
+  const PING_TIMEOUT = 10000; // Time to wait for pong response
+  
+  // Track pending reconnections: address -> { lastDisconnect: number, sessionToken: string }
+  const pendingReconnects = new Map<string, { lastDisconnect: number; sessionToken: string }>();
+  const RECONNECT_WINDOW = 60000; // 60 second window to allow reconnection without losing state
   
   wss.on('connection', (ws: WebSocket, req: any) => {
     const clientIp = req.socket?.remoteAddress || 'unknown';
     console.log(`[WebSocket] Client connected from ${clientIp} - total connections: ${getConnectionCount() + 1}`);
     let clientAddress: string | null = null;
     let isAlive = true;
+    let pingTimeout: NodeJS.Timeout | null = null;
+    let connectionId: string = randomUUID();
+    
+    // Helper to clean up ping timeout
+    const clearPingTimeout = () => {
+      if (pingTimeout) {
+        clearTimeout(pingTimeout);
+        pingTimeout = null;
+      }
+    };
     
     // Set up ping/pong keep-alive
     ws.on('pong', () => {
       isAlive = true;
+      clearPingTimeout();
     });
     
     const pingInterval = setInterval(() => {
       if (!isAlive) {
         console.log(`[WebSocket] Client ${clientAddress || clientIp} not responding to ping, terminating`);
         clearInterval(pingInterval);
-        return ws.terminate();
+        clearPingTimeout();
+        // Force cleanup before terminate
+        if (clientAddress) {
+          removeConnection(clientAddress, connectionId);
+        }
+        ws.terminate();
+        return;
       }
       isAlive = false;
       ws.ping();
+      // Set a timeout to wait for pong response
+      pingTimeout = setTimeout(() => {
+        if (!isAlive) {
+          console.log(`[WebSocket] Client ${clientAddress || clientIp} pong timeout`);
+          clearInterval(pingInterval);
+          if (clientAddress) {
+            removeConnection(clientAddress, connectionId);
+          }
+          ws.terminate();
+        }
+      }, PING_TIMEOUT);
     }, PING_INTERVAL);
     
     ws.on('close', (code: number, reason: Buffer) => {
       clearInterval(pingInterval);
+      clearPingTimeout();
       console.log(`[WebSocket] Client ${clientAddress || clientIp} disconnected (code: ${code}, reason: ${reason.toString()})`);
       if (clientAddress) {
-        removeConnection(clientAddress, (ws as any).__connectionId);
+        removeConnection(clientAddress, connectionId);
+        // Store pending reconnect info
+        pendingReconnects.set(clientAddress, {
+          lastDisconnect: Date.now(),
+          sessionToken: connectionId
+        });
+        // Clean up pending reconnect after window expires
+        setTimeout(() => {
+          const pending = pendingReconnects.get(clientAddress!);
+          if (pending && Date.now() - pending.lastDisconnect > RECONNECT_WINDOW) {
+            pendingReconnects.delete(clientAddress!);
+          }
+        }, RECONNECT_WINDOW);
       }
     });
 
     ws.on('error', (error: Error) => {
       console.error(`[WebSocket] Error for client ${clientAddress || clientIp}:`, error.message);
+      // Don't terminate here - let close event handle cleanup
+    });
+    
+    // Handle connection termination from our side (e.g., ping timeout)
+    ws.on('terminate', () => {
+      clearInterval(pingInterval);
+      clearPingTimeout();
+      if (clientAddress) {
+        removeConnection(clientAddress, connectionId);
+      }
     });
 
     ws.on('message', async (data: Buffer) => {
