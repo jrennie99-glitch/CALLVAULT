@@ -2117,6 +2117,8 @@ export function SettingsTab({ identity, onRotateAddress, turnEnabled, ws, onNavi
                   localStorage.removeItem('crypto_identity');
                   localStorage.removeItem('user_profile');
                   localStorage.removeItem('app_settings');
+                  localStorage.removeItem('cv_remembered_pubkey');
+                  localStorage.removeItem('cv_message_queue');
                   toast.success('Signed out successfully');
                   window.location.reload();
                 }}
