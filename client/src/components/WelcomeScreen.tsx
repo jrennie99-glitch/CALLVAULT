@@ -42,9 +42,25 @@ export function WelcomeScreen({ onIdentityCreated }: WelcomeScreenProps) {
   }, []);
 
   const handleCreateNew = () => {
+    // Clear any remembered/recovered identity first
+    localStorage.removeItem(REMEMBERED_KEY_STORAGE);
     const newIdentity = generateIdentity();
     saveIdentity(newIdentity);
     onIdentityCreated(newIdentity);
+  };
+
+  const handleCreateFreshAccount = () => {
+    // Completely fresh start - clear everything
+    localStorage.removeItem(REMEMBERED_KEY_STORAGE);
+    localStorage.removeItem('cv_identity_vault');
+    localStorage.removeItem('crypto_identity');
+    localStorage.removeItem('user_profile');
+    localStorage.removeItem('app_settings');
+    
+    const newIdentity = generateIdentity();
+    saveIdentity(newIdentity);
+    onIdentityCreated(newIdentity);
+    toast.success('New account created!');
   };
 
   const handleQuickLogin = async () => {
@@ -309,8 +325,20 @@ export function WelcomeScreen({ onIdentityCreated }: WelcomeScreenProps) {
             data-testid="button-create-new-identity"
           >
             <Plus className="w-5 h-5 mr-2" />
-            Create New Identity
+            {rememberedKey ? 'Use This Device' : 'Create New Identity'}
           </Button>
+
+          {rememberedKey && (
+            <Button
+              onClick={handleCreateFreshAccount}
+              variant="outline"
+              className="w-full h-14 border-slate-600 text-slate-300 hover:bg-slate-800 hover:text-white text-lg"
+              data-testid="button-create-fresh-account"
+            >
+              <Plus className="w-5 h-5 mr-2" />
+              Create Brand New Account
+            </Button>
+          )}
 
           <div className="relative">
             <div className="absolute inset-0 flex items-center">
