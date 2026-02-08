@@ -106,6 +106,58 @@ app.get("/api/version", (_req, res) => {
 
 console.log(`CallVault boot: commit=${BUILD_COMMIT} buildTime=${BUILD_TIME}`);
 
+// Startup diagnostics - check critical configuration
+console.log("\n🔍 Startup Configuration Check:");
+console.log("================================================");
+
+// Check database
+const dbConfigured = !!process.env.DATABASE_URL;
+console.log(`Database: ${dbConfigured ? '✓ Configured' : '✗ DATABASE_URL not set'}`);
+if (!dbConfigured) {
+  console.warn("  ⚠️  Messages will NOT be persisted! Set DATABASE_URL for production.");
+}
+
+// Check TURN
+const turnMode = process.env.TURN_MODE || 'public';
+const turnUrls = process.env.TURN_URLS;
+const turnUsername = process.env.TURN_USERNAME;
+const turnCredential = process.env.TURN_CREDENTIAL;
+const turnConfigured = !!(turnUrls && turnUsername && turnCredential);
+
+console.log(`TURN Mode: ${turnMode}`);
+if (turnMode === 'custom') {
+  if (turnConfigured) {
+    console.log(`  ✓ TURN configured: ${turnUrls.split(',')[0].trim().replace(/:[^:@]+@/, ':***@')}...`);
+  } else {
+    console.error(`  ✗ TURN_MODE=custom but missing config:`);
+    console.error(`    TURN_URLS: ${turnUrls ? '✓' : '✗ MISSING'}`);
+    console.error(`    TURN_USERNAME: ${turnUsername ? '✓' : '✗ MISSING'}`);
+    console.error(`    TURN_CREDENTIAL: ${turnCredential ? '✓' : '✗ MISSING'}`);
+    console.warn(`  ⚠️  Calls will likely fail behind NAT/firewalls!`);
+  }
+} else if (turnMode === 'public') {
+  console.warn(`  ⚠️  Using public OpenRelay (unreliable for production)`);
+  console.warn(`     Set TURN_MODE=custom with your own TURN server`);
+} else if (turnMode === 'off') {
+  console.warn(`  ⚠️  TURN is OFF - calls will fail behind NAT`);
+}
+
+// Check push notifications
+const vapidPublic = process.env.VAPID_PUBLIC_KEY;
+const vapidPrivate = process.env.VAPID_PRIVATE_KEY;
+const vapidConfigured = !!(vapidPublic && vapidPrivate);
+console.log(`Push Notifications: ${vapidConfigured ? '✓ Configured' : '✗ VAPID keys not set'}`);
+if (!vapidConfigured) {
+  console.warn(`  ⚠️  Offline users won't receive call/message notifications`);
+  console.warn(`     Generate keys: npx web-push generate-vapid-keys`);
+}
+
+// Check port
+const port = process.env.PORT || (process.env.NODE_ENV === 'production' ? 3000 : 5000);
+console.log(`Port: ${port}`);
+
+console.log("================================================\n");
+
 // For ESM/CJS compatibility
 const getModuleDirname = () => {
   if (typeof import.meta.dirname !== 'undefined') {

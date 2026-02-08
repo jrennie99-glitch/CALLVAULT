@@ -7618,20 +7618,43 @@ export async function registerRoutes(
             console.log(`[msg:send] Received message from ${clientAddress?.slice(0, 12)}...`);
             const { data: signedMsg } = message;
             
+            // Validate signedMsg structure
+            if (!signedMsg || !signedMsg.message || !signedMsg.signature || !signedMsg.from_pubkey) {
+              console.error(`[msg:send] FAILED - Invalid message structure from ${clientAddress?.slice(0, 12)}...`);
+              console.error('  Expected: { message, signature, from_pubkey }');
+              console.error('  Received:', JSON.stringify(signedMsg).slice(0, 200));
+              ws.send(JSON.stringify({ type: 'error', message: 'Invalid message structure' } as WSMessage));
+              return;
+            }
+            
             if (!verifyMessageSignature(signedMsg)) {
               console.log(`[msg:send] FAILED - Invalid signature from ${clientAddress?.slice(0, 12)}...`);
-              ws.send(JSON.stringify({ type: 'error', message: 'Invalid message signature' } as WSMessage));
+              console.log(`  Clock check: client=${signedMsg.message.timestamp}, server=${Date.now()}, diff=${Math.abs(Date.now() - signedMsg.message.timestamp)}ms`);
+              console.log(`  Max clock skew: ${MAX_CLOCK_SKEW}ms`);
+              ws.send(JSON.stringify({ type: 'error', message: 'Invalid message signature - check your device clock' } as WSMessage));
               return;
             }
             
             if (!isConnectionForAddress(signedMsg.message.from_address, ws)) {
+              console.error(`[msg:send] FAILED - Address spoofing detected from ${clientAddress?.slice(0, 12)}...`);
+              console.error(`  Claims to be: ${signedMsg.message.from_address}`);
               ws.send(JSON.stringify({ type: 'error', message: 'Address spoofing detected' } as WSMessage));
               return;
             }
             
             const msg = signedMsg.message;
             
+            // Validate required message fields
+            if (!msg.id || !msg.to_address || !msg.convo_id) {
+              console.error(`[msg:send] FAILED - Missing required fields`);
+              console.error('  Required: id, to_address, convo_id');
+              console.error('  Received:', Object.keys(msg).join(', '));
+              ws.send(JSON.stringify({ type: 'error', message: 'Missing required message fields' } as WSMessage));
+              return;
+            }
+            
             if (messageStore.hasMessage(msg.id, msg.nonce)) {
+              console.log(`[msg:send] Duplicate message ${msg.id.slice(0, 8)}...`);
               ws.send(JSON.stringify({
                 type: 'msg:ack',
                 message_id: msg.id,
@@ -7646,6 +7669,7 @@ export async function registerRoutes(
             let serverSeq: number;
             let serverTimestamp: Date;
             try {
+              console.log(`[msg:send] Storing message to DB...`);
               const dbResult = await storage.storeMessageWithSeq(
                 msg.from_address,
                 msg.to_address,
@@ -7665,8 +7689,12 @@ export async function registerRoutes(
               // Apply DB-assigned values to message for consistent broadcasting
               (msg as any).seq = serverSeq;
               (msg as any).server_timestamp = serverTimestamp.getTime();
-            } catch (dbError) {
-              console.error('Failed to persist message to DB:', dbError);
+              console.log(`[msg:send] Message stored with seq=${serverSeq}`);
+            } catch (dbError: any) {
+              console.error('[msg:send] Failed to persist message to DB:', dbError.message);
+              console.error('  Error code:', dbError.code);
+              console.error('  DATABASE_URL configured:', !!process.env.DATABASE_URL);
+              
               // Fallback to in-memory only mode (for dev/testing without DB)
               // WARNING: Messages will be lost on server restart
               if (!process.env.DATABASE_URL) {
@@ -7681,7 +7709,7 @@ export async function registerRoutes(
                   type: 'msg:ack',
                   message_id: msg.id,
                   status: 'error' as any,
-                  error: 'Failed to persist message'
+                  error: 'Database error: ' + dbError.message
                 } as WSMessage));
                 return;
               }
