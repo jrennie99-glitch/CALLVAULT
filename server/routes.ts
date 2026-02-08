@@ -265,6 +265,19 @@ function broadcastToAddress(address: string, message: any) {
     }
   }
 }
+
+// Helper to count all active WebSocket connections
+function getConnectionCount(): number {
+  let count = 0;
+  for (const conns of connections.values()) {
+    for (const conn of conns) {
+      if (conn.ws.readyState === WebSocket.OPEN) {
+        count++;
+      }
+    }
+  }
+  return count;
+}
 const recentNonces = new Map<string, number>();
 // Trial nonces are now persisted in database (trialNoncesTable) for replay protection across restarts
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
@@ -664,6 +677,65 @@ export async function registerRoutes(
       console.error('[/api/ice] Error generating credentials:', error);
       return res.status(500).json({ error: 'Failed to generate ICE credentials' });
     }
+  });
+
+  // Comprehensive health check endpoint - checks all critical services
+  app.get('/api/health', async (_req, res) => {
+    const checks: any = {
+      timestamp: new Date().toISOString(),
+      server: {
+        status: 'ok',
+        uptime: process.uptime(),
+        memory: process.memoryUsage(),
+        nodeEnv: process.env.NODE_ENV || 'development'
+      },
+      database: { status: 'unknown' },
+      turn: { status: 'unknown' },
+      websocket: { status: 'ok', connections: getConnectionCount() },
+      pushNotifications: { status: 'unknown' }
+    };
+
+    // Check database
+    try {
+      const { isDatabaseAvailable } = await import('./db');
+      checks.database.status = isDatabaseAvailable() ? 'ok' : 'unavailable';
+      checks.database.urlConfigured = !!process.env.DATABASE_URL;
+    } catch (err: any) {
+      checks.database.status = 'error';
+      checks.database.error = err.message;
+    }
+
+    // Check TURN configuration
+    const turnMode = (process.env.TURN_MODE || 'public').toLowerCase();
+    checks.turn.mode = turnMode;
+    checks.turn.configured = turnMode === 'custom' && 
+      !!process.env.TURN_URLS && 
+      !!process.env.TURN_USERNAME && 
+      !!process.env.TURN_CREDENTIAL;
+    checks.turn.status = checks.turn.configured ? 'ok' : 
+      (turnMode === 'public' ? 'warning_testing_only' : 'missing_config');
+
+    // Check push notifications
+    checks.pushNotifications.vapidConfigured = !!(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
+    checks.pushNotifications.fcmConfigured = !!process.env.FCM_SERVER_KEY;
+    checks.pushNotifications.status = checks.pushNotifications.vapidConfigured ? 'ok' : 'not_configured';
+
+    // Determine overall status
+    const hasIssues = 
+      checks.database.status !== 'ok' ||
+      checks.turn.status === 'missing_config' ||
+      !checks.pushNotifications.vapidConfigured;
+
+    res.status(hasIssues ? 503 : 200).json({
+      status: hasIssues ? 'degraded' : 'healthy',
+      checks,
+      issues: hasIssues ? [
+        ...(checks.database.status !== 'ok' ? ['Database unavailable'] : []),
+        ...(checks.turn.status === 'missing_config' ? ['TURN not properly configured - calls will fail'] : []),
+        ...(checks.turn.status === 'warning_testing_only' ? ['Using public TURN servers - unreliable for production'] : []),
+        ...(!checks.pushNotifications.vapidConfigured ? ['Push notifications not configured - offline users wont receive calls/messages'] : [])
+      ] : []
+    });
   });
 
   // ICE/TURN verification endpoint - for production readiness testing
@@ -6544,8 +6616,9 @@ export async function registerRoutes(
   // Keep-alive ping interval (every 30 seconds)
   const PING_INTERVAL = 30000;
   
-  wss.on('connection', (ws: WebSocket) => {
-    console.log('WebSocket client connected');
+  wss.on('connection', (ws: WebSocket, req: any) => {
+    const clientIp = req.socket?.remoteAddress || 'unknown';
+    console.log(`[WebSocket] Client connected from ${clientIp} - total connections: ${getConnectionCount() + 1}`);
     let clientAddress: string | null = null;
     let isAlive = true;
     
@@ -6556,7 +6629,7 @@ export async function registerRoutes(
     
     const pingInterval = setInterval(() => {
       if (!isAlive) {
-        console.log('WebSocket client not responding to ping, terminating');
+        console.log(`[WebSocket] Client ${clientAddress || clientIp} not responding to ping, terminating`);
         clearInterval(pingInterval);
         return ws.terminate();
       }
@@ -6564,13 +6637,26 @@ export async function registerRoutes(
       ws.ping();
     }, PING_INTERVAL);
     
-    ws.on('close', () => {
+    ws.on('close', (code: number, reason: Buffer) => {
       clearInterval(pingInterval);
+      console.log(`[WebSocket] Client ${clientAddress || clientIp} disconnected (code: ${code}, reason: ${reason.toString()})`);
+      if (clientAddress) {
+        removeConnection(clientAddress, (ws as any).__connectionId);
+      }
+    });
+
+    ws.on('error', (error: Error) => {
+      console.error(`[WebSocket] Error for client ${clientAddress || clientIp}:`, error.message);
     });
 
     ws.on('message', async (data: Buffer) => {
       try {
         const message: WSMessage = JSON.parse(data.toString());
+        
+        // Log message types for debugging (but not ping/pong)
+        if (message.type !== 'ping') {
+          console.log(`[WebSocket] ${clientAddress || clientIp} -> ${message.type}`);
+        }
 
         switch (message.type) {
           case 'ping': {
@@ -6581,15 +6667,28 @@ export async function registerRoutes(
           
           case 'register': {
             const { address } = message;
+            if (!address) {
+              console.error(`[WebSocket] Register failed: no address provided from ${clientIp}`);
+              ws.send(JSON.stringify({ type: 'error', message: 'Address required' } as WSMessage));
+              return;
+            }
             clientAddress = address;
             const connectionId = randomUUID();
             (ws as any).__connectionId = connectionId; // Store connectionId on ws for cleanup
             addConnection(address, { ws, address, connectionId });
-            ws.send(JSON.stringify({ type: 'success', message: 'Registered successfully' } as WSMessage));
-            console.log(`Client registered: ${address}`);
+            const connCount = getConnectionCount();
+            ws.send(JSON.stringify({ 
+              type: 'success', 
+              message: 'Registered successfully',
+              connections: connCount
+            } as WSMessage));
+            console.log(`[WebSocket] Client registered: ${address} (connectionId: ${connectionId}, total connections: ${connCount})`);
             
             // Deliver any pending messages for this user (only if DB available)
             const { isDatabaseAvailable } = await import('./db');
+            if (!isDatabaseAvailable()) {
+              console.warn(`[WebSocket] Database unavailable - ${address} won't receive pending messages`);
+            }
             if (isDatabaseAvailable()) {
               storage.getPendingMessages(address).then(async (pendingMsgs) => {
                 for (const pendingMsg of pendingMsgs) {
