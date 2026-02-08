@@ -7266,7 +7266,21 @@ export async function registerRoutes(
     });
 
     ws.on('error', (error: Error) => {
-      console.error(`[WebSocket] Error for client ${clientAddress || clientIp}:`, error.message);
+      logger.error(`[WebSocket] Error for client ${clientAddress || clientIp}`, error, {
+        clientAddress: clientAddress || undefined,
+        clientIp,
+        connectionId
+      });
+      errorTracker.trackError(error, {
+        severity: 'medium',
+        category: 'websocket',
+        context: {
+          clientAddress: clientAddress || undefined,
+          clientIp,
+          connectionId,
+          wsState: ws.readyState
+        }
+      });
       // Don't terminate here - let close event handle cleanup
     });
     
@@ -9046,8 +9060,30 @@ export async function registerRoutes(
             ws.send(JSON.stringify({ type: 'error', message: 'Unknown message type' } as WSMessage));
         }
       } catch (error) {
-        console.error('WebSocket message error:', error);
-        ws.send(JSON.stringify({ type: 'error', message: 'Invalid message format' } as WSMessage));
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger.error('WebSocket message error', error instanceof Error ? error : new Error(errorMessage), {
+          clientAddress: clientAddress || undefined,
+          clientIp,
+          connectionId,
+          messageType: (() => {
+            try {
+              const parsed = JSON.parse(data.toString());
+              return parsed.type;
+            } catch {
+              return 'unknown';
+            }
+          })()
+        });
+        errorTracker.trackError(error instanceof Error ? error : new Error(errorMessage), {
+          severity: 'medium',
+          category: 'websocket',
+          context: {
+            clientAddress: clientAddress || undefined,
+            clientIp,
+            connectionId
+          }
+        });
+        ws.send(JSON.stringify({ type: 'error', message: 'Invalid message format', errorCode: 'INVALID_MESSAGE' } as WSMessage));
       }
     });
 
