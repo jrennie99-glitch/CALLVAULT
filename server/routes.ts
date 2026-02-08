@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import nacl from "tweetnacl";
@@ -18,6 +18,9 @@ import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClie
 import { FreeTierShield, FREE_TIER_LIMITS, type ShieldErrorCode } from "./freeTierShield";
 import { sendEmail, generateWelcomeEmail, generateTrialInviteEmail } from "./email";
 import { getEffectiveEntitlements } from "./entitlements";
+import logger from "./logger";
+import errorTracker from "./errorTracker";
+import { asyncHandler } from "./middleware";
 
 // VAPID keys for push notifications - generate once and store in env vars
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || '';
@@ -79,6 +82,15 @@ function getPushMetrics() {
 // FCM Server Key for native push (set via environment variable)
 const FCM_SERVER_KEY = process.env.FCM_SERVER_KEY || '';
 
+// FCM metrics for monitoring
+const fcmMetrics = {
+  totalAttempts: 0,
+  successful: 0,
+  failed: 0,
+  removedTokens: 0,
+  lastError: null as { message: string; timestamp: number } | null
+};
+
 // Helper to send FCM push notification to native devices
 async function sendFcmPushNotification(
   userAddress: string,
@@ -96,6 +108,12 @@ async function sendFcmPushNotification(
     return false;
   }
   
+  // Validate FCM server key format
+  if (FCM_SERVER_KEY.length < 50) {
+    console.error('❌ FCM_SERVER_KEY appears to be invalid (too short)');
+    return false;
+  }
+  
   try {
     const deviceTokens = await storage.getDevicePushTokens(userAddress);
     if (deviceTokens.length === 0) {
@@ -104,7 +122,12 @@ async function sendFcmPushNotification(
     
     let sent = false;
     for (const device of deviceTokens) {
-      if (device.platform !== 'android') continue; // FCM is for Android
+      // FCM is for Android; iOS uses APNs (not implemented here)
+      if (device.platform !== 'android') {
+        continue;
+      }
+      
+      fcmMetrics.totalAttempts++;
       
       try {
         const response = await fetch('https://fcm.googleapis.com/fcm/send', {
@@ -133,24 +156,62 @@ async function sendFcmPushNotification(
         });
         
         if (response.ok) {
-          await storage.updateDevicePushTokenStatus(device.token, true);
-          sent = true;
-          console.log(`FCM push sent to ${userAddress} (Android)`);
+          const responseData = await response.json();
+          
+          // Check for FCM-specific errors in response body
+          if (responseData.failure > 0) {
+            const error = responseData.results?.[0]?.error;
+            
+            // Invalid token - remove it
+            if (error === 'NotRegistered' || error === 'InvalidRegistration') {
+              await storage.deleteDevicePushToken(userAddress, device.token);
+              fcmMetrics.removedTokens++;
+              console.log(`🗑️  Removed invalid FCM token for ${userAddress.slice(0, 20)}... (${error})`);
+            } else {
+              fcmMetrics.failed++;
+              console.error(`❌ FCM push failed for ${userAddress.slice(0, 20)}...: ${error}`);
+              await storage.updateDevicePushTokenStatus(device.token, false, error);
+            }
+          } else {
+            await storage.updateDevicePushTokenStatus(device.token, true);
+            fcmMetrics.successful++;
+            sent = true;
+            console.log(`✅ FCM push sent to ${userAddress.slice(0, 20)}... (Android)`);
+          }
         } else {
           const errorText = await response.text();
-          await storage.updateDevicePushTokenStatus(device.token, false, errorText);
-          console.error(`FCM push failed: ${errorText}`);
+          fcmMetrics.failed++;
+          
+          // 401 = Invalid server key
+          if (response.status === 401) {
+            console.error('❌ FCM authentication failed - check FCM_SERVER_KEY');
+            fcmMetrics.lastError = { message: 'FCM auth failed', timestamp: Date.now() };
+          } else {
+            console.error(`❌ FCM push failed (${response.status}): ${errorText}`);
+            await storage.updateDevicePushTokenStatus(device.token, false, `${response.status}: ${errorText}`);
+          }
         }
       } catch (err: any) {
+        fcmMetrics.failed++;
         await storage.updateDevicePushTokenStatus(device.token, false, err.message);
-        console.error('FCM push error:', err.message);
+        console.error(`❌ FCM push error for ${userAddress.slice(0, 20)}...:`, err.message);
+        fcmMetrics.lastError = { message: err.message, timestamp: Date.now() };
       }
     }
     return sent;
-  } catch (error) {
-    console.error('Error sending FCM push:', error);
+  } catch (error: any) {
+    console.error('Error sending FCM push:', error.message);
     return false;
   }
+}
+
+// Get FCM metrics for health checks
+function getFcmMetrics() {
+  return {
+    ...fcmMetrics,
+    configured: !!FCM_SERVER_KEY,
+    keyLength: FCM_SERVER_KEY ? FCM_SERVER_KEY.length : 0
+  };
 }
 
 // Helper to send push notification with retry logic
@@ -381,18 +442,53 @@ function broadcastToAddress(address: string, message: any) {
   const conns = connections.get(address);
   if (!conns || conns.length === 0) {
     console.log(`[broadcast] No connections for ${address.slice(0, 12)}... - message not delivered`);
-    return;
+    return 0;
   }
   const msgStr = typeof message === 'string' ? message : JSON.stringify(message);
   const msgType = typeof message === 'object' && message.type ? message.type : 'unknown';
   console.log(`[broadcast] Sending ${msgType} to ${address.slice(0, 12)}... (${conns.length} connection(s))`);
+  
+  let successCount = 0;
+  const deadConnections: string[] = [];
+  
   for (const conn of conns) {
     try {
-      conn.ws.send(msgStr);
-    } catch (e) {
-      console.error(`Failed to send to ${address}:`, e);
+      if (conn.ws.readyState === WebSocket.OPEN) {
+        conn.ws.send(msgStr);
+        successCount++;
+      } else {
+        // Mark for cleanup
+        deadConnections.push(conn.connectionId);
+      }
+    } catch (e: any) {
+      console.error(`[broadcast] Failed to send to ${address}:`, e.message);
+      deadConnections.push(conn.connectionId);
     }
   }
+  
+  // Clean up dead connections
+  if (deadConnections.length > 0) {
+    console.log(`[broadcast] Cleaning up ${deadConnections.length} dead connection(s) for ${address.slice(0, 12)}...`);
+    for (const connId of deadConnections) {
+      removeConnection(address, connId);
+    }
+  }
+  
+  return successCount;
+}
+
+// Helper to safely send a message to a specific WebSocket
+function safeSend(ws: WebSocket, message: any): boolean {
+  try {
+    if (ws.readyState === WebSocket.OPEN) {
+      const msgStr = typeof message === 'string' ? message : JSON.stringify(message);
+      ws.send(msgStr);
+      return true;
+    }
+  } catch (e: any) {
+    console.error('[safeSend] Failed to send:', e.message);
+  }
+  return false;
 }
 
 // Helper to count all active WebSocket connections
@@ -877,9 +973,30 @@ export async function registerRoutes(
       (turnMode === 'public' ? 'warning_testing_only' : 'missing_config');
 
     // Check push notifications
-    checks.pushNotifications.vapidConfigured = !!(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
-    checks.pushNotifications.fcmConfigured = !!process.env.FCM_SERVER_KEY;
-    checks.pushNotifications.status = checks.pushNotifications.vapidConfigured ? 'ok' : 'not_configured';
+    const pushMetrics = getPushMetrics();
+    const fcmMetrics = getFcmMetrics();
+    checks.pushNotifications = {
+      ...checks.pushNotifications,
+      vapidConfigured: pushMetrics.configured,
+      vapidKeyValid: pushMetrics.hasPublicKey && pushMetrics.hasPrivateKey && webPushConfigured,
+      fcmConfigured: fcmMetrics.configured,
+      fcmKeyValid: fcmMetrics.keyLength >= 50,
+      status: pushMetrics.configured ? 'ok' : 'not_configured',
+      metrics: {
+        webPush: {
+          totalAttempts: pushMetrics.totalAttempts,
+          successful: pushMetrics.successful,
+          failed: pushMetrics.failed,
+          removedSubscriptions: pushMetrics.removedSubscriptions
+        },
+        fcm: {
+          totalAttempts: fcmMetrics.totalAttempts,
+          successful: fcmMetrics.successful,
+          failed: fcmMetrics.failed,
+          removedTokens: fcmMetrics.removedTokens
+        }
+      }
+    };
 
     // Determine overall status
     const hasIssues = 
@@ -1117,6 +1234,10 @@ export async function registerRoutes(
       const stunUrls = process.env.STUN_URLS
         ? process.env.STUN_URLS.split(',').map(u => u.trim()).filter(Boolean)
         : ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'];
+      
+      // Check for coturn shared-secret auth
+      const turnSecret = process.env.TURN_SECRET;
+      const turnServer = process.env.TURN_SERVER || process.env.TURN_HOST;
       
       if (turnMode === 'off') {
         // TURN_MODE=off: STUN only
@@ -5834,8 +5955,45 @@ export async function registerRoutes(
     try {
       const { userAddress, subscription } = req.body;
       
-      if (!userAddress || !subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
-        return res.status(400).json({ error: 'Missing required subscription data' });
+      // Validate required fields
+      if (!userAddress || typeof userAddress !== 'string') {
+        return res.status(400).json({ error: 'Missing or invalid userAddress' });
+      }
+      
+      if (!subscription || typeof subscription !== 'object') {
+        return res.status(400).json({ error: 'Missing subscription object' });
+      }
+      
+      if (!subscription.endpoint || typeof subscription.endpoint !== 'string') {
+        return res.status(400).json({ error: 'Missing or invalid subscription.endpoint' });
+      }
+      
+      if (!subscription.keys || typeof subscription.keys !== 'object') {
+        return res.status(400).json({ error: 'Missing subscription.keys' });
+      }
+      
+      if (!subscription.keys.p256dh || typeof subscription.keys.p256dh !== 'string') {
+        return res.status(400).json({ error: 'Missing or invalid subscription.keys.p256dh' });
+      }
+      
+      if (!subscription.keys.auth || typeof subscription.keys.auth !== 'string') {
+        return res.status(400).json({ error: 'Missing or invalid subscription.keys.auth' });
+      }
+      
+      // Validate endpoint URL format
+      try {
+        new URL(subscription.endpoint);
+      } catch {
+        return res.status(400).json({ error: 'Invalid endpoint URL format' });
+      }
+      
+      // Check if web push is configured
+      if (!webPushConfigured) {
+        console.warn(`Push subscription attempted but web push not configured for ${userAddress.slice(0, 20)}...`);
+        return res.status(503).json({ 
+          error: 'Push notifications not configured on server',
+          configured: false
+        });
       }
       
       await storage.savePushSubscription(
@@ -5845,11 +6003,15 @@ export async function registerRoutes(
         subscription.keys.auth
       );
       
-      console.log(`Push subscription saved for ${userAddress}`);
-      res.json({ success: true });
-    } catch (error) {
-      console.error('Error saving push subscription:', error);
-      res.status(500).json({ error: 'Failed to save push subscription' });
+      console.log(`✅ Push subscription saved for ${userAddress.slice(0, 20)}...`);
+      console.log(`   Endpoint: ${subscription.endpoint.substring(0, 50)}...`);
+      res.json({ success: true, configured: true });
+    } catch (error: any) {
+      console.error('❌ Error saving push subscription:', error.message);
+      res.status(500).json({ 
+        error: 'Failed to save push subscription',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     }
   });
 
@@ -5858,16 +6020,23 @@ export async function registerRoutes(
     try {
       const { userAddress, endpoint } = req.body;
       
-      if (!userAddress || !endpoint) {
-        return res.status(400).json({ error: 'Missing required fields' });
+      if (!userAddress || typeof userAddress !== 'string') {
+        return res.status(400).json({ error: 'Missing or invalid userAddress' });
+      }
+      
+      if (!endpoint || typeof endpoint !== 'string') {
+        return res.status(400).json({ error: 'Missing or invalid endpoint' });
       }
       
       await storage.deletePushSubscription(userAddress, endpoint);
-      console.log(`Push subscription removed for ${userAddress}`);
+      console.log(`✅ Push subscription removed for ${userAddress.slice(0, 20)}...`);
       res.json({ success: true });
-    } catch (error) {
-      console.error('Error removing push subscription:', error);
-      res.status(500).json({ error: 'Failed to remove push subscription' });
+    } catch (error: any) {
+      console.error('❌ Error removing push subscription:', error.message);
+      res.status(500).json({ 
+        error: 'Failed to remove push subscription',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
     }
   });
 
@@ -6034,14 +6203,36 @@ export async function registerRoutes(
     try {
       const { address } = req.params;
       const subscriptions = await storage.getPushSubscriptions(address);
+      const deviceTokens = await storage.getDevicePushTokens(address);
       res.json({
-        enabled: subscriptions.length > 0,
+        enabled: subscriptions.length > 0 || deviceTokens.length > 0,
         subscriptionCount: subscriptions.length,
-        vapidConfigured: !!(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY)
+        deviceTokenCount: deviceTokens.length,
+        vapidConfigured: !!(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY),
+        webPushConfigured: webPushConfigured,
+        fcmConfigured: !!FCM_SERVER_KEY
       });
     } catch (error) {
       console.error('Error getting push status:', error);
       res.status(500).json({ error: 'Failed to get push status' });
+    }
+  });
+
+  // Get push notification metrics (admin/debug endpoint)
+  app.get('/api/push/metrics', async (req, res) => {
+    try {
+      // Optionally get stats from storage
+      const stats = await storage.getPushSubscriptionStats().catch(() => ({ totalSubscriptions: 0, uniqueUsers: 0 }));
+      
+      res.json({
+        webPush: getPushMetrics(),
+        fcm: getFcmMetrics(),
+        database: stats,
+        timestamp: Date.now()
+      });
+    } catch (error) {
+      console.error('Error getting push metrics:', error);
+      res.status(500).json({ error: 'Failed to get push metrics' });
     }
   });
 
@@ -6755,6 +6946,229 @@ export async function registerRoutes(
     }
   });
 
+  // ============================================================================
+  // CALL SIGNALING STATE MANAGEMENT
+  // ============================================================================
+  
+  type CallState = 'idle' | 'ringing' | 'connecting' | 'connected' | 'ended';
+  type SignalingState = 'stable' | 'have-local-offer' | 'have-remote-offer' | 'have-local-answer' | 'have-remote-answer' | 'closed';
+  
+  interface ActiveCall {
+    callId: string;
+    callerAddress: string;
+    calleeAddress: string;
+    state: CallState;
+    signalingState: SignalingState;
+    initiatedAt: number;
+    acceptedAt?: number;
+    connectedAt?: number;
+    endedAt?: number;
+    lastActivityAt: number;
+    callerSessionId?: string;
+    calleeSessionId?: string;
+    iceCandidatesBuffer: Map<string, any[]>; // Buffer ICE candidates per peer
+    offerSent?: boolean;
+    answerSent?: boolean;
+  }
+  
+  // Active calls map: key = "caller:callee"
+  const activeCalls = new Map<string, ActiveCall>();
+  
+  // Call cleanup interval (30 seconds)
+  const CALL_CLEANUP_INTERVAL = 30000;
+  // Max call duration without activity (5 minutes)
+  const CALL_MAX_INACTIVE_MS = 5 * 60 * 1000;
+  // Max ringing duration (60 seconds)
+  const CALL_MAX_RINGING_MS = 60 * 1000;
+  
+  function getCallKey(addr1: string, addr2: string): string {
+    // Normalize key so both directions map to same call
+    return addr1 < addr2 ? `${addr1}:${addr2}` : `${addr2}:${addr1}`;
+  }
+  
+  function createCall(callerAddress: string, calleeAddress: string, callSessionId?: string): ActiveCall {
+    const callKey = getCallKey(callerAddress, calleeAddress);
+    const existingCall = activeCalls.get(callKey);
+    
+    if (existingCall) {
+      // End existing call if still active
+      if (existingCall.state !== 'ended') {
+        endCall(callerAddress, calleeAddress, 'replaced');
+      }
+    }
+    
+    const call: ActiveCall = {
+      callId: callKey,
+      callerAddress,
+      calleeAddress,
+      state: 'ringing',
+      signalingState: 'stable',
+      initiatedAt: Date.now(),
+      lastActivityAt: Date.now(),
+      callerSessionId: callSessionId,
+      iceCandidatesBuffer: new Map()
+    };
+    
+    activeCalls.set(callKey, call);
+    console.log(`[CallState] Created call ${callKey}: ${callerAddress.slice(0, 12)}... -> ${calleeAddress.slice(0, 12)}...`);
+    return call;
+  }
+  
+  function getCall(addr1: string, addr2: string): ActiveCall | undefined {
+    const callKey = getCallKey(addr1, addr2);
+    return activeCalls.get(callKey);
+  }
+  
+  function acceptCall(calleeAddress: string, callerAddress: string, callSessionId?: string): ActiveCall | undefined {
+    const call = getCall(callerAddress, calleeAddress);
+    if (!call) {
+      console.warn(`[CallState] Accept failed: no call found between ${callerAddress.slice(0, 12)}... and ${calleeAddress.slice(0, 12)}...`);
+      return undefined;
+    }
+    
+    if (call.state !== 'ringing') {
+      console.warn(`[CallState] Accept failed: call is in ${call.state} state, not ringing`);
+      return undefined;
+    }
+    
+    call.state = 'connecting';
+    call.signalingState = 'stable';
+    call.acceptedAt = Date.now();
+    call.lastActivityAt = Date.now();
+    call.calleeSessionId = callSessionId;
+    
+    console.log(`[CallState] Call accepted: ${call.callId}, setup time: ${call.acceptedAt - call.initiatedAt}ms`);
+    return call;
+  }
+  
+  function updateCallSignalingState(
+    addr1: string, 
+    addr2: string, 
+    newState: SignalingState,
+    context?: string
+  ): ActiveCall | undefined {
+    const call = getCall(addr1, addr2);
+    if (!call) return undefined;
+    
+    const oldState = call.signalingState;
+    call.signalingState = newState;
+    call.lastActivityAt = Date.now();
+    
+    if (context) {
+      console.log(`[CallState] Signaling ${call.callId}: ${oldState} -> ${newState} (${context})`);
+    }
+    
+    // Track connection establishment
+    if (newState === 'have-remote-answer' && call.state === 'connecting') {
+      call.state = 'connected';
+      call.connectedAt = Date.now();
+      const setupDuration = call.connectedAt - (call.acceptedAt || call.initiatedAt);
+      console.log(`[CallState] Call connected: ${call.callId}, total setup: ${setupDuration}ms`);
+    }
+    
+    return call;
+  }
+  
+  function endCall(addr1: string, addr2: string, reason: string = 'unknown'): void {
+    const callKey = getCallKey(addr1, addr2);
+    const call = activeCalls.get(callKey);
+    
+    if (!call) return;
+    
+    call.state = 'ended';
+    call.signalingState = 'closed';
+    call.endedAt = Date.now();
+    
+    const duration = call.connectedAt 
+      ? call.endedAt - call.connectedAt 
+      : call.endedAt - call.initiatedAt;
+    
+    console.log(`[CallState] Call ended: ${callKey}, reason: ${reason}, duration: ${duration}ms`);
+    
+    // Keep call record briefly for debugging, then remove
+    setTimeout(() => {
+      activeCalls.delete(callKey);
+    }, 60000); // Remove after 1 minute
+  }
+  
+  function bufferIceCandidate(call: ActiveCall, fromAddress: string, candidate: any): boolean {
+    const buffer = call.iceCandidatesBuffer.get(fromAddress) || [];
+    buffer.push(candidate);
+    call.iceCandidatesBuffer.set(fromAddress, buffer);
+    call.lastActivityAt = Date.now();
+    
+    console.log(`[CallState] Buffered ICE candidate from ${fromAddress.slice(0, 12)}... (${buffer.length} total)`);
+    return true;
+  }
+  
+  function getBufferedIceCandidates(call: ActiveCall, fromAddress: string): any[] {
+    const candidates = call.iceCandidatesBuffer.get(fromAddress) || [];
+    call.iceCandidatesBuffer.delete(fromAddress);
+    return candidates;
+  }
+  
+  function isCallParticipant(call: ActiveCall, address: string): boolean {
+    return call.callerAddress === address || call.calleeAddress === address;
+  }
+  
+  function getCallPartner(call: ActiveCall, address: string): string | undefined {
+    if (call.callerAddress === address) return call.calleeAddress;
+    if (call.calleeAddress === address) return call.callerAddress;
+    return undefined;
+  }
+  
+  // Periodic cleanup of stale calls
+  setInterval(() => {
+    const now = Date.now();
+    let cleaned = 0;
+    
+    for (const [key, call] of activeCalls.entries()) {
+      // Clean up ended calls after 2 minutes
+      if (call.state === 'ended' && call.endedAt && (now - call.endedAt > 120000)) {
+        activeCalls.delete(key);
+        cleaned++;
+        continue;
+      }
+      
+      // Timeout ringing calls
+      if (call.state === 'ringing' && (now - call.initiatedAt > CALL_MAX_RINGING_MS)) {
+        console.log(`[CallState] Ringing timeout: ${key}`);
+        endCall(call.callerAddress, call.calleeAddress, 'ringing_timeout');
+        continue;
+      }
+      
+      // Timeout inactive calls
+      if (call.state !== 'ended' && (now - call.lastActivityAt > CALL_MAX_INACTIVE_MS)) {
+        console.log(`[CallState] Inactivity timeout: ${key}`);
+        endCall(call.callerAddress, call.calleeAddress, 'inactivity_timeout');
+        continue;
+      }
+    }
+    
+    if (cleaned > 0) {
+      console.log(`[CallState] Cleaned up ${cleaned} stale call records`);
+    }
+  }, CALL_CLEANUP_INTERVAL);
+  
+  function logCallStats() {
+    const calls = Array.from(activeCalls.values());
+    const byState = {
+      ringing: calls.filter(c => c.state === 'ringing').length,
+      connecting: calls.filter(c => c.state === 'connecting').length,
+      connected: calls.filter(c => c.state === 'connected').length,
+      ended: calls.filter(c => c.state === 'ended').length
+    };
+    
+    console.log(`[CallState] Active calls: ${calls.length} (ringing: ${byState.ringing}, connecting: ${byState.connecting}, connected: ${byState.connected}, ended: ${byState.ended})`);
+  }
+  
+  // Log call stats every minute
+  setInterval(logCallStats, 60000);
+
+  // ============================================================================
+  // WEBSOCKET SERVER SETUP
+  // ============================================================================
+
   const wss = new WebSocketServer({ 
     server: httpServer,
     path: '/ws',
@@ -6882,23 +7296,61 @@ export async function registerRoutes(
           }
           
           case 'register': {
-            const { address } = message;
+            const { address, session_token, last_seq } = message;
             if (!address) {
               console.error(`[WebSocket] Register failed: no address provided from ${clientIp}`);
               ws.send(JSON.stringify({ type: 'error', message: 'Address required' } as WSMessage));
               return;
             }
+            
+            // Check for session resumption (reconnection within window)
+            const pendingReconnect = pendingReconnects.get(address);
+            const isReconnection = pendingReconnect && 
+              Date.now() - pendingReconnect.lastDisconnect < RECONNECT_WINDOW;
+            
             clientAddress = address;
-            const connectionId = randomUUID();
             (ws as any).__connectionId = connectionId; // Store connectionId on ws for cleanup
+            
+            // Check for existing connections from this address and close stale ones
+            const existingConns = connections.get(address);
+            if (existingConns && existingConns.length > 0) {
+              console.log(`[WebSocket] Found ${existingConns.length} existing connection(s) for ${address.slice(0, 12)}..., cleaning up stale ones`);
+              for (const existing of existingConns) {
+                // Don't close connections that are actually alive
+                if (existing.ws.readyState !== WebSocket.OPEN) {
+                  removeConnection(address, existing.connectionId);
+                } else if (isReconnection) {
+                  // This is a reconnection, close the old connection
+                  console.log(`[WebSocket] Closing old connection ${existing.connectionId.slice(0, 8)}... for reconnection`);
+                  try {
+                    existing.ws.close(1000, 'Reconnected from new client');
+                  } catch (e) {
+                    // Ignore close errors
+                  }
+                  removeConnection(address, existing.connectionId);
+                }
+              }
+            }
+            
+            // Clear pending reconnect since we're now reconnected
+            if (isReconnection) {
+              pendingReconnects.delete(address);
+              console.log(`[WebSocket] Session resumed for ${address.slice(0, 12)}...`);
+            }
+            
             addConnection(address, { ws, address, connectionId });
             const connCount = getConnectionCount();
+            
+            // Send registration success with session token for future reconnections
             ws.send(JSON.stringify({ 
               type: 'success', 
-              message: 'Registered successfully',
-              connections: connCount
+              message: isReconnection ? 'Session resumed successfully' : 'Registered successfully',
+              connections: connCount,
+              session_token: connectionId,
+              resumed: isReconnection || false
             } as WSMessage));
-            console.log(`[WebSocket] Client registered: ${address} (connectionId: ${connectionId}, total connections: ${connCount})`);
+            
+            console.log(`[WebSocket] Client registered: ${address} (connectionId: ${connectionId}, total connections: ${connCount}, reconnection: ${isReconnection})`);
             
             // Deliver any pending messages for this user (only if DB available)
             const { isDatabaseAvailable } = await import('./db');
@@ -7356,10 +7808,14 @@ export async function registerRoutes(
                       policyStore.consumePass(pass_id);
                     }
                     
+                    // Create call record for tracking
+                    const callSessionId = (message as any).callSessionId || randomUUID();
+                    createCall(callerAddress, recipientAddress, callSessionId);
+                    
                     // Include max call duration for free tier users
                     const maxDuration = shieldCheck.maxDurationSeconds;
                     
-                    console.log(`[call:init] Sending call:incoming to recipient ${recipientAddress.slice(0, 12)}...`);
+                    console.log(`[call:init] Sending call:incoming to recipient ${recipientAddress.slice(0, 12)}... (session: ${callSessionId.slice(0, 8)}...)`);
                     
                     targetConnection.ws.send(JSON.stringify({
                       type: 'call:incoming',
@@ -7367,7 +7823,8 @@ export async function registerRoutes(
                       from_pubkey: signedIntent.intent.from_pubkey,
                       media: signedIntent.intent.media,
                       is_unknown: decision.is_unknown,
-                      maxDurationSeconds: maxDuration
+                      maxDurationSeconds: maxDuration,
+                      callSessionId
                     } as WSMessage));
                     
                     console.log(`[call:init] SUCCESS - call:incoming sent to ${recipientAddress.slice(0, 12)}...`);
@@ -7417,30 +7874,69 @@ export async function registerRoutes(
           }
 
           case 'call:accept': {
-            const targetConnection = getConnection(message.to_address);
-            if (targetConnection) {
-              targetConnection.ws.send(JSON.stringify(message));
+            // Update call state
+            const acceptMsg = message as any;
+            const callSessionId = acceptMsg.callSessionId || acceptMsg.sessionId;
+            
+            if (clientAddress && message.to_address) {
+              const call = acceptCall(clientAddress, message.to_address, callSessionId);
+              if (!call) {
+                console.warn(`[call:accept] No active call found from ${message.to_address.slice(0, 12)}... to ${clientAddress.slice(0, 12)}...`);
+                ws.send(JSON.stringify({ 
+                  type: 'error', 
+                  message: 'No active call to accept',
+                  errorCode: 'CALL_NOT_FOUND'
+                } as WSMessage));
+                break;
+              }
+              
+              // Add call info to message for the recipient
+              (message as any).callSessionId = call.callId;
+              
+              // Record call start for Free Tier Shield tracking
+              if (callSessionId) {
+                (async () => {
+                  try {
+                    await FreeTierShield.recordCallStart(
+                      message.to_address!, // caller
+                      clientAddress,       // callee (accepter)
+                      callSessionId
+                    );
+                  } catch (error) {
+                    console.error('Error recording call start:', error);
+                  }
+                })();
+              }
             }
             
-            // Record call start for Free Tier Shield tracking
-            const acceptMsg = message as any;
-            if (acceptMsg.callSessionId && clientAddress) {
-              (async () => {
-                try {
-                  await FreeTierShield.recordCallStart(
-                    message.to_address, // caller
-                    clientAddress,       // callee (accepter)
-                    acceptMsg.callSessionId
-                  );
-                } catch (error) {
-                  console.error('Error recording call start:', error);
-                }
-              })();
+            const targetConnection = getConnection(message.to_address);
+            if (targetConnection) {
+              console.log(`[call:accept] Forwarding accept from ${clientAddress?.slice(0, 12)}... to ${message.to_address?.slice(0, 12)}...`);
+              targetConnection.ws.send(JSON.stringify(message));
+            } else {
+              console.warn(`[call:accept] Caller ${message.to_address?.slice(0, 12)}... not online`);
+              ws.send(JSON.stringify({ 
+                type: 'error', 
+                message: 'Caller is no longer online',
+                errorCode: 'PEER_OFFLINE'
+              } as WSMessage));
+              
+              // End the call since caller is gone
+              if (clientAddress && message.to_address) {
+                endCall(clientAddress, message.to_address, 'caller_offline');
+              }
             }
             break;
           }
           
           case 'call:reject': {
+            console.log(`[call:reject] Call rejected by ${clientAddress?.slice(0, 12)}... to ${message.to_address?.slice(0, 12)}...`);
+            
+            // End the call
+            if (clientAddress && message.to_address) {
+              endCall(clientAddress, message.to_address, 'rejected');
+            }
+            
             const targetConnection = getConnection(message.to_address);
             if (targetConnection) {
               targetConnection.ws.send(JSON.stringify(message));
@@ -7454,13 +7950,21 @@ export async function registerRoutes(
           }
           
           case 'call:end': {
+            const endMsg = message as any;
+            console.log(`[call:end] Call ended by ${clientAddress?.slice(0, 12)}... to ${message.to_address?.slice(0, 12)}...`);
+            
+            // End the call
+            if (clientAddress && message.to_address) {
+              const reason = endMsg.reason || (endMsg.durationSeconds && endMsg.durationSeconds > 0 ? 'completed' : 'cancelled');
+              endCall(clientAddress, message.to_address, reason);
+            }
+            
             const targetConnection = getConnection(message.to_address);
             if (targetConnection) {
               targetConnection.ws.send(JSON.stringify(message));
             }
             
             // Record call end for Free Tier Shield tracking
-            const endMsg = message as any;
             if (endMsg.callSessionId && endMsg.durationSeconds !== undefined) {
               FreeTierShield.recordCallEnd(endMsg.callSessionId, endMsg.durationSeconds).catch(console.error);
             }
@@ -7470,20 +7974,96 @@ export async function registerRoutes(
           case 'webrtc:offer':
           case 'webrtc:answer':
           case 'webrtc:ice': {
+            // Validate WebRTC messages against active call state
+            if (!clientAddress || !message.to_address) {
+              console.warn(`[WebRTC] ${message.type} missing sender or recipient`);
+              ws.send(JSON.stringify({ 
+                type: 'error', 
+                message: 'Missing sender or recipient',
+                errorCode: 'INVALID_MESSAGE'
+              } as WSMessage));
+              break;
+            }
+            
+            // Get or validate active call
+            const call = getCall(clientAddress, message.to_address);
+            if (!call) {
+              console.warn(`[WebRTC] ${message.type} rejected: no active call between ${clientAddress.slice(0, 12)}... and ${message.to_address?.slice(0, 12)}...`);
+              ws.send(JSON.stringify({ 
+                type: 'error', 
+                message: 'No active call',
+                errorCode: 'CALL_NOT_FOUND'
+              } as WSMessage));
+              break;
+            }
+            
+            // Validate call is in appropriate state for this message type
+            if (call.state === 'ended' || call.state === 'idle') {
+              console.warn(`[WebRTC] ${message.type} rejected: call is ${call.state}`);
+              ws.send(JSON.stringify({ 
+                type: 'error', 
+                message: 'Call has ended',
+                errorCode: 'CALL_ENDED'
+              } as WSMessage));
+              break;
+            }
+            
+            // Track signaling state transitions
+            if (message.type === 'webrtc:offer') {
+              // Validate offer can be sent
+              if (call.signalingState !== 'stable' && call.signalingState !== 'have-remote-offer') {
+                console.warn(`[WebRTC] Offer rejected: invalid state ${call.signalingState}`);
+                ws.send(JSON.stringify({ 
+                  type: 'webrtc:glare', 
+                  message: 'Signaling state conflict - offer already pending'
+                } as WSMessage));
+                break;
+              }
+              
+              // Update signaling state
+              if (clientAddress === call.callerAddress) {
+                // Caller sending offer (normal flow after accept)
+                updateCallSignalingState(clientAddress, message.to_address, 'have-local-offer', 'caller_offer');
+              } else {
+                // Callee sending offer (glare condition - callee became initiator)
+                updateCallSignalingState(clientAddress, message.to_address, 'have-local-offer', 'callee_offer');
+              }
+              call.offerSent = true;
+              
+            } else if (message.type === 'webrtc:answer') {
+              // Validate answer can be sent
+              if (call.signalingState !== 'have-remote-offer') {
+                console.warn(`[WebRTC] Answer rejected: no pending offer (state: ${call.signalingState})`);
+                // Still forward the answer as it might be a renegotiation
+              }
+              
+              updateCallSignalingState(clientAddress, message.to_address, 'have-local-answer', 'answer');
+              call.answerSent = true;
+              
+            } else if (message.type === 'webrtc:ice') {
+              // Buffer ICE candidates if call not yet fully connected
+              if (call.state === 'ringing') {
+                console.log(`[WebRTC] Buffering ICE candidate (call still ringing)`);
+                bufferIceCandidate(call, clientAddress, (message as any).candidate);
+                // Don't forward yet - will be sent when call connects
+                break;
+              }
+              
+              call.lastActivityAt = Date.now();
+            }
+            
             const targetConnection = getConnection(message.to_address);
             if (targetConnection) {
-              console.log(`[WebRTC] Forwarding ${message.type} to ${message.to_address?.slice(0, 12)}...`);
+              console.log(`[WebRTC] Forwarding ${message.type} to ${message.to_address?.slice(0, 12)}... (call: ${call.state}, sig: ${call.signalingState})`);
               targetConnection.ws.send(JSON.stringify(message));
             } else {
               console.log(`[WebRTC] Target ${message.to_address?.slice(0, 12)}... not online - ${message.type} not delivered`);
               // Notify sender that recipient is offline
-              if (clientAddress) {
-                ws.send(JSON.stringify({
-                  type: 'webrtc:peer_offline',
-                  to_address: message.to_address,
-                  signalType: message.type
-                }));
-              }
+              ws.send(JSON.stringify({
+                type: 'webrtc:peer_offline',
+                to_address: message.to_address,
+                signalType: message.type
+              }));
             }
             break;
           }

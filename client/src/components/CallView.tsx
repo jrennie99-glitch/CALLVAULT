@@ -1416,8 +1416,11 @@ export function CallView({
             onClick={toggleMute}
             variant="ghost"
             size="lg"
-            className={`w-14 h-14 rounded-full ${isMuted ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30' : 'bg-slate-700 text-white hover:bg-slate-600'}`}
+            className={`w-14 h-14 rounded-full transition-all duration-200 ${isMuted ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30' : 'bg-slate-700 text-white hover:bg-slate-600'}`}
             data-testid="button-mute"
+            aria-label={isMuted ? 'Unmute microphone' : 'Mute microphone'}
+            aria-pressed={isMuted}
+            disabled={!localStreamRef.current}
           >
             {isMuted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
           </Button>
@@ -1428,8 +1431,11 @@ export function CallView({
                 onClick={toggleVideo}
                 variant="ghost"
                 size="lg"
-                className={`w-14 h-14 rounded-full ${!isVideoEnabled ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30' : 'bg-slate-700 text-white hover:bg-slate-600'}`}
+                className={`w-14 h-14 rounded-full transition-all duration-200 ${!isVideoEnabled ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30' : 'bg-slate-700 text-white hover:bg-slate-600'}`}
                 data-testid="button-video"
+                aria-label={isVideoEnabled ? 'Turn off camera' : 'Turn on camera'}
+                aria-pressed={!isVideoEnabled}
+                disabled={!localStreamRef.current || localVideoError !== null}
               >
                 {isVideoEnabled ? <Video className="h-6 w-6" /> : <VideoOff className="h-6 w-6" />}
               </Button>
@@ -1438,8 +1444,10 @@ export function CallView({
                 onClick={switchCamera}
                 variant="ghost"
                 size="lg"
-                className="w-14 h-14 rounded-full bg-slate-700 text-white hover:bg-slate-600"
+                className="w-14 h-14 rounded-full bg-slate-700 text-white hover:bg-slate-600 transition-all duration-200"
                 data-testid="button-flip-camera"
+                aria-label="Switch camera"
+                disabled={!localStreamRef.current || !isVideoEnabled}
               >
                 <SwitchCamera className="h-6 w-6" />
               </Button>

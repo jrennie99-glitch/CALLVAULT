@@ -4,11 +4,17 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { storage } from "./storage";
 import { performStartupValidation } from "./config";
+import { requestLogger, errorHandler, notFoundHandler } from "./middleware";
+import logger from "./logger";
+import errorTracker from "./errorTracker";
 import path from "path";
 import fs from "fs";
 
 // Perform startup validation before anything else
 const validationResult = performStartupValidation(false);
+if (!validationResult.valid) {
+  logger.warn('Startup validation failed', { errors: validationResult.errors });
+}
 
 const app: Express = express();
 const isDevelopment = process.env.NODE_ENV !== "production";
@@ -19,6 +25,9 @@ app.set("trust proxy", true);
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+// Request/Response logging middleware
+app.use(requestLogger);
 
 // CRITICAL: Root and health endpoints must be registered FIRST
 // before any middleware or static file serving that could intercept them
@@ -109,6 +118,52 @@ app.get("/api/version", (_req, res) => {
 });
 
 console.log(`CallVault boot: commit=${BUILD_COMMIT} buildTime=${BUILD_TIME}`);
+
+// Process-level error handlers
+process.on('uncaughtException', (error) => {
+  logger.fatal('Uncaught exception', error, {
+    type: 'uncaughtException',
+    stack: error.stack
+  });
+  errorTracker.trackError(error, {
+    severity: 'critical',
+    category: 'internal',
+    context: { type: 'uncaughtException' }
+  });
+  // Give time for logs to flush before exiting
+  setTimeout(() => process.exit(1), 1000);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  const error = reason instanceof Error ? reason : new Error(String(reason));
+  logger.fatal('Unhandled promise rejection', error, {
+    type: 'unhandledRejection',
+    stack: error.stack
+  });
+  errorTracker.trackError(error, {
+    severity: 'critical',
+    category: 'internal',
+    context: { type: 'unhandledRejection' }
+  });
+});
+
+// Graceful shutdown handling
+process.on('SIGTERM', () => {
+  logger.info('SIGTERM received, shutting down gracefully');
+  // Give time for cleanup
+  setTimeout(() => {
+    logger.info('Exiting process');
+    process.exit(0);
+  }, 5000);
+});
+
+process.on('SIGINT', () => {
+  logger.info('SIGINT received, shutting down gracefully');
+  setTimeout(() => {
+    logger.info('Exiting process');
+    process.exit(0);
+  }, 5000);
+});
 
 // Startup diagnostics - check critical configuration
 console.log("\n🔍 Startup Configuration Check:");
@@ -220,6 +275,14 @@ async function startServer() {
 
   // Start the server
   httpServer.listen(PORT, "0.0.0.0", () => {
+    logger.info("CallVS Server Started", {
+      nodeEnv: process.env.NODE_ENV || "development",
+      port: PORT,
+      host: "0.0.0.0",
+      version,
+      publicUrl: process.env.PUBLIC_URL || `http://localhost:${PORT}`
+    });
+    
     console.log("\n============================================================");
     console.log("CallVS Server Started");
     console.log("============================================================");
@@ -250,12 +313,17 @@ async function startServer() {
         
         const cleaned = await storage.cleanupExpiredNonces();
         if (cleaned > 0) {
-          console.log(`[Nonce Cleanup] Removed ${cleaned} expired nonces`);
+          logger.info(`[Nonce Cleanup] Removed ${cleaned} expired nonces`);
         }
       } catch (err) {
+        errorTracker.trackError(err as Error, {
+          severity: 'medium',
+          category: 'database',
+          context: { operation: 'nonceCleanup' }
+        });
         // Only log if DB is configured
         if (process.env.DATABASE_URL) {
-          console.error('[Nonce Cleanup] Error:', err);
+          logger.error('[Nonce Cleanup] Error:', err as Error);
         }
       }
     }, NONCE_CLEANUP_INTERVAL);
@@ -265,15 +333,39 @@ async function startServer() {
       if (isDatabaseAvailable()) {
         storage.cleanupExpiredNonces().then(cleaned => {
           if (cleaned > 0) {
-            console.log(`[Nonce Cleanup] Initial cleanup: removed ${cleaned} expired nonces`);
+            logger.info(`[Nonce Cleanup] Initial cleanup: removed ${cleaned} expired nonces`);
           }
-        }).catch(err => console.error('[Nonce Cleanup] Initial cleanup error:', err));
+        }).catch(err => {
+          errorTracker.trackError(err as Error, {
+            severity: 'medium',
+            category: 'database',
+            context: { operation: 'initialNonceCleanup' }
+          });
+          logger.error('[Nonce Cleanup] Initial cleanup error:', err as Error);
+        });
       }
+    }).catch(err => {
+      logger.error('[Nonce Cleanup] Failed to import db module:', err as Error);
     });
   });
+  
+  // Global error handlers - must be registered AFTER all routes
+  // API 404 handler for unmatched /api/* routes
+  app.use('/api/*', notFoundHandler);
+  
+  // General 404 handler
+  app.use(notFoundHandler);
+  
+  // Global error handler - must be last
+  app.use(errorHandler);
 }
 
 startServer().catch((err) => {
-  console.error("Failed to start server:", err);
+  logger.fatal('Failed to start server', err as Error);
+  errorTracker.trackError(err as Error, {
+    severity: 'critical',
+    category: 'internal',
+    context: { phase: 'startup' }
+  });
   process.exit(1);
 });

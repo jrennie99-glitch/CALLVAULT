@@ -347,10 +347,13 @@ export default function CallPage() {
   const [showReconnecting, setShowReconnecting] = useState(false);
   const reconnectBannerTimeout = useRef<NodeJS.Timeout | null>(null);
   const [callStatus, setCallStatus] = useState('');
+  const sessionToken = useRef<string | null>(null); // Server-provided session token for reconnection
+  const pendingMessages = useRef<WSMessage[]>([]); // Messages received while disconnected
   
   // Aggressive heartbeat: ping every 15 seconds, expect response within 10s
   const WS_HEARTBEAT_INTERVAL = 15000;
   const WS_HEARTBEAT_TIMEOUT = 10000;
+  const WS_RECONNECT_WINDOW = 60000; // 60 second window for session resumption
   
   const initWebSocket = (storedIdentity: CryptoIdentity) => {
     // Clear any pending reconnect and heartbeat

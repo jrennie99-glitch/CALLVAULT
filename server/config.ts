@@ -42,7 +42,7 @@ const envSchema = z.object({
   // Push Notifications
   VAPID_PUBLIC_KEY: z.string().optional(),
   VAPID_PRIVATE_KEY: z.string().optional(),
-  VAPID_SUBJECT: z.string().email().default("mailto:admin@callvault.app"),
+  VAPID_SUBJECT: z.string().default("mailto:admin@callvault.app"),
   FCM_SERVER_KEY: z.string().optional(),
   
   // Email

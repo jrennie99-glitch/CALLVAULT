@@ -8,7 +8,9 @@
     "build": "tsx script/build.ts",
     "dev": "tsx server/index.ts",
     "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "config:check": "tsx check-config.ts",
+    "config:check:strict": "tsx check-config.ts --strict"
   },
   "main": "dist/index.cjs",
   "dependencies": {

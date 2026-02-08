@@ -203,6 +203,40 @@ export const ERROR_MESSAGES: Record<string, ErrorDetails> = {
     message: 'An unexpected error occurred.',
     actionable: 'Please try again. Contact support if the issue persists.',
     duration: 5000
+  },
+  
+  // Media/Stream Errors
+  MEDIA_NOT_FOUND: {
+    title: 'Device Not Found',
+    message: 'Could not find your camera or microphone.',
+    actionable: 'Please connect a camera/microphone and try again.',
+    duration: 6000
+  },
+  MEDIA_IN_USE: {
+    title: 'Device In Use',
+    message: 'Your camera or microphone is being used by another application.',
+    actionable: 'Close other apps using your camera/microphone and try again.',
+    duration: 6000
+  },
+  MEDIA_TRACK_ERROR: {
+    title: 'Media Error',
+    message: 'Failed to access media stream.',
+    actionable: 'Refresh the page and try again.',
+    duration: 5000
+  },
+  
+  // WebRTC Errors
+  WEBRTC_NOT_SUPPORTED: {
+    title: 'Browser Not Supported',
+    message: 'Your browser does not support video calling.',
+    actionable: 'Please use Chrome, Firefox, Safari, or Edge.',
+    duration: 6000
+  },
+  SIGNALING_ERROR: {
+    title: 'Connection Error',
+    message: 'Failed to establish call connection.',
+    actionable: 'Please try again. The recipient may be offline.',
+    duration: 5000
   }
 };
 
@@ -235,7 +269,10 @@ export function isRetryableError(errorCode: string): boolean {
     'NONCE_EXPIRED',
     'WEBSOCKET_DISCONNECTED',
     'TURN_SERVER_UNAVAILABLE',
-    'NETWORK_ERROR'
+    'NETWORK_ERROR',
+    'SIGNALING_ERROR',
+    'ICE_CONNECTION_FAILED',
+    'PEER_CONNECTION_TIMEOUT'
   ];
   return retryableErrors.includes(errorCode);
 }
