@@ -2300,6 +2300,11 @@ export class DatabaseStorage implements IStorage {
       attachmentSize?: number;
     }
   ): Promise<{ id: string; seq: number; serverTimestamp: Date; createdAt: Date }> {
+    // Check if database is available
+    if (!db) {
+      throw new Error('Database not available - cannot store message');
+    }
+    
     const serverTimestamp = new Date();
     const maxRetries = 5;
     
